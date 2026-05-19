@@ -1,5 +1,6 @@
+use std::borrow::Cow;
 use std::cell::Cell;
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
@@ -9,7 +10,8 @@ use cherubsh_common::{
     jobs::JobTable,
     keymap::{EditAction, Keymap},
     signals::{TrapAction, TrapKind},
-    AssignError, Environment, TrapEntry, VarAttrs, VarKind, VarSnapshot,
+    AssignError, Environment, FastHashMap as HashMap, FastHashSet as HashSet, TrapEntry, VarAttrs,
+    VarKind, VarSnapshot,
 };
 use cherubsh_lineedit::LineEditor;
 
@@ -141,13 +143,175 @@ pub struct VariableEntry {
     pub attrs: VarAttrs,
 }
 
+#[derive(Debug, Default, Clone)]
+pub struct IndexedArray {
+    dense: Vec<Option<String>>,
+    sparse: BTreeMap<i64, String>,
+    len: usize,
+}
+
+impl IndexedArray {
+    const MAX_DENSE_GAP: i64 = 1024;
+    const MAX_DENSE_LEN: usize = 65_536;
+
+    fn from_values(values: Vec<String>) -> Self {
+        let len = values.len();
+        Self {
+            dense: values.into_iter().map(Some).collect(),
+            sparse: BTreeMap::new(),
+            len,
+        }
+    }
+
+    fn from_pairs(values: impl IntoIterator<Item = (i64, String)>) -> Self {
+        let mut array = Self::default();
+        for (idx, value) in values {
+            array.insert(idx, value);
+        }
+        array
+    }
+
+    fn should_store_dense(&self, index: i64) -> bool {
+        if index < 0 {
+            return false;
+        }
+        let Ok(index) = usize::try_from(index) else {
+            return false;
+        };
+        if index < self.dense.len() {
+            return true;
+        }
+        index < Self::MAX_DENSE_LEN && index <= self.dense.len() + Self::MAX_DENSE_GAP as usize
+    }
+
+    fn insert(&mut self, index: i64, value: String) {
+        if let Ok(index_usize) = usize::try_from(index) {
+            if index_usize == self.dense.len() && index_usize < Self::MAX_DENSE_LEN {
+                self.dense.push(Some(value));
+                self.len += 1;
+                return;
+            }
+        }
+        if self.should_store_dense(index) {
+            let index = index as usize;
+            if let Some(old) = self.sparse.remove(&(index as i64)) {
+                let _ = old;
+                self.len = self.len.saturating_sub(1);
+            }
+            if index >= self.dense.len() {
+                self.dense.resize_with(index + 1, || None);
+            }
+            if self.dense[index].is_none() {
+                self.len += 1;
+            }
+            self.dense[index] = Some(value);
+            return;
+        }
+        if index >= 0 {
+            let idx = index as usize;
+            if idx < self.dense.len() {
+                if self.dense[idx].take().is_some() {
+                    self.len = self.len.saturating_sub(1);
+                }
+            }
+        }
+        if self.sparse.insert(index, value).is_none() {
+            self.len += 1;
+        }
+        self.trim_dense_tail();
+    }
+
+    fn get(&self, index: i64) -> Option<&str> {
+        if index >= 0 {
+            let idx = index as usize;
+            if idx < self.dense.len() {
+                return self.dense[idx].as_deref();
+            }
+        }
+        self.sparse.get(&index).map(String::as_str)
+    }
+
+    fn remove(&mut self, index: i64) -> Option<String> {
+        if index >= 0 {
+            let idx = index as usize;
+            if idx < self.dense.len() {
+                let old = self.dense[idx].take();
+                if old.is_some() {
+                    self.len = self.len.saturating_sub(1);
+                    self.trim_dense_tail();
+                    return old;
+                }
+            }
+        }
+        let old = self.sparse.remove(&index);
+        if old.is_some() {
+            self.len = self.len.saturating_sub(1);
+        }
+        old
+    }
+
+    fn trim_dense_tail(&mut self) {
+        while self.dense.last().is_some_and(Option::is_none) {
+            self.dense.pop();
+        }
+    }
+
+    fn len(&self) -> usize {
+        self.len
+    }
+
+    fn max_index(&self) -> Option<i64> {
+        let dense_max = self
+            .dense
+            .iter()
+            .enumerate()
+            .rev()
+            .find_map(|(idx, value)| value.as_ref().map(|_| idx as i64));
+        match (dense_max, self.sparse.keys().next_back().copied()) {
+            (Some(a), Some(b)) => Some(a.max(b)),
+            (Some(a), None) => Some(a),
+            (None, Some(b)) => Some(b),
+            (None, None) => None,
+        }
+    }
+
+    fn values(&self) -> Vec<String> {
+        self.all().into_iter().map(|(_, value)| value).collect()
+    }
+
+    fn keys(&self) -> Vec<i64> {
+        if self.sparse.is_empty() {
+            return self
+                .dense
+                .iter()
+                .enumerate()
+                .filter_map(|(idx, value)| value.as_ref().map(|_| idx as i64))
+                .collect();
+        }
+        self.all().into_iter().map(|(idx, _)| idx).collect()
+    }
+
+    fn all(&self) -> Vec<(i64, String)> {
+        let mut entries = Vec::with_capacity(self.len);
+        for (idx, value) in self.dense.iter().enumerate() {
+            if let Some(value) = value {
+                entries.push((idx as i64, value.clone()));
+            }
+        }
+        entries.extend(self.sparse.iter().map(|(idx, value)| (*idx, value.clone())));
+        if !self.sparse.is_empty() {
+            entries.sort_by_key(|(idx, _)| *idx);
+        }
+        entries
+    }
+}
+
 /// Saved value of one variable for restoration when a local scope is popped.
 #[derive(Debug, Clone)]
 pub struct SavedVar {
     pub entry: Option<VariableEntry>,
-    pub array: Option<Vec<String>>,
-    pub indexed: Option<BTreeMap<i64, String>>,
-    pub assoc: Option<BTreeMap<String, String>>,
+    pub indexed: Option<IndexedArray>,
+    pub assoc: Option<HashMap<String, String>>,
     pub nameref: Option<String>,
 }
 
@@ -260,9 +424,8 @@ pub struct ShellState {
     pub funcname_lineno_stack: Vec<u32>,
     pub bash_argc_stack: Vec<usize>,
     pub bash_argv_stack: Vec<String>,
-    pub arrays: HashMap<String, Vec<String>>,
-    pub indexed_arrays: HashMap<String, BTreeMap<i64, String>>,
-    pub assoc_arrays: HashMap<String, BTreeMap<String, String>>,
+    pub indexed_arrays: HashMap<String, IndexedArray>,
+    pub assoc_arrays: HashMap<String, HashMap<String, String>>,
     pub assoc_print_orders: HashMap<String, Vec<String>>,
     pub preserve_assoc_order_once: HashSet<String>,
     pub nameref_targets: HashMap<String, String>,
@@ -306,6 +469,8 @@ pub struct ShellState {
 
 impl Default for ShellState {
     fn default() -> Self {
+        let shell_pid = unsafe { libc::getpid() };
+        let shell_pgrp = unsafe { libc::getpgrp() };
         Self {
             interactive: false,
             interactive_shell: false,
@@ -357,7 +522,7 @@ impl Default for ShellState {
             input: BashInput::None,
             input_stack: Vec::new(),
             input_line_count_stack: Vec::new(),
-            variables: HashMap::new(),
+            variables: HashMap::default(),
             sourced_env: 0,
             allexport: false,
             errexit: false,
@@ -381,24 +546,23 @@ impl Default for ShellState {
             pending_coproc_cleanups: Vec::new(),
             subshell_level: 0,
             bashpid_cache: None,
-            shell_pid_value: Some(unsafe { libc::getpid() }),
+            shell_pid_value: Some(shell_pid),
             funcname_stack: Vec::new(),
             funcname_source_stack: Vec::new(),
             funcname_lineno_stack: Vec::new(),
             bash_argc_stack: Vec::new(),
             bash_argv_stack: Vec::new(),
-            arrays: HashMap::new(),
-            indexed_arrays: HashMap::new(),
-            assoc_arrays: HashMap::new(),
-            assoc_print_orders: HashMap::new(),
-            preserve_assoc_order_once: HashSet::new(),
-            nameref_targets: HashMap::new(),
+            indexed_arrays: HashMap::default(),
+            assoc_arrays: HashMap::default(),
+            assoc_print_orders: HashMap::default(),
+            preserve_assoc_order_once: HashSet::default(),
+            nameref_targets: HashMap::default(),
             local_scopes: Vec::new(),
             local_option_scopes: Vec::new(),
             aliases: BTreeMap::new(),
             aliases_enabled: false,
             traps: BTreeMap::new(),
-            trap_actions: HashMap::new(),
+            trap_actions: HashMap::default(),
             inherited_exit_trap_suppressed: false,
             command_hash: BTreeMap::new(),
             command_hash_hits: BTreeMap::new(),
@@ -407,8 +571,8 @@ impl Default for ShellState {
             function_readonly: std::collections::HashSet::new(),
             shopt_options: BTreeMap::new(),
             jobs: JobTable::new(),
-            shell_pgrp_value: unsafe { libc::getpgrp() },
-            original_pgrp_value: unsafe { libc::getpgrp() },
+            shell_pgrp_value: shell_pgrp,
+            original_pgrp_value: shell_pgrp,
             tty_fd_value: None,
             job_control: false,
             running_trap_sig: None,
@@ -419,40 +583,34 @@ impl Default for ShellState {
             histsize: 500,
             histfilesize: 500,
             histcontrol_flags: HistControl::empty(),
-            compspecs: HashMap::new(),
-            compspec_order: HashMap::new(),
+            compspecs: HashMap::default(),
+            compspec_order: HashMap::default(),
             compspec_next_order: 0,
             default_compspec: None,
             initial_compspec: None,
             empty_compspec: None,
-            keymaps: default_keymaps(),
+            keymaps: HashMap::default(),
             active_keymap: String::from("emacs"),
             line_editor: None,
         }
     }
 }
 
-fn default_keymaps() -> HashMap<String, Keymap> {
-    let mut m = HashMap::new();
-    let mut emacs = Keymap::new("emacs");
-    emacs.install_emacs_defaults();
-    m.insert("emacs".to_string(), emacs);
-    let mut vi_ins = Keymap::new("vi-insert");
-    vi_ins.install_vi_insert_defaults();
-    m.insert("vi-insert".to_string(), vi_ins);
-    let mut vi_mov = Keymap::new("vi-command");
-    vi_mov.install_vi_movement_defaults();
-    m.insert("vi-command".to_string(), vi_mov);
-    m
+fn default_keymap(name: &str) -> Option<Keymap> {
+    let mut keymap = Keymap::new(name);
+    match name {
+        "emacs" => keymap.install_emacs_defaults(),
+        "vi-insert" => keymap.install_vi_insert_defaults(),
+        "vi-command" => keymap.install_vi_movement_defaults(),
+        _ => return None,
+    }
+    Some(keymap)
 }
 
 impl ShellState {
     fn saved_scalar_value(saved: &SavedVar) -> Option<String> {
         if let Some(indexed) = saved.indexed.as_ref() {
-            return indexed.get(&0).cloned();
-        }
-        if let Some(array) = saved.array.as_ref() {
-            return array.first().cloned();
+            return indexed.get(0).map(str::to_string);
         }
         saved.entry.as_ref().and_then(|entry| {
             entry
@@ -533,7 +691,6 @@ impl ShellState {
     fn snapshot_var(&self, name: &str) -> SavedVar {
         SavedVar {
             entry: self.variables.get(name).cloned(),
-            array: self.arrays.get(name).cloned(),
             indexed: self.indexed_arrays.get(name).cloned(),
             assoc: self.assoc_arrays.get(name).cloned(),
             nameref: self.nameref_targets.get(name).cloned(),
@@ -547,14 +704,6 @@ impl ShellState {
             }
             None => {
                 self.variables.remove(name);
-            }
-        }
-        match saved.array {
-            Some(values) => {
-                self.arrays.insert(name.to_string(), values);
-            }
-            None => {
-                self.arrays.remove(name);
             }
         }
         match saved.indexed {
@@ -589,27 +738,28 @@ impl ShellState {
         let Some(snapshot) = snapshot else {
             return SavedVar {
                 entry: None,
-                array: None,
                 indexed: None,
                 assoc: None,
                 nameref: None,
             };
         };
-        let indexed = snapshot
-            .indexed
-            .map(|values| values.into_iter().collect::<BTreeMap<_, _>>());
+        let indexed = snapshot.indexed.map(IndexedArray::from_pairs);
         let assoc = snapshot
             .assoc
-            .map(|values| values.into_iter().collect::<BTreeMap<_, _>>());
+            .map(|values| values.into_iter().collect::<HashMap<_, _>>());
         let value = snapshot
             .scalar
             .clone()
-            .or_else(|| indexed.as_ref().and_then(|values| values.get(&0).cloned()))
+            .or_else(|| {
+                indexed
+                    .as_ref()
+                    .and_then(|values| values.get(0).map(str::to_string))
+            })
             .unwrap_or_default();
         let has_value = snapshot.scalar.is_some()
             || indexed
                 .as_ref()
-                .is_some_and(|values| values.contains_key(&0));
+                .is_some_and(|values| values.get(0).is_some());
         SavedVar {
             entry: Some(VariableEntry {
                 value,
@@ -618,9 +768,6 @@ impl ShellState {
                 readonly: snapshot.attrs.contains(VarAttrs::READONLY),
                 attrs: snapshot.attrs,
             }),
-            array: indexed
-                .as_ref()
-                .map(|values| values.values().cloned().collect::<Vec<String>>()),
             indexed,
             assoc,
             nameref: snapshot.nameref_target,
@@ -668,7 +815,7 @@ impl ShellState {
         if attrs.contains(VarAttrs::ASSOC) || saved.assoc.is_some() {
             return VarKind::Assoc;
         }
-        if attrs.contains(VarAttrs::ARRAY) || saved.indexed.is_some() || saved.array.is_some() {
+        if attrs.contains(VarAttrs::ARRAY) || saved.indexed.is_some() {
             return VarKind::Indexed;
         }
         if saved.entry.is_some() {
@@ -710,6 +857,24 @@ impl ShellState {
             }
             _ => {}
         }
+    }
+
+    fn can_assign_simple_local_direct(&self, name: &str) -> bool {
+        !matches!(
+            name,
+            "RANDOM"
+                | "BASH_ARGV0"
+                | "SECONDS"
+                | "EPOCHSECONDS"
+                | "EPOCHREALTIME"
+                | "FUNCNAME"
+                | "SHELLOPTS"
+                | "HISTSIZE"
+                | "HISTFILESIZE"
+                | "HISTCONTROL"
+                | "HISTFILE"
+                | "IGNOREEOF"
+        ) && !(self.restricted && matches!(name, "PATH" | "SHELL"))
     }
 
     pub fn configure_history_from_vars(&mut self, load_file: bool, default_histfile: bool) {
@@ -947,55 +1112,124 @@ mod tests {
         assert_eq!(state.kind("a"), VarKind::Indexed);
         assert_eq!(state.get_array_indexed("a", 0), None);
     }
+
+    #[test]
+    fn indexed_array_dense_sparse_and_unset_semantics() {
+        let mut state = ShellState::default();
+
+        state.set_array("a", vec!["zero".into(), "one".into()]);
+        state.set_array_indexed("a", 10_000, "far".into());
+
+        assert_eq!(state.array_len("a"), 3);
+        assert_eq!(state.array_max_index("a"), Some(10_000));
+        assert_eq!(state.array_keys("a"), Some(vec![0, 1, 10_000]));
+        assert_eq!(
+            state.get_array_all("a"),
+            Some(vec![
+                (0, "zero".into()),
+                (1, "one".into()),
+                (10_000, "far".into()),
+            ])
+        );
+
+        state.unset_array_elem("a", "1");
+        assert_eq!(state.array_len("a"), 2);
+        assert_eq!(state.array_keys("a"), Some(vec![0, 10_000]));
+        assert_eq!(state.get("a").as_deref(), Some("zero"));
+    }
+
+    #[test]
+    fn indexed_array_negative_subscript_uses_max_index() {
+        let mut state = ShellState::default();
+        state.set_array("a", vec!["zero".into(), "one".into(), "two".into()]);
+
+        let max = state.array_max_index("a").unwrap();
+        let resolved = max + 1 - 1;
+
+        assert_eq!(
+            state.get_array_indexed("a", resolved).as_deref(),
+            Some("two")
+        );
+    }
+
+    #[test]
+    fn assoc_len_is_direct() {
+        let mut state = ShellState::default();
+        state.set_array_assoc("m", "k1", "v1".into());
+        state.set_array_assoc("m", "k2", "v2".into());
+
+        assert_eq!(state.assoc_len("m"), 2);
+    }
+
+    #[test]
+    fn assoc_key_zero_is_scalar_value() {
+        let mut state = ShellState::default();
+        state.set_attr("m", VarAttrs::ASSOC, true);
+        state.set_array_assoc("m", "0", "zero".into());
+
+        assert_eq!(state.get("m").as_deref(), Some("zero"));
+        assert_eq!(state.get_array_assoc("m", "0").as_deref(), Some("zero"));
+    }
 }
 
 impl Environment for ShellState {
     fn get(&self, name: &str) -> Option<String> {
+        self.get_cow(name).map(Cow::into_owned)
+    }
+
+    fn get_cow<'a>(&'a self, name: &str) -> Option<Cow<'a, str>> {
         if let Ok(index) = name.parse::<usize>() {
-            return self.positional(index);
+            return self.positional_cow(index);
         }
         if name == "FUNCNAME" {
-            return self.get_array_indexed("FUNCNAME", 0);
+            return self.get_array_indexed_cow("FUNCNAME", 0);
         }
         if matches!(
             name,
             "BASH_ARGC" | "BASH_ARGV" | "BASH_LINENO" | "BASH_SOURCE"
         ) {
-            return self.get_array_indexed(name, 0);
+            return self.get_array_indexed_cow(name, 0);
         }
         match name {
-            "?" => return Some(self.last_command_exit_value.to_string()),
-            "#" => return Some(self.dollar_vars.len().saturating_sub(1).to_string()),
+            "?" => return Some(Cow::Owned(self.last_command_exit_value.to_string())),
+            "#" => {
+                return Some(Cow::Owned(
+                    self.dollar_vars.len().saturating_sub(1).to_string(),
+                ))
+            }
             "$" => {
                 let pid = self
                     .shell_pid_value
                     .unwrap_or_else(|| unsafe { libc::getpid() });
-                return Some(pid.to_string());
+                return Some(Cow::Owned(pid.to_string()));
             }
             "!" => {
-                return Some(
+                return Some(Cow::Owned(
                     self.last_async_pid
                         .map(|p| p.to_string())
                         .unwrap_or_default(),
-                )
+                ))
             }
-            "-" => return Some(self.option_letters()),
-            "SHELLOPTS" => return Some(self.shellopts_value()),
+            "-" => return Some(Cow::Owned(self.option_letters())),
+            "SHELLOPTS" => return Some(Cow::Owned(self.shellopts_value())),
             "BASHPID" => {
                 let pid = self
                     .bashpid_cache
                     .unwrap_or_else(|| unsafe { libc::getpid() });
-                return Some(pid.to_string());
+                return Some(Cow::Owned(pid.to_string()));
             }
             "BASH_ARGV0" if self.bash_argv0_dynamic => {
-                return self.dollar_vars.first().cloned();
+                return self
+                    .dollar_vars
+                    .first()
+                    .map(|value| Cow::Borrowed(value.as_str()));
             }
             "BASH_COMMAND" => {
                 if let Some(command) = self.command_execution_string.as_ref() {
-                    return Some(command.trim_end_matches('\n').to_string());
+                    return Some(Cow::Borrowed(command.trim_end_matches('\n')));
                 }
             }
-            "BASH_SUBSHELL" => return Some(self.subshell_level.to_string()),
+            "BASH_SUBSHELL" => return Some(Cow::Owned(self.subshell_level.to_string())),
             "LINENO" => {
                 let line = self
                     .diagnostic_line_stack
@@ -1006,25 +1240,27 @@ impl Environment for ShellState {
                             .then_some(self.current_command_line_count)
                     })
                     .unwrap_or(0);
-                return Some(line.to_string());
+                return Some(Cow::Owned(line.to_string()));
             }
             "SECONDS" if self.seconds_dynamic => {
                 let elapsed = self.seconds_start.elapsed().as_secs() as i64;
-                return Some(self.seconds_offset.saturating_add(elapsed).to_string());
+                return Some(Cow::Owned(
+                    self.seconds_offset.saturating_add(elapsed).to_string(),
+                ));
             }
             "EPOCHSECONDS" if self.epochseconds_dynamic => {
-                return Some(current_epoch_seconds().to_string());
+                return Some(Cow::Owned(current_epoch_seconds().to_string()));
             }
             "EPOCHREALTIME" if self.epochrealtime_dynamic => {
                 let (secs, micros) = current_epoch_realtime();
-                return Some(format!("{secs}.{micros:06}"));
+                return Some(Cow::Owned(format!("{secs}.{micros:06}")));
             }
             "RANDOM" => loop {
                 let (next_seed, value) = bash_random_from_seed(self.random_seed.get());
                 self.random_seed.set(next_seed);
                 if value != self.last_random_value.get() {
                     self.last_random_value.set(value);
-                    return Some(value.to_string());
+                    return Some(Cow::Owned(value.to_string()));
                 }
             },
             _ => {}
@@ -1036,11 +1272,12 @@ impl Environment for ShellState {
                 self.report_circular_name_reference(name);
                 return self
                     .global_saved_snapshot(name)
-                    .and_then(Self::saved_scalar_value);
+                    .and_then(Self::saved_scalar_value)
+                    .map(Cow::Owned);
             }
-            return entry.has_value.then(|| entry.value.clone());
+            return entry.has_value.then(|| Cow::Borrowed(entry.value.as_str()));
         }
-        std::env::var(name).ok()
+        std::env::var(name).ok().map(Cow::Owned)
     }
 
     fn set(&mut self, name: &str, value: String) {
@@ -1244,7 +1481,6 @@ impl Environment for ShellState {
             self.assoc_arrays.remove(name);
             self.assoc_print_orders.remove(name);
             self.nameref_targets.remove(name);
-            self.arrays.remove(name);
             self.sync_export_env(name);
             return;
         }
@@ -1253,7 +1489,6 @@ impl Environment for ShellState {
         self.assoc_arrays.remove(name);
         self.assoc_print_orders.remove(name);
         self.nameref_targets.remove(name);
-        self.arrays.remove(name);
         std::env::remove_var(name);
     }
 
@@ -1295,7 +1530,13 @@ impl Environment for ShellState {
     }
 
     fn positional(&self, index: usize) -> Option<String> {
-        self.dollar_vars.get(index).cloned()
+        self.positional_cow(index).map(Cow::into_owned)
+    }
+
+    fn positional_cow<'a>(&'a self, index: usize) -> Option<Cow<'a, str>> {
+        self.dollar_vars
+            .get(index)
+            .map(|value| Cow::Borrowed(value.as_str()))
     }
 
     fn positional_count(&self) -> usize {
@@ -1304,6 +1545,29 @@ impl Environment for ShellState {
 
     fn set_positionals(&mut self, params: Vec<String>) {
         self.dollar_vars = params;
+    }
+
+    fn push_function_positionals(&mut self, args: &[String]) -> Vec<String> {
+        let saved = std::mem::take(&mut self.dollar_vars);
+        let zero = saved
+            .first()
+            .cloned()
+            .unwrap_or_else(|| "cherubsh".to_string());
+        self.dollar_vars = Vec::with_capacity(args.len() + 1);
+        self.dollar_vars.push(zero);
+        self.dollar_vars.extend(args.iter().cloned());
+        saved
+    }
+
+    fn pop_function_positionals(&mut self, mut saved: Vec<String>) {
+        if let Some(current_zero) = self.dollar_vars.first().cloned() {
+            if saved.is_empty() {
+                saved.push(current_zero);
+            } else {
+                saved[0] = current_zero;
+            }
+        }
+        self.dollar_vars = saved;
     }
 
     fn last_status(&self) -> i32 {
@@ -1498,7 +1762,6 @@ impl Environment for ShellState {
         if base == source
             || self.variables.contains_key(base)
             || self.indexed_arrays.contains_key(base)
-            || self.arrays.contains_key(base)
             || self.assoc_arrays.contains_key(base)
             || self.nameref_targets.contains_key(base)
             || std::env::var(base).is_ok()
@@ -1597,12 +1860,8 @@ impl Environment for ShellState {
                 attrs: VarAttrs::ARRAY,
             },
         );
-        let mut bt = BTreeMap::new();
-        for (i, v) in values.iter().enumerate() {
-            bt.insert(i as i64, v.clone());
-        }
-        self.indexed_arrays.insert(name.to_string(), bt);
-        self.arrays.insert(name.to_string(), values);
+        self.indexed_arrays
+            .insert(name.to_string(), IndexedArray::from_values(values));
     }
 
     fn get_array(&self, name: &str) -> Option<Vec<String>> {
@@ -1623,10 +1882,7 @@ impl Environment for ShellState {
                     .collect(),
             );
         }
-        if let Some(bt) = self.indexed_arrays.get(name) {
-            return Some(bt.values().cloned().collect());
-        }
-        self.arrays.get(name).cloned()
+        self.indexed_arrays.get(name).map(IndexedArray::values)
     }
 
     fn set_array_indexed(&mut self, name: &str, index: i64, value: String) {
@@ -1641,48 +1897,54 @@ impl Environment for ShellState {
             self.dirs_stack[idx] = PathBuf::from(value);
             return;
         }
-        let prior_attrs = self
-            .variables
-            .get(name)
-            .map(|e| e.attrs)
-            .unwrap_or_default();
-        let value = apply_case_attrs(value, prior_attrs);
-        let seed_scalar = if self.indexed_arrays.contains_key(name) {
-            None
-        } else {
-            self.variables.get(name).and_then(|entry| {
-                (entry.has_value && !entry.attrs.intersects(VarAttrs::ARRAY | VarAttrs::ASSOC))
-                    .then(|| entry.value.clone())
-            })
+        if index > 0 {
+            let case_attrs = VarAttrs::UPPERCASE | VarAttrs::LOWERCASE | VarAttrs::CAPCASE;
+            if let (Some(entry), Some(bt)) =
+                (self.variables.get(name), self.indexed_arrays.get_mut(name))
+            {
+                if entry.attrs.contains(VarAttrs::ARRAY) && !entry.attrs.intersects(case_attrs) {
+                    bt.insert(index, value);
+                    return;
+                }
+            }
+        }
+        let indexed_exists = self.indexed_arrays.contains_key(name);
+        let (prior_attrs, exported, has_array_attr, seed_scalar) = match self.variables.get(name) {
+            Some(entry) => (
+                entry.attrs,
+                entry.exported,
+                entry.attrs.contains(VarAttrs::ARRAY),
+                (!indexed_exists
+                    && entry.has_value
+                    && !entry.attrs.intersects(VarAttrs::ARRAY | VarAttrs::ASSOC))
+                .then(|| entry.value.clone()),
+            ),
+            None => (VarAttrs::empty(), false, false, None),
         };
+        let value = apply_case_attrs(value, prior_attrs);
         let bt = self.indexed_arrays.entry(name.to_string()).or_default();
         if let Some(value) = seed_scalar {
-            bt.entry(0).or_insert(value);
+            if bt.get(0).is_none() {
+                bt.insert(0, value);
+            }
         }
         bt.insert(index, value.clone());
-        let attrs = self
-            .variables
-            .get(name)
-            .map(|e| e.attrs)
-            .unwrap_or_default()
-            | VarAttrs::ARRAY;
-        let scalar = bt.get(&0).cloned().unwrap_or_default();
-        let has_value = bt.contains_key(&0);
-        let exported = self
-            .variables
-            .get(name)
-            .map(|e| e.exported)
-            .unwrap_or(false);
-        self.variables.insert(
-            name.to_string(),
-            VariableEntry {
-                value: scalar,
-                has_value,
-                exported,
-                readonly: false,
-                attrs,
-            },
-        );
+        let update_entry = index == 0 || !has_array_attr;
+        if update_entry {
+            let attrs = prior_attrs | VarAttrs::ARRAY;
+            let scalar = bt.get(0).unwrap_or_default().to_string();
+            let has_value = bt.get(0).is_some();
+            self.variables.insert(
+                name.to_string(),
+                VariableEntry {
+                    value: scalar,
+                    has_value,
+                    exported,
+                    readonly: false,
+                    attrs,
+                },
+            );
+        }
     }
 
     fn get_array_indexed(&self, name: &str, index: i64) -> Option<String> {
@@ -1730,7 +1992,38 @@ impl Environment for ShellState {
         }
         self.indexed_arrays
             .get(name)
-            .and_then(|bt| bt.get(&index).cloned())
+            .and_then(|bt| bt.get(index).map(str::to_string))
+    }
+
+    fn get_array_indexed_cow<'a>(&'a self, name: &str, index: i64) -> Option<Cow<'a, str>> {
+        if name == "DIRSTACK" {
+            return self.get_array_indexed(name, index).map(Cow::Owned);
+        }
+        if name == "FUNCNAME" {
+            if index < 0 {
+                return None;
+            }
+            let index = index as usize;
+            if index < self.funcname_stack.len() {
+                return self
+                    .funcname_stack
+                    .get(self.funcname_stack.len() - 1 - index)
+                    .map(|value| Cow::Borrowed(value.as_str()));
+            }
+            if index == self.funcname_stack.len() && !self.funcname_stack.is_empty() {
+                return Some(Cow::Borrowed("main"));
+            }
+            return None;
+        }
+        if matches!(
+            name,
+            "BASH_ARGC" | "BASH_ARGV" | "BASH_LINENO" | "BASH_SOURCE"
+        ) {
+            return self.get_array_indexed(name, index).map(Cow::Owned);
+        }
+        self.indexed_arrays
+            .get(name)
+            .and_then(|bt| bt.get(index).map(Cow::Borrowed))
     }
 
     fn get_array_all(&self, name: &str) -> Option<Vec<(i64, String)>> {
@@ -1749,9 +2042,7 @@ impl Environment for ShellState {
                     .collect(),
             );
         }
-        self.indexed_arrays
-            .get(name)
-            .map(|bt| bt.iter().map(|(k, v)| (*k, v.clone())).collect())
+        self.indexed_arrays.get(name).map(IndexedArray::all)
     }
 
     fn array_keys(&self, name: &str) -> Option<Vec<i64>> {
@@ -1767,9 +2058,7 @@ impl Environment for ShellState {
         if name == "DIRSTACK" {
             return Some((0..self.dirs_iter().len() as i64).collect());
         }
-        self.indexed_arrays
-            .get(name)
-            .map(|bt| bt.keys().copied().collect())
+        self.indexed_arrays.get(name).map(IndexedArray::keys)
     }
 
     fn array_len(&self, name: &str) -> usize {
@@ -1788,8 +2077,26 @@ impl Environment for ShellState {
         }
         self.indexed_arrays
             .get(name)
-            .map(|bt| bt.len())
+            .map(IndexedArray::len)
             .unwrap_or(0)
+    }
+
+    fn array_max_index(&self, name: &str) -> Option<i64> {
+        if matches!(
+            name,
+            "BASH_ARGC" | "BASH_ARGV" | "BASH_LINENO" | "BASH_SOURCE" | "FUNCNAME"
+        ) {
+            return self
+                .special_iter_indexed_array(name)
+                .flatten()
+                .and_then(|values| values.into_iter().map(|(idx, _)| idx).max());
+        }
+        if name == "DIRSTACK" {
+            return (!self.dirs_iter().is_empty()).then(|| self.dirs_iter().len() as i64 - 1);
+        }
+        self.indexed_arrays
+            .get(name)
+            .and_then(IndexedArray::max_index)
     }
 
     fn set_array_assoc(&mut self, name: &str, key: &str, value: String) {
@@ -1803,41 +2110,54 @@ impl Environment for ShellState {
             self.command_hash_hits.insert(key.to_string(), 0);
             return;
         }
-        let prior_attrs = self
-            .variables
-            .get(name)
-            .map(|e| e.attrs)
-            .unwrap_or_default();
-        let value = apply_case_attrs(value, prior_attrs);
-        let bt = self.assoc_arrays.entry(name.to_string()).or_default();
-        bt.insert(key.to_string(), value);
-        if let Some(order) = self.assoc_print_orders.get_mut(name) {
-            let key = key.to_string();
-            if !order.contains(&key) {
-                order.push(key);
+        if key != "0" && !self.assoc_print_orders.contains_key(name) {
+            let case_attrs = VarAttrs::UPPERCASE | VarAttrs::LOWERCASE | VarAttrs::CAPCASE;
+            if let (Some(entry), Some(bt)) =
+                (self.variables.get(name), self.assoc_arrays.get_mut(name))
+            {
+                if entry.attrs.contains(VarAttrs::ASSOC) && !entry.attrs.intersects(case_attrs) {
+                    bt.insert(key.to_string(), value);
+                    return;
+                }
             }
         }
-        let attrs = self
+        let (prior_attrs, exported, has_assoc_attr) = self
             .variables
             .get(name)
-            .map(|e| e.attrs)
-            .unwrap_or_default()
-            | VarAttrs::ASSOC;
-        let exported = self
-            .variables
-            .get(name)
-            .map(|e| e.exported)
-            .unwrap_or(false);
-        self.variables.insert(
-            name.to_string(),
-            VariableEntry {
-                value: String::new(),
-                has_value: bt.contains_key("0"),
-                exported,
-                readonly: false,
-                attrs,
-            },
-        );
+            .map(|entry| {
+                (
+                    entry.attrs,
+                    entry.exported,
+                    entry.attrs.contains(VarAttrs::ASSOC),
+                )
+            })
+            .unwrap_or((VarAttrs::empty(), false, false));
+        let value = apply_case_attrs(value, prior_attrs);
+        let zero_value = {
+            let bt = self.assoc_arrays.entry(name.to_string()).or_default();
+            bt.insert(key.to_string(), value);
+            if let Some(order) = self.assoc_print_orders.get_mut(name) {
+                let key = key.to_string();
+                if !order.contains(&key) {
+                    order.push(key);
+                }
+            }
+            bt.get("0").cloned()
+        };
+        let update_entry = key == "0" || !has_assoc_attr;
+        if update_entry {
+            let attrs = prior_attrs | VarAttrs::ASSOC;
+            self.variables.insert(
+                name.to_string(),
+                VariableEntry {
+                    value: zero_value.clone().unwrap_or_default(),
+                    has_value: zero_value.is_some(),
+                    exported,
+                    readonly: false,
+                    attrs,
+                },
+            );
+        }
     }
 
     fn get_array_assoc(&self, name: &str, key: &str) -> Option<String> {
@@ -1853,6 +2173,21 @@ impl Environment for ShellState {
         self.assoc_arrays
             .get(name)
             .and_then(|bt| bt.get(key).cloned())
+    }
+
+    fn get_array_assoc_cow<'a>(&'a self, name: &str, key: &str) -> Option<Cow<'a, str>> {
+        if name == "BASH_ALIASES" {
+            return self
+                .aliases
+                .get(key)
+                .map(|value| Cow::Borrowed(value.as_str()));
+        }
+        if name == "BASH_CMDS" {
+            return self.get_array_assoc(name, key).map(Cow::Owned);
+        }
+        self.assoc_arrays
+            .get(name)
+            .and_then(|bt| bt.get(key).map(|value| Cow::Borrowed(value.as_str())))
     }
 
     fn assoc_all(&self, name: &str) -> Option<Vec<(String, String)>> {
@@ -1902,6 +2237,16 @@ impl Environment for ShellState {
         })
     }
 
+    fn assoc_len(&self, name: &str) -> usize {
+        if name == "BASH_ALIASES" {
+            return self.aliases.len();
+        }
+        if name == "BASH_CMDS" {
+            return self.command_hash.len();
+        }
+        self.assoc_arrays.get(name).map(|bt| bt.len()).unwrap_or(0)
+    }
+
     fn kind(&self, name: &str) -> VarKind {
         if self.nameref_targets.contains_key(name) {
             return VarKind::Nameref;
@@ -1931,7 +2276,7 @@ impl Environment for ShellState {
         if self.assoc_arrays.contains_key(name) {
             return VarKind::Assoc;
         }
-        if self.indexed_arrays.contains_key(name) || self.arrays.contains_key(name) {
+        if self.indexed_arrays.contains_key(name) {
             return VarKind::Indexed;
         }
         if self.variables.contains_key(name) {
@@ -1983,7 +2328,9 @@ impl Environment for ShellState {
                 if entry.has_value {
                     let scalar = entry.value.clone();
                     let bt = self.indexed_arrays.entry(name.to_string()).or_default();
-                    bt.entry(0).or_insert(scalar);
+                    if bt.get(0).is_none() {
+                        bt.insert(0, scalar);
+                    }
                 }
             }
             self.assoc_arrays.remove(name);
@@ -1997,7 +2344,6 @@ impl Environment for ShellState {
                 None
             };
             self.indexed_arrays.remove(name);
-            self.arrays.remove(name);
             self.assoc_print_orders.remove(name);
             entry.attrs.remove(VarAttrs::ARRAY);
             if let Some(scalar) = seed_scalar {
@@ -2079,10 +2425,7 @@ impl Environment for ShellState {
     fn global_array_keys(&self, name: &str) -> Option<Vec<i64>> {
         if let Some(saved) = self.global_saved_snapshot(name) {
             if let Some(indexed) = saved.indexed.as_ref() {
-                return Some(indexed.keys().copied().collect());
-            }
-            if let Some(values) = saved.array.as_ref() {
-                return Some((0..values.len() as i64).collect());
+                return Some(indexed.keys());
             }
             return None;
         }
@@ -2133,7 +2476,7 @@ impl Environment for ShellState {
     }
 
     fn push_local_scope(&mut self) {
-        self.local_scopes.push(HashMap::new());
+        self.local_scopes.push(HashMap::default());
         self.local_option_scopes.push(None);
     }
 
@@ -2151,14 +2494,6 @@ impl Environment for ShellState {
                 }
                 None => {
                     self.variables.remove(&name);
-                }
-            }
-            match saved.array {
-                Some(values) => {
-                    self.arrays.insert(name.clone(), values);
-                }
-                None => {
-                    self.arrays.remove(&name);
                 }
             }
             match saved.indexed {
@@ -2195,7 +2530,6 @@ impl Environment for ShellState {
         if let Some(scope) = self.local_scopes.last_mut() {
             scope.entry(name.to_string()).or_insert_with(|| SavedVar {
                 entry: self.variables.get(name).cloned(),
-                array: self.arrays.get(name).cloned(),
                 indexed: self.indexed_arrays.get(name).cloned(),
                 assoc: self.assoc_arrays.get(name).cloned(),
                 nameref: self.nameref_targets.get(name).cloned(),
@@ -2224,7 +2558,6 @@ impl Environment for ShellState {
         }
         let saved = SavedVar {
             entry: self.variables.get(name).cloned(),
-            array: self.arrays.get(name).cloned(),
             indexed: self.indexed_arrays.get(name).cloned(),
             assoc: self.assoc_arrays.get(name).cloned(),
             nameref: self.nameref_targets.get(name).cloned(),
@@ -2243,9 +2576,97 @@ impl Environment for ShellState {
         self.indexed_arrays.remove(name);
         self.assoc_arrays.remove(name);
         self.assoc_print_orders.remove(name);
-        self.arrays.remove(name);
         self.nameref_targets.remove(name);
         self.sync_export_env(name);
+        Ok(())
+    }
+
+    fn make_local_with_value(
+        &mut self,
+        name: &str,
+        value: Option<String>,
+    ) -> Result<(), AssignError> {
+        if self.local_scopes.is_empty() {
+            if let Some(value) = value {
+                self.assign(name, value)?;
+            }
+            return Ok(());
+        }
+
+        let already_local = self
+            .local_scopes
+            .last()
+            .is_some_and(|scope| scope.contains_key(name));
+        let mut inherited_export = false;
+        if !already_local {
+            let shadows_outer_local = self
+                .local_scopes
+                .iter()
+                .any(|scope| scope.contains_key(name));
+            if !shadows_outer_local && self.variables.get(name).is_some_and(|entry| entry.readonly)
+            {
+                return Err(AssignError::ReadOnly(name.to_string()));
+            }
+            let saved = SavedVar {
+                entry: self.variables.get(name).cloned(),
+                indexed: self.indexed_arrays.get(name).cloned(),
+                assoc: self.assoc_arrays.get(name).cloned(),
+                nameref: self.nameref_targets.get(name).cloned(),
+            };
+            inherited_export = saved.entry.as_ref().is_some_and(|entry| entry.exported);
+            self.local_scopes
+                .last_mut()
+                .unwrap()
+                .insert(name.to_string(), saved);
+            self.variables.remove(name);
+            self.indexed_arrays.remove(name);
+            self.assoc_arrays.remove(name);
+            self.assoc_print_orders.remove(name);
+            self.nameref_targets.remove(name);
+            if value.is_none() || !self.can_assign_simple_local_direct(name) {
+                let mut entry = VariableEntry::default();
+                if inherited_export {
+                    entry.exported = true;
+                    entry.attrs.insert(VarAttrs::EXPORT);
+                }
+                self.variables.insert(name.to_string(), entry);
+                self.sync_export_env(name);
+            }
+        }
+
+        let Some(value) = value else {
+            return Ok(());
+        };
+        if !self.can_assign_simple_local_direct(name) {
+            self.assign(name, value)?;
+            return Ok(());
+        }
+        let (exported, attrs) = self
+            .variables
+            .get(name)
+            .map(|entry| (entry.exported, entry.attrs))
+            .unwrap_or_else(|| {
+                let attrs = if inherited_export {
+                    VarAttrs::EXPORT
+                } else {
+                    VarAttrs::empty()
+                };
+                (inherited_export, attrs)
+            });
+        let value = apply_case_attrs(value, attrs);
+        self.variables.insert(
+            name.to_string(),
+            VariableEntry {
+                value: value.clone(),
+                has_value: true,
+                exported,
+                readonly: false,
+                attrs,
+            },
+        );
+        if exported {
+            std::env::set_var(name, &value);
+        }
         Ok(())
     }
 
@@ -2271,7 +2692,6 @@ impl Environment for ShellState {
             name.to_string(),
             SavedVar {
                 entry: self.variables.get(name).cloned(),
-                array: self.arrays.get(name).cloned(),
                 indexed: self.indexed_arrays.get(name).cloned(),
                 assoc: self.assoc_arrays.get(name).cloned(),
                 nameref: self.nameref_targets.get(name).cloned(),
@@ -2325,17 +2745,23 @@ impl Environment for ShellState {
             if let Some(order) = self.assoc_print_orders.get_mut(name) {
                 order.retain(|ordered| ordered != key);
             }
+            if key == "0" {
+                if let Some(entry) = self.variables.get_mut(name) {
+                    entry.value = bt.get("0").cloned().unwrap_or_default();
+                    entry.has_value = bt.contains_key("0");
+                    entry.attrs.insert(VarAttrs::ASSOC);
+                }
+            }
             return;
         }
         if let Some(bt) = self.indexed_arrays.get_mut(name) {
             if let Ok(idx) = key.parse::<i64>() {
-                bt.remove(&idx);
+                bt.remove(idx);
                 if let Some(entry) = self.variables.get_mut(name) {
-                    entry.value = bt.get(&0).cloned().unwrap_or_default();
-                    entry.has_value = bt.contains_key(&0);
+                    entry.value = bt.get(0).unwrap_or_default().to_string();
+                    entry.has_value = bt.get(0).is_some();
                     entry.attrs.insert(VarAttrs::ARRAY);
                 }
-                self.arrays.remove(name);
             }
         }
     }
@@ -2410,11 +2836,9 @@ impl Environment for ShellState {
                     .get(&name)
                     .and_then(|e| e.has_value.then(|| e.value.clone()))
             };
-            let indexed = special_indexed.flatten().or_else(|| {
-                self.indexed_arrays
-                    .get(&name)
-                    .map(|bt| bt.iter().map(|(k, v)| (*k, v.clone())).collect())
-            });
+            let indexed = special_indexed
+                .flatten()
+                .or_else(|| self.indexed_arrays.get(&name).map(IndexedArray::all));
             let assoc = if name == "BASH_ALIASES" || name == "BASH_CMDS" {
                 self.assoc_all(&name)
             } else {
@@ -2450,17 +2874,95 @@ impl Environment for ShellState {
         out
     }
 
+    fn var_snapshot(&self, name: &str) -> Option<VarSnapshot> {
+        let special_name = matches!(
+            name,
+            "BASH_ARGC"
+                | "BASH_ARGV"
+                | "BASH_LINENO"
+                | "BASH_ALIASES"
+                | "BASH_CMDS"
+                | "BASH_SOURCE"
+                | "DIRSTACK"
+                | "FUNCNAME"
+                | "SHELLOPTS"
+        );
+        if !special_name
+            && !self.variables.contains_key(name)
+            && !self.indexed_arrays.contains_key(name)
+            && !self.assoc_arrays.contains_key(name)
+            && !self.nameref_targets.contains_key(name)
+        {
+            return None;
+        }
+
+        let special_indexed = self.special_iter_indexed_array(name);
+        let kind = if special_indexed.is_some() {
+            VarKind::Indexed
+        } else {
+            self.kind(name)
+        };
+        let attrs = if special_indexed.is_some() {
+            VarAttrs::ARRAY
+        } else {
+            self.attrs(name)
+        };
+        let scalar = if special_indexed.is_some() {
+            None
+        } else if name == "SHELLOPTS" {
+            Some(self.shellopts_value())
+        } else {
+            self.variables
+                .get(name)
+                .and_then(|e| e.has_value.then(|| e.value.clone()))
+        };
+        let indexed = special_indexed
+            .flatten()
+            .or_else(|| self.indexed_arrays.get(name).map(IndexedArray::all));
+        let assoc = if name == "BASH_ALIASES" || name == "BASH_CMDS" {
+            self.assoc_all(name)
+        } else {
+            self.assoc_arrays.get(name).map(|bt| {
+                let mut entries = bt
+                    .iter()
+                    .map(|(k, v)| (k.clone(), v.clone()))
+                    .collect::<Vec<_>>();
+                if let Some(order) = self.assoc_print_orders.get(name) {
+                    entries.sort_by_key(|(key, _)| {
+                        order
+                            .iter()
+                            .position(|ordered| ordered == key)
+                            .unwrap_or(usize::MAX)
+                    });
+                } else {
+                    entries.sort_by_key(|(key, _)| bash_assoc_bucket(key));
+                }
+                entries
+            })
+        };
+        Some(VarSnapshot {
+            name: name.to_string(),
+            kind,
+            attrs,
+            scalar,
+            indexed,
+            assoc,
+            nameref_target: self.nameref_targets.get(name).cloned(),
+        })
+    }
+
+    fn nameref_target(&self, name: &str) -> Option<String> {
+        self.nameref_targets.get(name).cloned()
+    }
+
     fn iter_local_vars(&self) -> Vec<VarSnapshot> {
         let Some(scope) = self.local_scopes.last() else {
             return Vec::new();
         };
-        let names = scope
-            .keys()
-            .cloned()
-            .collect::<std::collections::BTreeSet<_>>();
-        self.iter_vars()
+        let names = scope.keys().collect::<std::collections::BTreeSet<_>>();
+        names
             .into_iter()
-            .filter(|snap| names.contains(&snap.name))
+            .filter_map(|name| self.var_snapshot(name))
             .collect()
     }
 
@@ -2517,16 +3019,31 @@ impl Environment for ShellState {
     }
     fn trap_get(&self, signal: &str) -> Option<String> {
         let key = canonical_trap_signal(signal);
-        self.traps.get(&key).cloned()
+        self.traps
+            .get(&key)
+            .cloned()
+            .or_else(|| startup_ignored_trap_action(&key))
     }
     fn trap_iter(&self) -> Vec<TrapEntry> {
-        self.traps
+        let mut entries: Vec<TrapEntry> = self
+            .traps
             .iter()
             .map(|(k, v)| TrapEntry {
                 signal: k.clone(),
                 action: v.clone(),
             })
-            .collect()
+            .collect();
+        for sig in crate::signals::startup_ignored_signals() {
+            if let Some(short) = signal_short_name(sig) {
+                if !self.traps.contains_key(short) {
+                    entries.push(TrapEntry {
+                        signal: short.to_string(),
+                        action: String::new(),
+                    });
+                }
+            }
+        }
+        entries
     }
 
     fn hash_set(&mut self, name: &str, path: std::path::PathBuf) {
@@ -2623,7 +3140,16 @@ impl Environment for ShellState {
     }
 
     fn trap_action(&self, kind: TrapKind) -> Option<TrapAction> {
-        self.trap_actions.get(&kind).cloned()
+        self.trap_actions.get(&kind).cloned().or_else(|| {
+            let TrapKind::Numeric(sig) = kind else {
+                return None;
+            };
+            if sig != libc::SIGPIPE && crate::signals::signal_ignored_at_start(sig) {
+                Some(TrapAction::Ignore)
+            } else {
+                None
+            }
+        })
     }
     fn trap_set_action(&mut self, kind: TrapKind, action: TrapAction) {
         if kind == TrapKind::Exit {
@@ -2681,10 +3207,18 @@ impl Environment for ShellState {
         self.trap_actions.remove(&kind);
     }
     fn trap_all(&self) -> Vec<(TrapKind, TrapAction)> {
-        self.trap_actions
+        let mut entries: Vec<(TrapKind, TrapAction)> = self
+            .trap_actions
             .iter()
             .map(|(k, a)| (*k, a.clone()))
-            .collect()
+            .collect();
+        for sig in crate::signals::startup_ignored_signals() {
+            let kind = TrapKind::Numeric(sig);
+            if !self.trap_actions.contains_key(&kind) {
+                entries.push((kind, TrapAction::Ignore));
+            }
+        }
+        entries
     }
     fn suppress_inherited_exit_trap(&mut self) {
         if self.trap_actions.contains_key(&TrapKind::Exit) {
@@ -2803,28 +3337,38 @@ impl Environment for ShellState {
         &self.active_keymap
     }
     fn keymap_set_active(&mut self, name: &str) {
-        if self.keymaps.contains_key(name) {
+        if self.keymaps.contains_key(name) || default_keymap(name).is_some() {
             self.active_keymap = name.to_string();
         }
     }
     fn keymap_get(&self, name: &str) -> Option<Keymap> {
-        self.keymaps.get(name).cloned()
+        self.keymaps
+            .get(name)
+            .cloned()
+            .or_else(|| default_keymap(name))
     }
     fn keymap_bind(&mut self, name: &str, seq: &str, action: EditAction) {
         let entry = self
             .keymaps
             .entry(name.to_string())
-            .or_insert_with(|| Keymap::new(name));
+            .or_insert_with(|| default_keymap(name).unwrap_or_else(|| Keymap::new(name)));
         entry.bind(seq, action);
     }
     fn keymap_unbind(&mut self, name: &str, seq: &str) -> bool {
-        self.keymaps
-            .get_mut(name)
-            .map(|k| k.unbind(seq))
-            .unwrap_or(false)
+        if !self.keymaps.contains_key(name) {
+            if let Some(default) = default_keymap(name) {
+                self.keymaps.insert(name.to_string(), default);
+            }
+        }
+        self.keymaps.get_mut(name).is_some_and(|k| k.unbind(seq))
     }
     fn keymap_list(&self) -> Vec<String> {
         let mut v: Vec<String> = self.keymaps.keys().cloned().collect();
+        for name in ["emacs", "vi-command", "vi-insert"] {
+            if !v.iter().any(|existing| existing == name) {
+                v.push(name.to_string());
+            }
+        }
         v.sort();
         v
     }
@@ -2929,14 +3473,49 @@ pub fn signal_short_name(num: i32) -> Option<&'static str> {
     })
 }
 
-pub fn seed_startup_ignored_traps(state: &mut ShellState) {
-    for sig in crate::signals::startup_ignored_signals() {
-        if let Some(short) = signal_short_name(sig) {
-            state.traps.insert(short.to_string(), String::new());
-            state
-                .trap_actions
-                .insert(TrapKind::Numeric(sig), TrapAction::Ignore);
-        }
+fn signal_number_for_short_name(name: &str) -> Option<i32> {
+    Some(match name {
+        "HUP" => 1,
+        "INT" => 2,
+        "QUIT" => 3,
+        "ILL" => 4,
+        "TRAP" => 5,
+        "ABRT" => 6,
+        "BUS" => 7,
+        "FPE" => 8,
+        "KILL" => 9,
+        "USR1" => 10,
+        "SEGV" => 11,
+        "USR2" => 12,
+        "PIPE" => 13,
+        "ALRM" => 14,
+        "TERM" => 15,
+        "STKFLT" => 16,
+        "CHLD" => 17,
+        "CONT" => 18,
+        "STOP" => 19,
+        "TSTP" => 20,
+        "TTIN" => 21,
+        "TTOU" => 22,
+        "URG" => 23,
+        "XCPU" => 24,
+        "XFSZ" => 25,
+        "VTALRM" => 26,
+        "PROF" => 27,
+        "WINCH" => 28,
+        "IO" => 29,
+        "PWR" => 30,
+        "SYS" => 31,
+        _ => return None,
+    })
+}
+
+fn startup_ignored_trap_action(canonical_signal: &str) -> Option<String> {
+    let sig = signal_number_for_short_name(canonical_signal)?;
+    if sig != libc::SIGPIPE && crate::signals::signal_ignored_at_start(sig) {
+        Some(String::new())
+    } else {
+        None
     }
 }
 

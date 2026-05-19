@@ -170,7 +170,7 @@ fn offset_command_lines(command: &mut Command, delta: u32) {
             offset_command_lines(&mut c.second, delta);
         }
         CommandData::FunctionDef(c) => {
-            offset_command_lines(&mut c.command, delta);
+            offset_command_lines(std::sync::Arc::make_mut(&mut c.command), delta);
         }
         CommandData::Group(c) => {
             offset_command_lines(&mut c.command, delta);

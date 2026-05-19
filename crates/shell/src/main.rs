@@ -27,12 +27,13 @@ use crate::options::{
 use crate::reader_loop::reader_loop_with_exec_state;
 use crate::signals::{install_default_handlers, install_early_sigint};
 use crate::startup::run_startup_files;
-use crate::state::{seed_startup_ignored_traps, ShellState, StartupMode};
+use crate::state::{ShellState, StartupMode};
 
 fn main() {
     install_early_sigint();
+    let big5_hkscs_locale = current_locale_is_big5_hkscs();
     let argv = std::env::args_os()
-        .map(|arg| argv_bytes_to_shell_string(arg.as_bytes()))
+        .map(|arg| argv_bytes_to_shell_string(arg.as_bytes(), big5_hkscs_locale))
         .collect::<Vec<_>>();
     let exit_code = match run(argv) {
         Ok(code) => code,
@@ -45,8 +46,8 @@ fn main() {
     unsafe { libc::_exit(exit_code) };
 }
 
-fn argv_bytes_to_shell_string(bytes: &[u8]) -> String {
-    if current_locale_is_big5_hkscs() {
+fn argv_bytes_to_shell_string(bytes: &[u8], big5_hkscs_locale: bool) -> String {
+    if big5_hkscs_locale {
         let mut out = Vec::with_capacity(bytes.len());
         let mut i = 0usize;
         while i < bytes.len() {
@@ -217,7 +218,6 @@ fn run(argv: Vec<String>) -> Result<i32, ShellError> {
     }
 
     install_default_handlers(state.interactive_shell);
-    seed_startup_ignored_traps(&mut state);
 
     shell_initialize(&mut state);
     if enoexec_fallback {
@@ -265,7 +265,7 @@ fn run(argv: Vec<String>) -> Result<i32, ShellError> {
         state.set("POSIXLY_CORRECT", "y".to_string());
     }
 
-    if state.interactive_shell {
+    if state.interactive_shell && state.command_execution_string.is_none() {
         load_history(&mut state);
     }
 

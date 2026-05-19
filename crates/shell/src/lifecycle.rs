@@ -3,7 +3,7 @@ use cherubsh_common::{Environment, VarAttrs};
 use crate::options::{
     BUILD_VERSION, MACHTYPE, MAJOR_VERSION, MINOR_VERSION, PATCH_LEVEL, SHELL_VERSION,
 };
-use crate::signals::{acquire_terminal, install_default_handlers, install_job_control_signals};
+use crate::signals::{acquire_terminal, install_job_control_signals};
 use crate::state::{ShellState, StartupMode, VariableEntry};
 
 /// bash-5.2.21 config-top.h: DEFAULT_PATH_VALUE.
@@ -14,7 +14,6 @@ pub fn init_interactive(state: &mut ShellState) {
     state.interactive = true;
     state.interactive_shell = true;
     state.startup_state = StartupMode::Interactive;
-    install_default_handlers(true);
 
     let mut tty_fd: Option<i32> = None;
     let mut shell_pgrp: i32 = unsafe { libc::getpgrp() };
@@ -59,13 +58,7 @@ pub fn shell_initialize(state: &mut ShellState) {
         format!("{SHELL_VERSION}-release(cherubsh)"),
     );
     bind_bash_versinfo(state);
-    bind(
-        state,
-        "BASH",
-        std::env::current_exe()
-            .map(|p| p.display().to_string())
-            .unwrap_or_else(|_| String::from("cherubsh")),
-    );
+    bind(state, "BASH", shell_executable_path());
     bind(
         state,
         "SHELL",
@@ -110,6 +103,18 @@ pub fn shell_initialize(state: &mut ShellState) {
     state.set_array("GROUPS", current_groups());
 
     state.shell_initialized = true;
+}
+
+fn shell_executable_path() -> String {
+    if let Some(arg0) = std::env::args_os().next() {
+        let path = std::path::PathBuf::from(&arg0);
+        if path.components().count() > 1 {
+            return path.display().to_string();
+        }
+    }
+    std::env::current_exe()
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|_| String::from("cherubsh"))
 }
 
 fn bind(state: &mut ShellState, name: &str, value: String) {

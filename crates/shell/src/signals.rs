@@ -34,7 +34,7 @@ static TERM_RECEIVED: AtomicI32 = AtomicI32::new(0);
 
 /// Signals inherited as SIG_IGN when the shell started. Bash preserves these:
 /// a child shell cannot trap or reset them later.
-static STARTUP_IGNORED_INIT: AtomicBool = AtomicBool::new(false);
+static STARTUP_IGNORED_KNOWN: [AtomicBool; NSIG] = [const { AtomicBool::new(false) }; NSIG];
 static STARTUP_IGNORED: [AtomicBool; NSIG] = [const { AtomicBool::new(false) }; NSIG];
 
 /// Mirrors bash's `interrupt_state`. Cleared by `check_signals()` once the
@@ -91,18 +91,16 @@ fn install_ignore(signum: libc::c_int) {
     }
 }
 
-fn init_startup_ignored() {
-    if STARTUP_IGNORED_INIT.swap(true, Ordering::SeqCst) {
+fn ensure_startup_ignored(signum: libc::c_int) {
+    if signum <= 0 || (signum as usize) >= NSIG || matches!(signum, libc::SIGKILL | libc::SIGSTOP) {
         return;
     }
-    for sig in 1..NSIG as libc::c_int {
-        if matches!(sig, libc::SIGKILL | libc::SIGSTOP) {
-            continue;
-        }
-        if current_signal_is_ignored(sig) {
-            STARTUP_IGNORED[sig as usize].store(true, Ordering::SeqCst);
-        }
+    let index = signum as usize;
+    if STARTUP_IGNORED_KNOWN[index].load(Ordering::Acquire) {
+        return;
     }
+    STARTUP_IGNORED[index].store(current_signal_is_ignored(signum), Ordering::Release);
+    STARTUP_IGNORED_KNOWN[index].store(true, Ordering::Release);
 }
 
 fn current_signal_is_ignored(signum: libc::c_int) -> bool {
@@ -116,9 +114,10 @@ fn current_signal_is_ignored(signum: libc::c_int) -> bool {
 }
 
 pub fn signal_ignored_at_start(signum: libc::c_int) -> bool {
+    ensure_startup_ignored(signum);
     signum > 0
         && (signum as usize) < NSIG
-        && STARTUP_IGNORED[signum as usize].load(Ordering::SeqCst)
+        && STARTUP_IGNORED[signum as usize].load(Ordering::Acquire)
 }
 
 pub fn startup_ignored_signals() -> Vec<i32> {
@@ -136,7 +135,6 @@ fn signal_is_trappable(signum: libc::c_int) -> bool {
 /// Non-interactive shells leave INT/TERM at their default (so `kill` from a
 /// parent terminates us promptly).
 pub fn install_default_handlers(interactive: bool) {
-    init_startup_ignored();
     let flags = libc::SA_RESTART;
     if interactive {
         install_baseline(libc::SIGINT, Some((generic_counter_handler, flags)));
@@ -144,10 +142,10 @@ pub fn install_default_handlers(interactive: bool) {
         install_baseline(libc::SIGHUP, Some((generic_counter_handler, flags)));
         install_baseline(libc::SIGQUIT, Some((generic_counter_handler, flags)));
     } else {
+        // `install_early_sigint` runs before option parsing, so non-interactive
+        // shells must restore SIGINT. TERM/HUP/QUIT have not been touched yet;
+        // leaving their inherited disposition alone is already the baseline.
         install_baseline(libc::SIGINT, None);
-        install_baseline(libc::SIGTERM, None);
-        install_baseline(libc::SIGHUP, None);
-        install_baseline(libc::SIGQUIT, None);
     }
     install_baseline(libc::SIGALRM, Some((generic_counter_handler, flags)));
     install_baseline(libc::SIGUSR1, Some((generic_counter_handler, flags)));
@@ -171,6 +169,11 @@ fn install_baseline(
 /// that have acquired the terminal. Must be called AFTER `acquire_terminal`.
 pub fn install_job_control_signals() {
     let flags = libc::SA_RESTART;
+    ensure_startup_ignored(libc::SIGCHLD);
+    ensure_startup_ignored(libc::SIGWINCH);
+    ensure_startup_ignored(libc::SIGTSTP);
+    ensure_startup_ignored(libc::SIGTTIN);
+    ensure_startup_ignored(libc::SIGTTOU);
     install(libc::SIGCHLD, generic_counter_handler, flags);
     install(libc::SIGWINCH, generic_counter_handler, flags);
     install_ignore(libc::SIGTSTP);

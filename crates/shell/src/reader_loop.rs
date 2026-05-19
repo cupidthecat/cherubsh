@@ -166,7 +166,7 @@ pub fn parse_command(
     state.need_here_doc = false;
     // Dispatch any queued traps + reap completed jobs before prompting.
     run_pending_traps(state);
-    if state.interactive {
+    if state.interactive && !state.input.is_stream() {
         notify_completed_jobs(state);
     }
     if state.interactive && !state.input.is_string() && !state.input.is_stream() {
@@ -183,7 +183,9 @@ pub fn parse_command(
         state.histfile = None;
     }
     state.history_last_line_added = false;
-    if state.interactive || state.option("history") {
+    if (state.interactive && !state.input.is_string() && !state.input.is_stream())
+        || state.option("history")
+    {
         let record_line = history_record_line(state, &input_text);
         if should_record_history(state, &record_line) {
             let control = state.histcontrol_flags;
@@ -388,7 +390,7 @@ fn offset_command_lines(command: &mut Command, delta: u32, max_line: Option<u32>
             offset_command_lines(&mut c.second, delta, max_line);
         }
         CommandData::FunctionDef(c) => {
-            offset_command_lines(&mut c.command, delta, max_line);
+            offset_command_lines(std::sync::Arc::make_mut(&mut c.command), delta, max_line);
         }
         CommandData::Group(c) => {
             offset_command_lines(&mut c.command, delta, max_line);
@@ -1397,15 +1399,9 @@ fn read_interactive_line(state: &mut ShellState, prompt_level: u8) -> ShellResul
     });
     let prompt = decode_prompt_string(state, &raw_prompt);
     let keymap = state
-        .keymaps
-        .get(&state.active_keymap)
-        .cloned()
-        .or_else(|| state.keymaps.get("emacs").cloned())
-        .unwrap_or_else(|| {
-            let mut k = cherubsh_common::Keymap::new("emacs");
-            k.install_emacs_defaults();
-            k
-        });
+        .keymap_get(&state.active_keymap)
+        .or_else(|| state.keymap_get("emacs"))
+        .unwrap_or_else(|| cherubsh_common::Keymap::new("emacs"));
     let mut editor = state
         .line_editor
         .take()
