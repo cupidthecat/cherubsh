@@ -85,7 +85,7 @@ pub fn run_shell_spec(shell_path: &Path, spec: &RunSpec<'_>) -> Result<RunOutput
     }
     let mut command = Command::new(shell_path);
     // Disable rc/profile sourcing so both shells start from a clean state
-    // regardless of the user's local config. 
+    // regardless of the user's local config.
     command.arg("--norc").arg("--noprofile");
     if let Some(script) = spec.script {
         command.arg("-c").arg(script);
