@@ -1,0 +1,7 @@
+verdict	name	status	timed_out	stdout_path	stderr_path	tstout_path
+PASS	alias	0	false	target/parity/promoted-after-parser-fixes/alias.stdout	target/parity/promoted-after-parser-fixes/alias.stderr	
+PASS	appendop	0	false	target/parity/promoted-after-parser-fixes/appendop.stdout	target/parity/promoted-after-parser-fixes/appendop.stderr	
+PASS	mapfile	0	false	target/parity/promoted-after-parser-fixes/mapfile.stdout	target/parity/promoted-after-parser-fixes/mapfile.stderr	
+PASS	strip	0	false	target/parity/promoted-after-parser-fixes/strip.stdout	target/parity/promoted-after-parser-fixes/strip.stderr	
+PASS	tilde	0	false	target/parity/promoted-after-parser-fixes/tilde.stdout	target/parity/promoted-after-parser-fixes/tilde.stderr	
+PASS	tilde2	0	false	target/parity/promoted-after-parser-fixes/tilde2.stdout	target/parity/promoted-after-parser-fixes/tilde2.stderr	

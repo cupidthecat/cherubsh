@@ -1,0 +1,2 @@
+verdict	name	status	timed_out	stdout_path	stderr_path	tstout_path
+xfail	braces	1	false	target/parity/braces-after-brace-token/braces.stdout	target/parity/braces-after-brace-token/braces.stderr	/tmp/cupid-bashtst-767318-braces-1778867992640792551.out

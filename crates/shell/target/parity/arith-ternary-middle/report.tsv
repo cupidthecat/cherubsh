@@ -1,0 +1,2 @@
+verdict	name	status	timed_out	stdout_path	stderr_path	tstout_path
+xfail	arith	1	false	target/parity/arith-ternary-middle/arith.stdout	target/parity/arith-ternary-middle/arith.stderr	/tmp/cupid-bashtst-757105-arith-1778867396071097364.out

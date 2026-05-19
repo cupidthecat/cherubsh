@@ -1,0 +1,301 @@
+63,65c63,64
+< cupidshell: syntax error: trailing tokens at end of expression
+< cupidshell: syntax error: expected ':' in ternary
+< $((0 ? x+=2 : 20))
+---
+> ./arith.tests: line 127: 1 ? 20 : x+=2: attempted assignment to non-variable (error token is "+=2")
+> 20
+84,97c83,92
+< cupidshell: syntax error: invalid base 3425
+< $(( 3425#56 ))
+< 0
+< cupidshell: syntax error: trailing tokens at end of expression
+< $(( 7 = 43 ))
+< cupidshell: syntax error: digit 4 out of range for base 2
+< $(( 2#44 ))
+< cupidshell: division by 0 (error token is "0")
+< $(( 44 / 0 ))
+< cupidshell: syntax error: unexpected character '$'
+< $(( jv += \$iv ))
+< cupidshell: let: rv = 7 + (43 * 6: syntax error: missing ')'
+< cupidshell: syntax error: invalid base 0
+< cupidshell: syntax error: invalid digit '#' in base 2
+---
+> ./arith.tests: line 162: 3425#56: invalid arithmetic base (error token is "3425#56")
+> ./arith.tests: line 165: 2#: invalid integer constant (error token is "2#")
+> ./arith.tests: line 168: 7 = 43 : attempted assignment to non-variable (error token is "= 43 ")
+> ./arith.tests: line 169: 2#44: value too great for base (error token is "2#44")
+> ./arith.tests: line 170: 44 / 0 : division by 0 (error token is "0 ")
+> ./arith.tests: line 171: let: jv += $iv: syntax error: operand expected (error token is "$iv")
+> ./arith.tests: line 172: jv += $iv : syntax error: operand expected (error token is "$iv ")
+> ./arith.tests: line 173: let: rv = 7 + (43 * 6: missing `)' (error token is "6")
+> ./arith.tests: line 177: 0#4: invalid number (error token is "0#4")
+> ./arith.tests: line 178: 2#110#11: invalid number (error token is "2#110#11")
+102d96
+< cupidshell: syntax error: unexpected token Eof
+106,107c100
+< cupidshell: syntax error: unexpected token Eof
+< $(( ( 4 + A ) + 4 ))
+---
+> ./arith.tests: line 196: 4 + : syntax error: operand expected (error token is "+ ")
+109,114c102,104
+< cupidshell: syntax error: unexpected token Colon
+< $(( 4 ? : $A ))
+< cupidshell: syntax error: expected ':' in ternary
+< $(( 1 ? 20 ))
+< cupidshell: syntax error: unexpected token Eof
+< $(( 4 ? 20 : ))
+---
+> ./arith.tests: line 201: 4 ? : 3 + 5 : expression expected (error token is ": 3 + 5 ")
+> ./arith.tests: line 202: 1 ? 20 : `:' expected for conditional expression (error token is "20 ")
+> ./arith.tests: line 203: 4 ? 20 : : expression expected (error token is ": ")
+116,117c106
+< cupidshell: syntax error: trailing tokens at end of expression
+< $(( 0 && B=42 ))
+---
+> ./arith.tests: line 209: 0 && B=42 : attempted assignment to non-variable (error token is "=42 ")
+119,120c108
+< cupidshell: syntax error: trailing tokens at end of expression
+< $(( 1 || B=88 ))
+---
+> ./arith.tests: line 212: 1 || B=88 : attempted assignment to non-variable (error token is "=88 ")
+145,152d132
+< cupidshell: syntax error: ++/-- requires identifier
+< $(( ++7 ))
+< cupidshell: syntax error: trailing tokens at end of expression
+< $(( 7-- ))
+< cupidshell: syntax error: trailing tokens at end of expression
+< $(( --x=7 ))
+< cupidshell: syntax error: trailing tokens at end of expression
+< $(( ++x=7 ))
+153a134,139
+> ./arith.tests: line 260: 7-- : syntax error: operand expected (error token is "- ")
+> ./arith.tests: line 262: --x=7 : attempted assignment to non-variable (error token is "=7 ")
+> ./arith.tests: line 263: ++x=7 : attempted assignment to non-variable (error token is "=7 ")
+> ./arith.tests: line 265: x++=7 : attempted assignment to non-variable (error token is "=7 ")
+> ./arith.tests: line 266: x--=7 : attempted assignment to non-variable (error token is "=7 ")
+> 4
+154a141
+> -7
+157,161d143
+< -7
+< cupidshell: syntax error: ++/-- requires identifier
+< $(( ++7 ))
+< cupidshell: syntax error: ++/-- requires identifier
+< $(( --7 ))
+164,173c146,151
+< cupidshell: syntax error: trailing tokens at end of expression
+< $(( 4-- ))
+< cupidshell: syntax error: trailing tokens at end of expression
+< $(( 4++ ))
+< cupidshell: syntax error: trailing tokens at end of expression
+< $(( 4 -- ))
+< cupidshell: syntax error: trailing tokens at end of expression
+< $(( 4 ++ ))
+< 
+< 
+---
+> ./arith1.sub: line 15: 4-- : syntax error: operand expected (error token is "- ")
+> ./arith1.sub: line 16: 4++ : syntax error: operand expected (error token is "+ ")
+> ./arith1.sub: line 17: 4 -- : syntax error: operand expected (error token is "- ")
+> ./arith1.sub: line 18: 4 ++ : syntax error: operand expected (error token is "+ ")
+> 1
+> 2
+186,202c164,173
+< cupidshell: syntax error: ++/-- requires identifier
+< cupidshell: syntax error: ++/-- requires identifier
+< cupidshell: syntax error: ++/-- requires identifier
+< $(( +++7 ))
+< cupidshell: syntax error: ++/-- requires identifier
+< $(( ++ + 7 ))
+< cupidshell: syntax error: ++/-- requires identifier
+< cupidshell: syntax error: ++/-- requires identifier
+< $(( --7 ))
+< cupidshell: syntax error: ++/-- requires identifier
+< $(( ++7 ))
+< cupidshell: syntax error: ++/-- requires identifier
+< $(( -- 7 ))
+< cupidshell: syntax error: ++/-- requires identifier
+< $(( ++ 7 ))
+< 
+< 
+---
+> ./arith1.sub: line 48: ((: ++ : syntax error: operand expected (error token is "+ ")
+> 7
+> 7
+> ./arith1.sub: line 51: ((: -- : syntax error: operand expected (error token is "- ")
+> 7
+> 7
+> 7
+> 7
+> 1
+> 2
+209,213c180,182
+< cupidshell: syntax error: trailing tokens at end of expression
+< $(( 4+++a ))
+< 1
+< cupidshell: syntax error: trailing tokens at end of expression
+< $(( 4---a ))
+---
+> 6
+> 2
+> 3
+217,244c186,204
+< cupidshell: syntax error: ++/-- requires identifier
+< cupidshell: syntax error: ++/-- requires identifier
+< $(( ---7 ))
+< cupidshell: syntax error: ++/-- requires identifier
+< $(( -- - 7 ))
+< cupidshell: syntax error: ++/-- requires identifier
+< cupidshell: syntax error: ++/-- requires identifier
+< $(( ++7 ))
+< cupidshell: syntax error: ++/-- requires identifier
+< $(( ++ + 7 ))
+< cupidshell: syntax error: ++/-- requires identifier
+< $(( ++-7 ))
+< cupidshell: syntax error: ++/-- requires identifier
+< $(( ++ - 7 ))
+< cupidshell: syntax error: ++/-- requires identifier
+< $(( +--7 ))
+< cupidshell: syntax error: ++/-- requires identifier
+< $(( -- + 7 ))
+< 
+< 
+< 
+< 
+< 
+< 
+< 
+< 
+< 
+< random sequences differ
+---
+> ./arith2.sub: line 46: ((: -- : syntax error: operand expected (error token is "- ")
+> -7
+> -7
+> ./arith2.sub: line 50: ((: ++ : syntax error: operand expected (error token is "+ ")
+> 7
+> 7
+> -7
+> -7
+> 7
+> 7
+> 1
+> 1
+> 4
+> 5
+> -3
+> 2
+> 4
+> 5000
+> 5000
+247d206
+< cupidshell: syntax error: ++/-- requires identifier
+251,259d209
+< cupidshell: arithmetic overflow
+< cupidshell: arithmetic overflow
+< warning: your machine does not support 64-bit arithmetic using intmax_t
+< cupidshell: syntax error: unexpected token Percent
+< $(( $intmax_min1 % -1 ))
+< cupidshell: syntax error: invalid number 9223372036854775808
+< $(( $intmax_min2 % -1 ))
+< cupidshell: syntax error: unexpected token Percent
+< $(( $intmax_max % -1 ))
+261,262d210
+< cupidshell: arithmetic overflow
+< -9223372036854775808
+264,267d211
+< cupidshell: syntax error: unexpected token Slash
+< $(( $intmax_min1 / -1 ))
+< cupidshell: syntax error: invalid number 9223372036854775808
+< $(( $intmax_min2 / -1 ))
+269,274d212
+< cupidshell: arithmetic overflow
+< -9223372036854775808
+< cupidshell: syntax error: unexpected token Star
+< $(( $intmax_min1 * -1 ))
+< cupidshell: syntax error: invalid number 9223372036854775808
+< $(( $intmax_min2 * -1 ))
+276c214,220
+< cupidshell: arithmetic overflow
+---
+> 0
+> 0
+> -9223372036854775808
+> -9223372036854775808
+> -9223372036854775808
+> -9223372036854775808
+> -9223372036854775808
+278,283c222,229
+< cupidshell: syntax error: unexpected token Eof
+< $(( -${intmax_min1} ))
+< cupidshell: syntax error: invalid number 9223372036854775808
+< $(( -${intmax_min2} ))
+< {-2..}
+< cupidshell: syntax error: expected ':' in ternary
+---
+> -9223372036854775808
+> -9223372036854775808
+> -9223372036854775808
+> -9223372036854775808
+> 9223372036854775805 9223372036854775806 9223372036854775807
+> 123 456
+> 123 456
+> 123 456
+285,287d230
+< cupidshell: syntax error: expected ':' in ternary
+< 123 123
+< cupidshell: syntax error: expected ':' in ternary
+289,291d231
+< cupidshell: syntax error: expected ':' in ternary
+< 123 123
+< cupidshell: syntax error: expected ':' in ternary
+293,298c233,235
+< cupidshell: syntax error: expected ':' in ternary
+< 456 123
+< cupidshell: syntax error: expected ':' in ternary
+< 
+< 
+< 
+---
+> 1
+> 1 2 3 4 5 6 7
+> 0 1 2 3 4 5 6 7
+302,309c239,242
+< cupidshell: syntax error: expected ':' in ternary
+< ${PARAM:1 ? 4 : 2}
+< cupidshell: syntax error: expected ':' in ternary
+< ${PARAM:1 ? 4 : 2:1}
+< cupidshell: syntax error: expected ':' in ternary
+< ${PARAM: 4<5 ? 4 : 2}
+< cupidshell: syntax error: expected ':' in ternary
+< ${PARAM: 5>4 ? 4 : 2:1}
+---
+> efg
+> e
+> efg
+> e
+315d247
+< cupidshell: syntax error: expected ':' in ternary
+317d248
+< cupidshell: syntax error: expected ':' in ternary
+319,320c250
+< cupidshell: syntax error: expected ':' in ternary
+< 1
+---
+> 0
+323,326c253,255
+< cupidshell: syntax error: trailing tokens at end of expression
+< cupidshell: syntax error: trailing tokens at end of expression
+< $((a b))
+< cupidshell: syntax error: trailing tokens at end of expression
+---
+> ./arith.tests: line 310: ((: x=9 y=41 : syntax error in expression (error token is "y=41 ")
+> ./arith.tests: line 314: a b: syntax error in expression (error token is "b")
+> ./arith.tests: line 315: ((: a b: syntax error in expression (error token is "b")
+333,334c262,263
+< 1
+< cupidshell: syntax error: trailing tokens at end of expression
+---
+> ./arith.tests: line 330: 'foo' : syntax error: operand expected (error token is "'foo' ")
+> ./arith.tests: line 333: b[c]d: syntax error in expression (error token is "d")

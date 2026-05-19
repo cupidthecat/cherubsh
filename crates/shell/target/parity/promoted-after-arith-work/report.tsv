@@ -1,0 +1,7 @@
+verdict	name	status	timed_out	stdout_path	stderr_path	tstout_path
+PASS	alias	0	false	target/parity/promoted-after-arith-work/alias.stdout	target/parity/promoted-after-arith-work/alias.stderr	
+PASS	appendop	0	false	target/parity/promoted-after-arith-work/appendop.stdout	target/parity/promoted-after-arith-work/appendop.stderr	
+PASS	mapfile	0	false	target/parity/promoted-after-arith-work/mapfile.stdout	target/parity/promoted-after-arith-work/mapfile.stderr	
+PASS	strip	0	false	target/parity/promoted-after-arith-work/strip.stdout	target/parity/promoted-after-arith-work/strip.stderr	
+PASS	tilde	0	false	target/parity/promoted-after-arith-work/tilde.stdout	target/parity/promoted-after-arith-work/tilde.stderr	
+PASS	tilde2	0	false	target/parity/promoted-after-arith-work/tilde2.stdout	target/parity/promoted-after-arith-work/tilde2.stderr	

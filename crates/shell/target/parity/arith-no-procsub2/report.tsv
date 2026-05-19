@@ -1,0 +1,2 @@
+verdict	name	status	timed_out	stdout_path	stderr_path	tstout_path
+xfail	arith	1	false	target/parity/arith-no-procsub2/arith.stdout	target/parity/arith-no-procsub2/arith.stderr	/tmp/cupid-bashtst-755610-arith-1778867345697927856.out

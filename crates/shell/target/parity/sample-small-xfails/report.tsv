@@ -1,0 +1,6 @@
+verdict	name	status	timed_out	stdout_path	stderr_path	tstout_path
+xfail	printf	124	true	target/parity/sample-small-xfails/printf.stdout	target/parity/sample-small-xfails/printf.stderr	/tmp/cupid-bashtst-761531-printf-1778867699297260097.out
+xfail	redir	1	false	target/parity/sample-small-xfails/redir.stdout	target/parity/sample-small-xfails/redir.stderr	/tmp/cupid-bashtst-761531-redir-1778867759349327383.out
+xfail	rhs-exp	1	false	target/parity/sample-small-xfails/rhs-exp.stdout	target/parity/sample-small-xfails/rhs-exp.stderr	/tmp/cupid-bashtst-761531-rhs-exp-1778867759650008059.out
+xfail	test	124	true	target/parity/sample-small-xfails/test.stdout	target/parity/sample-small-xfails/test.stderr	/tmp/cupid-bashtst-761531-test-1778867759750453847.out
+xfail	type	1	false	target/parity/sample-small-xfails/type.stdout	target/parity/sample-small-xfails/type.stderr	/tmp/cupid-bashtst-761531-type-1778867819812285513.out

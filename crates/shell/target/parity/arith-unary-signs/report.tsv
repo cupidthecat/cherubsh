@@ -1,0 +1,2 @@
+verdict	name	status	timed_out	stdout_path	stderr_path	tstout_path
+xfail	arith	1	false	target/parity/arith-unary-signs/arith.stdout	target/parity/arith-unary-signs/arith.stderr	/tmp/cupid-bashtst-759017-arith-1778867474863959486.out
