@@ -11,3 +11,8 @@ members = [
   "crates/test-harness",
 ]
 resolver = "2"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+panic = "abort"

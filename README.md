@@ -151,3 +151,24 @@ The parity oracle must be Bash 5.2.21:
 - Or let `oracle/build-bash-5.2.21.sh` build one under `target/oracle/bash-5.2.21`.
 
 The oracle builder can download the Bash 5.2.21 release tarball when no local source tree is supplied. Set `BASH_SRC=/path/to/bash-5.2.21` to build from an existing source tree instead.
+
+## Benchmarking
+
+Use the benchmark harness to compare CherubSH against the Bash 5.2.21 oracle:
+
+```sh
+./tools/bench.sh
+```
+
+The benchmark spans startup, `-c` parsing, large script parsing, arithmetic and control flow, functions, aliases, variables, indexed and associative arrays, parameter expansion, pattern matching, word splitting, brace expansion, command substitution, `read`, `mapfile`, `printf`, `test`, command lookup, completion generation, redirections, here-documents, `eval`, subshells, background `wait`, pipelines, process substitution, external commands, shell options, positional parameters, `getopts`, traps, directory changes, sourcing, and glob scanning.
+
+Useful knobs:
+
+```sh
+RUNS=30 WARMUPS=5 ./tools/bench.sh
+BENCH_BUILD=0 BASH_521_PATH=/path/to/bash-5.2.21 ./tools/bench.sh
+```
+
+Results are printed as median/min/max milliseconds with a ratio against Bash 5.2.21. Raw samples are written to `target/bench/raw.tsv`, and the summarized table is written to `target/bench/summary.tsv`.
+
+Benchmarks are not parity tests. Run them on an otherwise idle machine, compare medians over multiple runs, and treat external pipeline cases as shell-plus-system measurements rather than pure interpreter speed.
