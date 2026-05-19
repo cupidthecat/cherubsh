@@ -1,0 +1,81 @@
+8,9c8,9
+< hi1
+< 1.0
+---
+> ./case.tests: line 42: xx: readonly variable
+> 1.1
+20c20
+< bad 3.1
+---
+> ok 3
+22,23c22,23
+< bad 5
+< bad 6
+---
+> ok 5
+> ok 6
+29,35c29,35
+< argv[1] = <\a\b\c\\d\e\f>
+< argv[1] = <\a\b\c\\d\e\f>
+< argv[1] = <abcdef>
+< oops 1
+< oops 2
+< oops 3
+< oops 4
+---
+> argv[1] = <\a\b\c\^A\d\e\f>
+> argv[1] = <\a\b\c\^A\d\e\f>
+> argv[1] = <abc^Adef>
+> ok 1
+> ok 2
+> ok 3
+> ok 4
+41,47c41,47
+< ok1fail2ok3fail4fail5
+< fail1fail2fail3fail4fail5
+< ok1fail2ok3fail4fail5
+< ok1ok2ok3ok4ok5
+< ok1fail2ok3fail4fail5
+< ok1fail2ok3fail4fail5
+< ok1fail2ok3fail4fail5
+---
+> ok1ok2ok3ok4ok5
+> ok1ok2ok3ok4ok5
+> ok1ok2ok3ok4ok5
+> ok1ok2ok3ok4ok5
+> ok1ok2ok3ok4ok5
+> ok1ok2ok3ok4ok5
+> ok1ok2ok3ok4ok5
+49,64c49,63
+< ok1fail2ok3fail4fail5
+< ok1fail2ok3fail4fail5
+< ok1fail2ok3fail4fail5
+< ok1ok2ok3ok4ok5
+< ok1fail2ok3fail4fail5
+< ok1fail2ok3fail4fail5
+< ok1fail2ok3fail4fail5
+< --- testing: nl
+< fail1fail2fail3ok4fail5
+< fail1fail2fail3fail4fail5
+< ok1fail2ok3fail4fail5
+< ok1ok2ok3ok4ok5
+< ok1fail2ok3fail4fail5
+< fail1fail2ok3fail4fail5
+< fail1fail2ok3fail4fail5
+< bad 6
+---
+> ok1ok2ok3ok4ok5
+> ok1ok2ok3ok4ok5
+> ok1ok2ok3ok4ok5
+> ok1ok2ok3ok4ok5
+> ok1ok2ok3ok4ok5
+> ok1ok2ok3ok4ok5
+> ok1ok2ok3ok4ok5
+> --- testing: del
+> ok1ok2ok3ok4ok5
+> ok1ok2ok3ok4ok5
+> ok1ok2ok3ok4ok5
+> ok1ok2ok3ok4ok5
+> ok1ok2ok3ok4ok5
+> ok1ok2ok3ok4ok5
+> ok1ok2ok3ok4ok5
