@@ -5,6 +5,7 @@ use cherubsh_common::{
 use cherubsh_lexer::Token;
 use cherubsh_lexer::TokenKind;
 use cherubsh_lexer::TokenValue;
+use std::sync::Arc;
 
 pub const CONN_AND_AND: u32 = 1;
 pub const CONN_OR_OR: u32 = 2;
@@ -169,7 +170,7 @@ pub struct Connection {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FunctionDef {
     pub name: WordDesc,
-    pub command: Box<Command>,
+    pub command: Arc<Command>,
     pub source_file: Option<String>,
     pub line: u32,
 }
@@ -255,20 +256,30 @@ pub struct Parser {
     index: usize,
     state: u32,
     input: String,
+    line_starts: Vec<usize>,
+    total_lines: u32,
     here_doc_count: usize,
     here_doc_body_offset: Option<usize>,
 }
 
 impl Parser {
     pub fn new(tokens: Vec<Token>, input: &str) -> Self {
+        let line_starts = line_starts(input);
+        let total_lines = line_starts.len() as u32;
         Self {
             tokens,
             index: 0,
             state: 0,
             input: input.to_string(),
+            line_starts,
+            total_lines,
             here_doc_count: 0,
             here_doc_body_offset: None,
         }
+    }
+
+    fn line_number_for_offset(&self, offset: usize) -> u32 {
+        line_number_for_offset_cached(&self.line_starts, self.input.len(), offset)
     }
 
     pub fn parse(&mut self) -> Result<Ast, ParseError> {
@@ -593,7 +604,7 @@ impl Parser {
     fn parse_command(&mut self) -> Result<Command, ParseError> {
         let command_line = self
             .peek_span()
-            .map(|span| line_number_for_offset(&self.input, span.start));
+            .map(|span| self.line_number_for_offset(span.start));
         let saved_here_doc_count = self.here_doc_count;
         let saved_here_doc_body_offset = self.here_doc_body_offset;
         self.here_doc_count = 0;
@@ -1069,8 +1080,7 @@ impl Parser {
 
         let first_body_line = self
             .compound_body_first_command_line()
-            .unwrap_or_else(|| line_number_for_offset(&self.input, name.span.start));
-        let total_lines = line_number_for_offset(&self.input, self.input.len());
+            .unwrap_or_else(|| self.line_number_for_offset(name.span.start));
         let command = self.parse_compound_body()?;
         // Body must be a compound command per bash; reject simple commands.
         if let CommandData::Simple(_) = command.data {
@@ -1082,9 +1092,10 @@ impl Parser {
         Ok(Command {
             data: CommandData::FunctionDef(FunctionDef {
                 name,
-                command: Box::new(command),
+                command: Arc::new(command),
                 source_file: None,
-                line: total_lines
+                line: self
+                    .total_lines
                     .saturating_sub(first_body_line)
                     .saturating_add(1),
             }),
@@ -1154,7 +1165,7 @@ impl Parser {
         }
         self.tokens
             .get(idx)
-            .map(|token| line_number_for_offset(&self.input, token.span.start))
+            .map(|token| self.line_number_for_offset(token.span.start))
     }
 
     fn parse_compound_body(&mut self) -> Result<Command, ParseError> {
@@ -2741,14 +2752,31 @@ fn default_redirect_fd(instruction: &RedirectInstruction) -> i32 {
     }
 }
 
+fn line_starts(input: &str) -> Vec<usize> {
+    let mut starts =
+        Vec::with_capacity(1 + input.as_bytes().iter().filter(|b| **b == b'\n').count());
+    starts.push(0);
+    for (idx, byte) in input.bytes().enumerate() {
+        if byte == b'\n' {
+            starts.push(idx + 1);
+        }
+    }
+    starts
+}
+
+fn line_number_for_offset_cached(line_starts: &[usize], input_len: usize, offset: usize) -> u32 {
+    let end = offset.min(input_len);
+    line_starts.partition_point(|start| *start <= end) as u32
+}
+
+#[cfg(test)]
 fn line_number_for_offset(input: &str, offset: usize) -> u32 {
-    let end = offset.min(input.len());
-    1 + input[..end].bytes().filter(|byte| *byte == b'\n').count() as u32
+    line_number_for_offset_cached(&line_starts(input), input.len(), offset)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{CommandData, Parser};
+    use super::{line_number_for_offset, CommandData, Parser};
     use cherubsh_lexer::Lexer;
 
     fn parse_command(input: &str) -> CommandData {
@@ -2767,6 +2795,19 @@ mod tests {
 
     fn parse_err(input: &str) {
         let _ = parse_error(input);
+    }
+
+    #[test]
+    fn cached_line_lookup_matches_scanning() {
+        let input = "one\ntwo\n\nfour";
+        let parser = Parser::new(Vec::new(), input);
+        for offset in 0..=input.len() {
+            assert_eq!(
+                parser.line_number_for_offset(offset),
+                line_number_for_offset(input, offset),
+                "offset {offset}"
+            );
+        }
     }
 
     fn parse_error(input: &str) -> super::ParseError {

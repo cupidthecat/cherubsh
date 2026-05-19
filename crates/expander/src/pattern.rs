@@ -411,6 +411,11 @@ pub fn fnmatch(pat: &[u8], text: &[u8], opts: GlobOpts) -> bool {
     match_tokens(&toks, text, opts)
 }
 
+/// Anchored match for callers that reuse a parsed pattern many times.
+pub fn fnmatch_parsed(toks: &[Tok], text: &[u8], opts: GlobOpts) -> bool {
+    match_tokens(toks, text, opts)
+}
+
 /// Whether a pathname pattern contains an explicit leading `.` match.
 ///
 /// Bash allows hidden directory entries without `dotglob` only when the
@@ -426,8 +431,15 @@ pub fn explicitly_matches_dot_name(pat: &[u8], text: &[u8], opts: GlobOpts) -> b
         return false;
     }
     let toks = parse(pat, opts);
+    explicitly_matches_dot_name_parsed(&toks, text, opts)
+}
+
+pub fn explicitly_matches_dot_name_parsed(toks: &[Tok], text: &[u8], opts: GlobOpts) -> bool {
+    if text.first() != Some(&b'.') {
+        return false;
+    }
     let mut ends = Vec::new();
-    collect_explicit_dot_ends(&toks, text, 0, opts, &mut ends);
+    collect_explicit_dot_ends(toks, text, 0, opts, &mut ends);
     ends.contains(&text.len())
 }
 
@@ -626,6 +638,21 @@ pub fn remove_pattern_with_opts(
     longest: bool,
     opts: GlobOpts,
 ) -> Vec<u8> {
+    if let Some(literal) = literal_pattern(pat, opts) {
+        if literal.is_empty() {
+            return s.to_vec();
+        }
+        if prefix {
+            if literal_starts_with(s, &literal, opts) {
+                return s[literal.len()..].to_vec();
+            }
+            return s.to_vec();
+        }
+        if literal_ends_with(s, &literal, opts) {
+            return s[..s.len() - literal.len()].to_vec();
+        }
+        return s.to_vec();
+    }
     let toks = parse(pat, opts);
     if toks.is_empty() {
         return s.to_vec();
@@ -698,6 +725,9 @@ pub fn pat_subst_with_replacer(
     opts: GlobOpts,
     mut replacement: impl FnMut(&[u8]) -> Vec<u8>,
 ) -> Vec<u8> {
+    if let Some(literal) = literal_pattern(pat, opts) {
+        return pat_subst_literal(s, &literal, mode, opts, &mut replacement);
+    }
     let toks = parse(pat, opts);
     if toks.is_empty() {
         return match mode {
@@ -787,6 +817,119 @@ pub fn pat_subst_with_replacer(
         }
     }
     out
+}
+
+fn literal_pattern(pat: &[u8], opts: GlobOpts) -> Option<Vec<u8>> {
+    if has_glob_meta(pat, opts) {
+        return None;
+    }
+    let toks = parse(pat, opts);
+    let mut literal = Vec::with_capacity(toks.len());
+    for tok in toks {
+        match tok {
+            Tok::Lit(b) => literal.push(b),
+            _ => return None,
+        }
+    }
+    Some(literal)
+}
+
+fn pat_subst_literal(
+    s: &[u8],
+    literal: &[u8],
+    mode: PatSubMode,
+    opts: GlobOpts,
+    replacement: &mut impl FnMut(&[u8]) -> Vec<u8>,
+) -> Vec<u8> {
+    if literal.is_empty() {
+        return match mode {
+            PatSubMode::PrefixAnchored => {
+                let rep = replacement(b"");
+                let mut out = Vec::with_capacity(rep.len() + s.len());
+                out.extend_from_slice(&rep);
+                out.extend_from_slice(s);
+                out
+            }
+            PatSubMode::SuffixAnchored => {
+                let rep = replacement(b"");
+                let mut out = Vec::with_capacity(s.len() + rep.len());
+                out.extend_from_slice(s);
+                out.extend_from_slice(&rep);
+                out
+            }
+            _ => s.to_vec(),
+        };
+    }
+
+    match mode {
+        PatSubMode::PrefixAnchored => {
+            if !literal_starts_with(s, literal, opts) {
+                return s.to_vec();
+            }
+            let rep = replacement(&s[..literal.len()]);
+            let mut out = Vec::with_capacity(rep.len() + s.len().saturating_sub(literal.len()));
+            out.extend_from_slice(&rep);
+            out.extend_from_slice(&s[literal.len()..]);
+            out
+        }
+        PatSubMode::SuffixAnchored => {
+            if !literal_ends_with(s, literal, opts) {
+                return s.to_vec();
+            }
+            let start = s.len() - literal.len();
+            let rep = replacement(&s[start..]);
+            let mut out = Vec::with_capacity(start + rep.len());
+            out.extend_from_slice(&s[..start]);
+            out.extend_from_slice(&rep);
+            out
+        }
+        PatSubMode::First | PatSubMode::All => {
+            let mut out = Vec::with_capacity(s.len());
+            let mut cursor = 0;
+            while let Some(rel) = find_literal(&s[cursor..], literal, opts) {
+                let start = cursor + rel;
+                let end = start + literal.len();
+                out.extend_from_slice(&s[cursor..start]);
+                let rep = replacement(&s[start..end]);
+                out.extend_from_slice(&rep);
+                cursor = end;
+                if mode == PatSubMode::First {
+                    break;
+                }
+            }
+            out.extend_from_slice(&s[cursor..]);
+            out
+        }
+    }
+}
+
+fn literal_starts_with(s: &[u8], literal: &[u8], opts: GlobOpts) -> bool {
+    s.len() >= literal.len() && literal_eq(&s[..literal.len()], literal, opts)
+}
+
+fn literal_ends_with(s: &[u8], literal: &[u8], opts: GlobOpts) -> bool {
+    s.len() >= literal.len() && literal_eq(&s[s.len() - literal.len()..], literal, opts)
+}
+
+fn find_literal(s: &[u8], literal: &[u8], opts: GlobOpts) -> Option<usize> {
+    if literal.len() > s.len() {
+        return None;
+    }
+    s.windows(literal.len())
+        .position(|window| literal_eq(window, literal, opts))
+}
+
+fn literal_eq(a: &[u8], b: &[u8], opts: GlobOpts) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    if opts.nocaseglob {
+        a.iter()
+            .zip(b.iter())
+            .all(|(lhs, rhs)| lhs.eq_ignore_ascii_case(rhs))
+    } else {
+        a == b
+    }
 }
 
 fn star_pattern_matches_empty_for_substitution(toks: &[Tok]) -> bool {
@@ -1134,6 +1277,19 @@ mod tests {
     }
 
     #[test]
+    fn remove_literal_patterns() {
+        assert_eq!(
+            remove_pattern(b"abcabc", b"abc", true, false),
+            b"abc".to_vec()
+        );
+        assert_eq!(
+            remove_pattern(b"abcabc", b"abc", false, true),
+            b"abc".to_vec()
+        );
+        assert_eq!(remove_pattern(b"a*b", br"a\*", true, false), b"b".to_vec());
+    }
+
+    #[test]
     fn patsub_first_and_all() {
         assert_eq!(
             pat_subst(b"aaabbb", b"a", b"X", PatSubMode::First),
@@ -1146,6 +1302,26 @@ mod tests {
         assert_eq!(pat_subst(b"", b"*", b"X", PatSubMode::First), b"X".to_vec());
         assert_eq!(pat_subst(b"", b"*", b"X", PatSubMode::All), b"X".to_vec());
         assert_eq!(pat_subst(b"", b"?", b"X", PatSubMode::All), b"".to_vec());
+    }
+
+    #[test]
+    fn patsub_literal_patterns_honor_modes_and_nocase() {
+        assert_eq!(
+            pat_subst(b"abab", b"ab", b"X", PatSubMode::All),
+            b"XX".to_vec()
+        );
+        assert_eq!(
+            pat_subst(b"abcabc", b"abc", b"X", PatSubMode::SuffixAnchored),
+            b"abcX".to_vec()
+        );
+        let opts = GlobOpts {
+            nocaseglob: true,
+            ..Default::default()
+        };
+        assert_eq!(
+            pat_subst_with_opts(b"aBaB", b"ab", b"X", PatSubMode::All, opts),
+            b"XX".to_vec()
+        );
     }
 
     #[test]

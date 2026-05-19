@@ -1,6 +1,7 @@
 //! Arithmetic evaluator for `$((expr))`, `((expr))`, `let`, `${var:off:len}`.
 //! Mirrors expr.c precedence and operator set.
 
+use std::borrow::Cow;
 use std::cell::Cell;
 
 use crate::ctx::{ExpCtx, MAX_ARITH_NESTING};
@@ -1043,18 +1044,18 @@ fn resolve_lvalue(name: &str, ctx: &mut ExpCtx) -> Result<LValue, ExpandError> {
 fn load_lvalue_value(lvalue: &LValue, ctx: &mut ExpCtx) -> Result<i64, ExpandError> {
     match lvalue {
         LValue::Scalar(name) => {
-            if let Some(v) = ctx.env.get(name) {
-                parse_value_recursive(&v, ctx, 0)
+            if let Some(v) = ctx.env.get_cow(name) {
+                finish_loaded_value(prepare_loaded_value(v), ctx, 0)
             } else {
                 Ok(0)
             }
         }
         LValue::Indexed { name, index } => {
-            if let Some(v) = ctx.env.get_array_indexed(name, *index) {
-                parse_value_recursive(&v, ctx, 0)
+            if let Some(v) = ctx.env.get_array_indexed_cow(name, *index) {
+                finish_loaded_value(prepare_loaded_value(v), ctx, 0)
             } else if *index == 0 {
-                if let Some(v) = ctx.env.get(name) {
-                    parse_value_recursive(&v, ctx, 0)
+                if let Some(v) = ctx.env.get_cow(name) {
+                    finish_loaded_value(prepare_loaded_value(v), ctx, 0)
                 } else {
                     Ok(0)
                 }
@@ -1063,8 +1064,8 @@ fn load_lvalue_value(lvalue: &LValue, ctx: &mut ExpCtx) -> Result<i64, ExpandErr
             }
         }
         LValue::Assoc { name, key } => {
-            if let Some(v) = ctx.env.get_array_assoc(name, key) {
-                parse_value_recursive(&v, ctx, 0)
+            if let Some(v) = ctx.env.get_array_assoc_cow(name, key) {
+                finish_loaded_value(prepare_loaded_value(v), ctx, 0)
             } else {
                 Ok(0)
             }
@@ -1239,10 +1240,44 @@ fn load_ident_value(name: &str, ctx: &mut ExpCtx) -> Result<i64, ExpandError> {
         let lvalue = resolve_lvalue(name, ctx)?;
         return load_lvalue_value(&lvalue, ctx);
     }
-    if let Some(v) = ctx.env.get(name) {
-        return parse_value_recursive(&v, ctx, 0);
+    if let Some(v) = ctx.env.get_cow(name) {
+        return finish_loaded_value(prepare_loaded_value(v), ctx, 0);
     }
     Ok(0)
+}
+
+enum LoadedValue {
+    Parsed(i64),
+    Recurse(String),
+}
+
+fn prepare_loaded_value(value: Cow<'_, str>) -> LoadedValue {
+    if let Some(value) = parse_plain_value(value.as_ref()) {
+        return LoadedValue::Parsed(value);
+    }
+    LoadedValue::Recurse(value.into_owned())
+}
+
+fn finish_loaded_value(
+    value: LoadedValue,
+    ctx: &mut ExpCtx,
+    depth: u32,
+) -> Result<i64, ExpandError> {
+    match value {
+        LoadedValue::Parsed(value) => Ok(value),
+        LoadedValue::Recurse(value) => parse_value_recursive(&value, ctx, depth),
+    }
+}
+
+fn parse_plain_value(s: &str) -> Option<i64> {
+    let trimmed = s.trim();
+    if trimmed.is_empty() {
+        return Some(0);
+    }
+    if let Ok(n) = trimmed.parse::<i64>() {
+        return Some(n);
+    }
+    parse_number(trimmed).ok()
 }
 
 fn parse_value_recursive(s: &str, ctx: &mut ExpCtx, depth: u32) -> Result<i64, ExpandError> {
@@ -1270,9 +1305,9 @@ fn parse_value_recursive(s: &str, ctx: &mut ExpCtx, depth: u32) -> Result<i64, E
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '[' || c == ']')
     {
-        if let Some(v) = ctx.env.get(trimmed) {
-            if v != *s {
-                return parse_value_recursive(&v, ctx, depth + 1);
+        if let Some(v) = ctx.env.get_cow(trimmed) {
+            if v.as_ref() != s {
+                return finish_loaded_value(prepare_loaded_value(v), ctx, depth + 1);
             }
         }
         return Ok(0);

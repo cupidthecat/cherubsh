@@ -5,10 +5,12 @@
 //! Entry point is `param_expand`, called from `internal::expand_word_internal`
 //! when it sees a `$` byte.
 
+use std::borrow::Cow;
+
 use cherubsh_common::{AssignError, Environment, ProcSubstDir, VarAttrs, VarKind};
 
 use crate::arith;
-use crate::buf::{ExpandBuf, CTLESC, CTLFIELD, CTLNUL, CTLRAW};
+use crate::buf::{is_ctl, ExpandBuf, CTLESC, CTLFIELD, CTLNUL, CTLRAW};
 use crate::cmdsub;
 use crate::ctx::ExpCtx;
 use crate::error::ExpandError;
@@ -68,17 +70,24 @@ pub fn param_expand(
                 j += 1;
             }
             let name = std::str::from_utf8(&bytes[start..j])
-                .map_err(|_| ExpandError::Other("invalid identifier".into()))?
-                .to_string();
+                .map_err(|_| ExpandError::Other("invalid identifier".into()))?;
             *i = j;
-            if let Some(target) = nameref::resolve(ctx.env, &name) {
-                if array_all_ref(&target).is_some() {
-                    push_parameter_value(ctx, &target, quoted, out)?;
-                    return Ok(true);
+            let is_nameref = ctx.env.attrs(name).contains(VarAttrs::NAMEREF);
+            if is_nameref {
+                if let Some(target) = nameref::resolve(ctx.env, name) {
+                    if array_all_ref(&target).is_some() {
+                        push_parameter_value(ctx, &target, quoted, out)?;
+                        return Ok(true);
+                    }
                 }
             }
-            let value = read_scalar(ctx, &name, false)?;
-            let value_bytes = quote::shell_string_to_bytes(&value);
+            let value_bytes = if !ctx.eval_unbound_error && !is_nameref {
+                let value = ctx.env.get_cow(name).unwrap_or(Cow::Borrowed(""));
+                quote::shell_string_to_bytes(value.as_ref())
+            } else {
+                let value = read_scalar(ctx, name, false)?;
+                quote::shell_string_to_bytes(value.as_ref())
+            };
             push_value(out, &value_bytes, quoted);
             Ok(true)
         }
@@ -478,9 +487,133 @@ fn parameter_brace_expand(
 ) -> Result<(), ExpandError> {
     let start = *i + 2; // past ${
     let posix_single_quote = quoted && ctx.env.option("posix");
+    if !quoted && !posix_single_quote {
+        if let Some((body, end)) = simple_brace_body(bytes, start) {
+            if try_fast_literal_brace_body(body, ctx, out)? {
+                *i = end;
+                return Ok(());
+            }
+        }
+    }
     let (body, end) = extract_brace_body(bytes, start, posix_single_quote)?;
     *i = end;
     expand_brace_body(&body, ctx, quoted, out)
+}
+
+fn simple_brace_body(bytes: &[u8], start: usize) -> Option<(&[u8], usize)> {
+    let mut i = start;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'}' => return Some((&bytes[start..i], i + 1)),
+            b'{' | b'$' | b'`' | b'\'' | b'"' | b'\\' => return None,
+            _ => i += 1,
+        }
+    }
+    None
+}
+
+fn try_fast_literal_brace_body(
+    body: &[u8],
+    ctx: &mut ExpCtx,
+    out: &mut ExpandBuf,
+) -> Result<bool, ExpandError> {
+    if let Some(bytes) = try_fast_literal_brace_body_bytes(body, ctx.env, ctx.eval_unbound_error)? {
+        out.push_raw(&bytes);
+        return Ok(true);
+    }
+    Ok(false)
+}
+
+pub(crate) fn try_fast_literal_braced_scalar(
+    word: &str,
+    env: &mut dyn Environment,
+) -> Result<Option<String>, ExpandError> {
+    let bytes = word.as_bytes();
+    if !bytes.starts_with(b"${") {
+        return Ok(None);
+    }
+    let Some((body, end)) = simple_brace_body(bytes, 2) else {
+        return Ok(None);
+    };
+    if end != bytes.len() {
+        return Ok(None);
+    }
+    let eval_unbound_error = env.option("nounset");
+    let Some(bytes) = try_fast_literal_brace_body_bytes(body, env, eval_unbound_error)? else {
+        return Ok(None);
+    };
+    Ok(Some(quote::bytes_to_shell_string(&bytes)))
+}
+
+fn try_fast_literal_brace_body_bytes(
+    body: &[u8],
+    env: &dyn Environment,
+    eval_unbound_error: bool,
+) -> Result<Option<Vec<u8>>, ExpandError> {
+    let Some(first) = body.first().copied() else {
+        return Ok(None);
+    };
+    if !(first == b'_' || first.is_ascii_alphabetic()) {
+        return Ok(None);
+    }
+    let mut p = 1;
+    while p < body.len() && (body[p] == b'_' || body[p].is_ascii_alphanumeric()) {
+        p += 1;
+    }
+    let name = std::str::from_utf8(&body[..p])
+        .map_err(|_| ExpandError::BadSubstitution("non-utf8 name".into()))?;
+    let opts = pattern_match_opts_env(env);
+    match body.get(p).copied() {
+        Some(b'#') | Some(b'%') => {
+            let pat_start = if body.get(p + 1) == body.get(p) {
+                p + 2
+            } else {
+                p + 1
+            };
+            let pattern = &body[pat_start..];
+            let Some(pattern) = raw_literal_pattern(pattern, opts) else {
+                return Ok(None);
+            };
+            let Some(value) = read_plain_scalar_cow_env(env, eval_unbound_error, name)? else {
+                return Ok(None);
+            };
+            let Some(bytes) = plain_shell_string_bytes(value.as_ref()) else {
+                return Ok(None);
+            };
+            Ok(Some(
+                literal_remove_slice(bytes, pattern, body[p] == b'#').to_vec(),
+            ))
+        }
+        Some(b'/') if body.get(p + 1) == Some(&b'/') => {
+            if env.option("patsub_replacement") {
+                return Ok(None);
+            }
+            let rest = &body[p + 2..];
+            let (pat_raw, rep_raw) = match rest.iter().position(|b| *b == b'/') {
+                Some(sep) => (&rest[..sep], &rest[sep + 1..]),
+                None => (rest, &b""[..]),
+            };
+            let (Some(pattern), Some(replacement)) = (
+                raw_literal_pattern(pat_raw, opts),
+                raw_literal_replacement(rep_raw),
+            ) else {
+                return Ok(None);
+            };
+            let Some(value) = read_plain_scalar_cow_env(env, eval_unbound_error, name)? else {
+                return Ok(None);
+            };
+            let Some(bytes) = plain_shell_string_bytes(value.as_ref()) else {
+                return Ok(None);
+            };
+            Ok(Some(literal_substitute(
+                bytes,
+                pattern,
+                replacement,
+                PatSubMode::All,
+            )))
+        }
+        _ => Ok(None),
+    }
 }
 
 fn expand_brace_body(
@@ -518,7 +651,7 @@ fn expand_brace_body(
     // `${$'name'%pattern}`.
     let name = if let Some((quoted_name, quoted_end)) = ansi_c_quoted_parameter_name(body, ctx)? {
         p = quoted_end;
-        quoted_name
+        Cow::Owned(quoted_name)
     } else {
         let name_start = p;
         while p < body.len() {
@@ -546,10 +679,12 @@ fn expand_brace_body(
         if p == name_start {
             return Err(bad_substitution_body(body));
         }
-        std::str::from_utf8(&body[name_start..p])
-            .map_err(|_| ExpandError::BadSubstitution("non-utf8 name".into()))?
-            .to_string()
+        Cow::Borrowed(
+            std::str::from_utf8(&body[name_start..p])
+                .map_err(|_| ExpandError::BadSubstitution("non-utf8 name".into()))?,
+        )
     };
+    let name = name.as_ref();
     if p >= body.len() {
         push_parameter_value(ctx, &name, quoted, out)?;
         return Ok(());
@@ -759,7 +894,7 @@ fn compute_length(name: &[u8], ctx: &mut ExpCtx) -> Result<usize, ExpandError> {
         let subscript = &nm[bracket + 1..close];
         if subscript == "@" || subscript == "*" {
             return Ok(match kind {
-                VarKind::Assoc => ctx.env.assoc_all(&target).map(|v| v.len()).unwrap_or(0),
+                VarKind::Assoc => ctx.env.assoc_len(&target),
                 VarKind::Indexed => ctx.env.array_len(&target),
                 _ => usize::from(ctx.env.get(base).is_some()),
             });
@@ -1813,11 +1948,7 @@ fn parameter_is_set(ctx: &mut ExpCtx, name: &str) -> bool {
     if let Some((base, _)) = array_all_ref(name) {
         let target = nameref::resolve(ctx.env, base).unwrap_or_else(|| base.to_string());
         return match ctx.env.kind(&target) {
-            VarKind::Assoc => ctx
-                .env
-                .assoc_keys(&target)
-                .map(|keys| !keys.is_empty())
-                .unwrap_or(false),
+            VarKind::Assoc => ctx.env.assoc_len(&target) > 0,
             VarKind::Indexed => ctx.env.array_len(&target) > 0,
             VarKind::Unset => false,
             _ => ctx.env.get(&target).is_some(),
@@ -1860,11 +1991,7 @@ fn parameter_has_transform_value(ctx: &mut ExpCtx, name: &str) -> bool {
     let base = array_all_ref(name).map(|(base, _)| base).unwrap_or(name);
     let target = nameref::resolve(ctx.env, base).unwrap_or_else(|| base.to_string());
     match ctx.env.kind(&target) {
-        VarKind::Assoc => ctx
-            .env
-            .assoc_keys(&target)
-            .map(|keys| !keys.is_empty())
-            .unwrap_or(false),
+        VarKind::Assoc => ctx.env.assoc_len(&target) > 0,
         VarKind::Indexed => ctx.env.array_len(&target) > 0,
         VarKind::Unset => false,
         _ => ctx.env.get(&target).is_some(),
@@ -2146,12 +2273,27 @@ fn handle_remove(
     quoted: bool,
     out: &mut ExpandBuf,
 ) -> Result<(), ExpandError> {
+    let opts = pattern_match_opts(ctx);
+    if !quoted {
+        if let Some(pattern) = raw_literal_pattern(pat_raw, opts) {
+            if let Some(value) = read_plain_scalar_cow(ctx, name)? {
+                if let Some(bytes) = plain_shell_string_bytes(value.as_ref()) {
+                    push_literal_remove(out, bytes, pattern, prefix);
+                    return Ok(());
+                }
+            }
+        }
+    }
     let pattern = expand_pattern(pat_raw, ctx)?;
     let value = read_value(ctx, name, quoted)?;
-    let opts = pattern_match_opts(ctx);
-    let result = transform_value(&value, |s| {
-        pat_remove_with_opts(s, &pattern, prefix, longest, opts)
-    });
+    let result = if literal_pattern(&pattern, opts).is_some() {
+        let pattern = pattern.as_slice();
+        transform_value(&value, |s| literal_remove(s, pattern, prefix))
+    } else {
+        transform_value(&value, |s| {
+            pat_remove_with_opts(s, &pattern, prefix, longest, opts)
+        })
+    };
     push_value_buf(
         out,
         &result,
@@ -2221,18 +2363,31 @@ fn handle_patsub(
         Some(s) => (&rest[idx..s], &rest[s + 1..]),
         None => (&rest[idx..], &b""[..]),
     };
-    let pattern = expand_pattern(pat_raw, ctx)?;
-    let rep_str = std::str::from_utf8(rep_raw).unwrap_or("");
-    let rep_expanded = crate::expand_word_string(rep_str, ctx, false)?;
     let mode = match mode_byte {
         Some(b'/') => PatSubMode::All,
         Some(b'#') => PatSubMode::PrefixAnchored,
         Some(b'%') => PatSubMode::SuffixAnchored,
         _ => PatSubMode::First,
     };
-    let value = read_value(ctx, name, quoted)?;
     let opts = pattern_match_opts(ctx);
     let patsub_replacement = ctx.env.option("patsub_replacement");
+    if !quoted && !patsub_replacement {
+        if let (Some(pattern), Some(replacement)) = (
+            raw_literal_pattern(pat_raw, opts),
+            raw_literal_replacement(rep_raw),
+        ) {
+            if let Some(value) = read_plain_scalar_cow(ctx, name)? {
+                if let Some(bytes) = plain_shell_string_bytes(value.as_ref()) {
+                    push_literal_substitute(out, bytes, pattern, replacement, mode);
+                    return Ok(());
+                }
+            }
+        }
+    }
+    let pattern = expand_pattern(pat_raw, ctx)?;
+    let rep_str = std::str::from_utf8(rep_raw).unwrap_or("");
+    let rep_expanded = crate::expand_word_string(rep_str, ctx, false)?;
+    let value = read_value(ctx, name, quoted)?;
     let rep_template = rep_expanded.as_bytes().to_vec();
     let rep_bytes = if patsub_replacement {
         Vec::new()
@@ -2240,6 +2395,11 @@ fn handle_patsub(
         crate::buf::dequote_bytes(&rep_template)
     };
     let result = transform_value(&value, |s| {
+        if !patsub_replacement {
+            if let Some(literal) = literal_pattern(&pattern, opts) {
+                return literal_substitute(s, literal, &rep_bytes, mode);
+            }
+        }
         if patsub_replacement {
             pat_subst_with_replacer(s, &pattern, mode, opts, |matched| {
                 expand_patsub_replacement(&rep_template, matched)
@@ -2258,6 +2418,178 @@ fn handle_patsub(
         ctx.split_fields,
     );
     Ok(())
+}
+
+fn literal_pattern(pattern: &[u8], opts: GlobOpts) -> Option<&[u8]> {
+    if opts.nocaseglob || opts.extglob || pattern.is_empty() {
+        return None;
+    }
+    let has_meta = pattern
+        .iter()
+        .any(|b| is_ctl(*b) || matches!(*b, b'*' | b'?' | b'[' | b'\\'));
+    (!has_meta).then_some(pattern)
+}
+
+fn raw_literal_pattern(pattern: &[u8], opts: GlobOpts) -> Option<&[u8]> {
+    if opts.nocaseglob || opts.extglob || pattern.is_empty() {
+        return None;
+    }
+    raw_plain_word(pattern)
+        .filter(|pat| !pat.iter().any(|b| matches!(*b, b'*' | b'?' | b'[' | b'\\')))
+}
+
+fn raw_literal_replacement(replacement: &[u8]) -> Option<&[u8]> {
+    raw_plain_word(replacement)
+}
+
+fn raw_plain_word(word: &[u8]) -> Option<&[u8]> {
+    let has_expansion_or_quote = word
+        .iter()
+        .any(|b| is_ctl(*b) || matches!(*b, b'$' | b'`' | b'\'' | b'"' | b'\\' | b'~'));
+    (!has_expansion_or_quote).then_some(word)
+}
+
+fn literal_remove(value: &[u8], pattern: &[u8], prefix: bool) -> Vec<u8> {
+    if prefix {
+        value
+            .strip_prefix(pattern)
+            .map_or_else(|| value.to_vec(), |rest| rest.to_vec())
+    } else {
+        value
+            .strip_suffix(pattern)
+            .map_or_else(|| value.to_vec(), |rest| rest.to_vec())
+    }
+}
+
+fn push_literal_remove(out: &mut ExpandBuf, value: &[u8], pattern: &[u8], prefix: bool) {
+    out.push_raw(literal_remove_slice(value, pattern, prefix));
+}
+
+fn literal_remove_slice<'a>(value: &'a [u8], pattern: &[u8], prefix: bool) -> &'a [u8] {
+    if prefix {
+        value.strip_prefix(pattern).unwrap_or(value)
+    } else {
+        value.strip_suffix(pattern).unwrap_or(value)
+    }
+}
+
+fn literal_substitute(
+    value: &[u8],
+    pattern: &[u8],
+    replacement: &[u8],
+    mode: PatSubMode,
+) -> Vec<u8> {
+    if pattern.is_empty() {
+        return value.to_vec();
+    }
+    match mode {
+        PatSubMode::PrefixAnchored => value.strip_prefix(pattern).map_or_else(
+            || value.to_vec(),
+            |rest| {
+                let mut out = Vec::with_capacity(replacement.len() + rest.len());
+                out.extend_from_slice(replacement);
+                out.extend_from_slice(rest);
+                out
+            },
+        ),
+        PatSubMode::SuffixAnchored => value.strip_suffix(pattern).map_or_else(
+            || value.to_vec(),
+            |rest| {
+                let mut out = Vec::with_capacity(rest.len() + replacement.len());
+                out.extend_from_slice(rest);
+                out.extend_from_slice(replacement);
+                out
+            },
+        ),
+        PatSubMode::First => {
+            if let Some(pos) = find_bytes(value, pattern) {
+                let mut out = Vec::with_capacity(value.len() - pattern.len() + replacement.len());
+                out.extend_from_slice(&value[..pos]);
+                out.extend_from_slice(replacement);
+                out.extend_from_slice(&value[pos + pattern.len()..]);
+                out
+            } else {
+                value.to_vec()
+            }
+        }
+        PatSubMode::All => {
+            let mut out = Vec::with_capacity(value.len());
+            let mut rest = value;
+            while let Some(pos) = find_bytes(rest, pattern) {
+                out.extend_from_slice(&rest[..pos]);
+                out.extend_from_slice(replacement);
+                rest = &rest[pos + pattern.len()..];
+            }
+            out.extend_from_slice(rest);
+            out
+        }
+    }
+}
+
+fn push_literal_substitute(
+    out: &mut ExpandBuf,
+    value: &[u8],
+    pattern: &[u8],
+    replacement: &[u8],
+    mode: PatSubMode,
+) {
+    if pattern.is_empty() {
+        out.push_raw(value);
+        return;
+    }
+    match mode {
+        PatSubMode::PrefixAnchored => {
+            if let Some(rest) = value.strip_prefix(pattern) {
+                out.push_raw(replacement);
+                out.push_raw(rest);
+            } else {
+                out.push_raw(value);
+            }
+        }
+        PatSubMode::SuffixAnchored => {
+            if let Some(rest) = value.strip_suffix(pattern) {
+                out.push_raw(rest);
+                out.push_raw(replacement);
+            } else {
+                out.push_raw(value);
+            }
+        }
+        PatSubMode::First => {
+            if let Some(pos) = find_bytes(value, pattern) {
+                out.push_raw(&value[..pos]);
+                out.push_raw(replacement);
+                out.push_raw(&value[pos + pattern.len()..]);
+            } else {
+                out.push_raw(value);
+            }
+        }
+        PatSubMode::All => {
+            let mut rest = value;
+            while let Some(pos) = find_bytes(rest, pattern) {
+                out.push_raw(&rest[..pos]);
+                out.push_raw(replacement);
+                rest = &rest[pos + pattern.len()..];
+            }
+            out.push_raw(rest);
+        }
+    }
+}
+
+fn find_bytes(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+    let (&first, rest) = needle.split_first()?;
+    let last_start = haystack.len().checked_sub(needle.len())?;
+    let mut pos = 0;
+    while pos <= last_start {
+        let rel = haystack[pos..=last_start]
+            .iter()
+            .position(|b| *b == first)?;
+        pos += rel;
+        if haystack[pos + 1..].starts_with(rest) {
+            return Some(pos);
+        }
+        pos += 1;
+    }
+    None
 }
 
 fn pattern_bracket_expr_end(bytes: &[u8], start: usize) -> Option<usize> {
@@ -2376,9 +2708,13 @@ fn handle_casemod(
 }
 
 fn pattern_match_opts(ctx: &ExpCtx) -> GlobOpts {
+    pattern_match_opts_env(ctx.env)
+}
+
+fn pattern_match_opts_env(env: &dyn Environment) -> GlobOpts {
     GlobOpts {
-        nocaseglob: ctx.env.option("nocasematch"),
-        extglob: ctx.env.option("extglob"),
+        nocaseglob: env.option("nocasematch"),
+        extglob: env.option("extglob"),
         ..Default::default()
     }
 }
@@ -2950,6 +3286,46 @@ fn read_scalar(ctx: &mut ExpCtx, name: &str, length_mode: bool) -> Result<String
     }
 }
 
+fn read_plain_scalar_cow<'a>(
+    ctx: &'a mut ExpCtx,
+    name: &str,
+) -> Result<Option<Cow<'a, str>>, ExpandError> {
+    read_plain_scalar_cow_env(ctx.env, ctx.eval_unbound_error, name)
+}
+
+fn read_plain_scalar_cow_env<'a>(
+    env: &'a dyn Environment,
+    eval_unbound_error: bool,
+    name: &str,
+) -> Result<Option<Cow<'a, str>>, ExpandError> {
+    let Some(first) = name.as_bytes().first().copied() else {
+        return Ok(None);
+    };
+    if !(first == b'_' || first.is_ascii_alphabetic())
+        || !name
+            .as_bytes()
+            .iter()
+            .all(|b| *b == b'_' || b.is_ascii_alphanumeric())
+    {
+        return Ok(None);
+    }
+    if env.attrs(name).contains(VarAttrs::NAMEREF) {
+        return Ok(None);
+    }
+    let value = env.get_cow(name);
+    if eval_unbound_error && value.is_none() {
+        return Err(ExpandError::UnboundVariable(name.to_string()));
+    }
+    Ok(Some(value.unwrap_or(Cow::Borrowed(""))))
+}
+
+fn plain_shell_string_bytes(value: &str) -> Option<&[u8]> {
+    if !value.is_ascii() || value.as_bytes().iter().any(|b| is_ctl(*b)) {
+        return None;
+    }
+    Some(value.as_bytes())
+}
+
 fn report_array_subscript_error(env: &dyn cherubsh_common::Environment, label: &str) {
     if let (Some(source), Some(line)) = (env.diagnostic_source_name(), env.diagnostic_line()) {
         eprintln!("{source}: line {line}: {label}: bad array subscript");
@@ -3226,6 +3602,10 @@ fn push_value(out: &mut ExpandBuf, bytes: &[u8], quoted: bool) {
             }
         }
     } else {
+        if !bytes.iter().any(|b| is_ctl(*b)) {
+            out.push_raw(bytes);
+            return;
+        }
         for b in bytes {
             out.push_literal(*b);
         }
@@ -3536,11 +3916,7 @@ fn parse_indexed_subscript(
     if index >= 0 {
         return Ok(index);
     }
-    let Some(max) = ctx
-        .env
-        .array_keys(target)
-        .and_then(|keys| keys.into_iter().max())
-    else {
+    let Some(max) = ctx.env.array_max_index(target) else {
         return Err(ExpandError::InvalidArraySubscript(label.to_string()));
     };
     let resolved = max + 1 + index;
@@ -4568,6 +4944,16 @@ mod tests {
             })
         }
 
+        fn assoc_keys(&self, name: &str) -> Option<Vec<String>> {
+            self.assoc
+                .get(name)
+                .map(|items| items.keys().cloned().collect())
+        }
+
+        fn assoc_len(&self, name: &str) -> usize {
+            self.assoc.get(name).map(|items| items.len()).unwrap_or(0)
+        }
+
         fn kind(&self, name: &str) -> VarKind {
             if self.assoc.contains_key(name) {
                 VarKind::Assoc
@@ -4696,6 +5082,36 @@ mod tests {
             vec!["three", "ten"]
         );
         assert_eq!(expand_one(&mut env, r#""${a[@]: -1}""#), vec!["ten"]);
+    }
+
+    #[test]
+    fn assoc_length_uses_entry_count() {
+        let mut env = TestEnv::default();
+        env.assoc.insert(
+            "m".into(),
+            BTreeMap::from([("a".into(), "1".into()), ("b".into(), "2".into())]),
+        );
+
+        assert_eq!(expand_one(&mut env, "${#m[@]}"), vec!["2"]);
+    }
+
+    #[test]
+    fn literal_remove_and_substitute_match_pattern_output() {
+        let mut env = TestEnv::default();
+        env.vars.insert("s".into(), "alpha_beta_gamma_delta".into());
+
+        assert_eq!(
+            expand_one(&mut env, "${s//alpha/omega}"),
+            vec!["omega_beta_gamma_delta"]
+        );
+        assert_eq!(
+            expand_one(&mut env, "${s#alpha_}"),
+            vec!["beta_gamma_delta"]
+        );
+        assert_eq!(
+            expand_one(&mut env, "${s%_delta}"),
+            vec!["alpha_beta_gamma"]
+        );
     }
 
     #[test]

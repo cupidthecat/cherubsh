@@ -4,6 +4,8 @@
 //! semantics aim for byte-for-byte parity with bash where feasible - see the
 //! README in this crate for documented divergences.
 
+use std::borrow::Cow;
+
 use cherubsh_common::{Environment, Span, VarKind, W_NOPROCSUB};
 use cherubsh_parser::WordDesc as PWordDesc;
 
@@ -112,6 +114,12 @@ pub fn expand_assignment_rhs(
     env: &mut dyn Environment,
     runner: &mut dyn CommandRunner,
 ) -> Result<String, ExpandError> {
+    if let Some(value) = param::try_fast_literal_braced_scalar(s, env)? {
+        return Ok(value);
+    }
+    if let Some(name) = simple_parameter_word(s) {
+        return Ok(env.get(name).unwrap_or_default());
+    }
     let mut ctx = ExpCtx::new(env, runner);
     let wd = PWordDesc {
         text: s.to_string(),
@@ -133,6 +141,24 @@ pub fn expand_assignment_rhs(
         .map(|w| w.text)
         .collect::<Vec<_>>()
         .join(" "))
+}
+
+fn simple_parameter_word(s: &str) -> Option<&str> {
+    let name = s.strip_prefix('$')?;
+    if name.is_empty() {
+        return None;
+    }
+    if matches!(name, "?" | "#" | "$" | "!" | "-") || name.bytes().all(|b| b.is_ascii_digit()) {
+        return Some(name);
+    }
+    let mut chars = name.chars();
+    let first = chars.next()?;
+    if !(first == '_' || first.is_ascii_alphabetic()) {
+        return None;
+    }
+    chars
+        .all(|ch| ch == '_' || ch.is_ascii_alphanumeric())
+        .then_some(name)
 }
 
 /// Expand a `case` pattern without final quote removal. Bash keeps quote
@@ -165,7 +191,11 @@ pub fn expand_for_arith(
 }
 
 pub(crate) fn eval_arith_expression_impl(expr: &str, ctx: &mut ExpCtx) -> Result<i64, ExpandError> {
-    let inner = expand_arith_preserving_assoc_subscripts(expr, ctx)?;
+    let inner = if arith_needs_preexpansion(expr) {
+        Cow::Owned(expand_arith_preserving_assoc_subscripts(expr, ctx)?)
+    } else {
+        Cow::Borrowed(expr)
+    };
     if let Some(err) = invalid_escaped_index_subscript_error(&inner, ctx.env) {
         return Err(err);
     }
@@ -173,6 +203,12 @@ pub(crate) fn eval_arith_expression_impl(expr: &str, ctx: &mut ExpCtx) -> Result
         return Err(err);
     }
     arith::eval_preexpanded(&inner, ctx)
+}
+
+fn arith_needs_preexpansion(expr: &str) -> bool {
+    expr.as_bytes()
+        .iter()
+        .any(|b| matches!(*b, b'$' | b'`' | b'\\' | b'\'' | b'"'))
 }
 
 fn invalid_index_variable_subscript_error(

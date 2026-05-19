@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::BTreeMap;
 
 use cherubsh_common::{
@@ -72,10 +73,10 @@ pub fn expand_assignment_word(
 
     if let Some((name, subscript)) = array_lhs(lhs) {
         let target = assignment_target_name(env, name);
-        let target_name = target.as_str();
+        let target_name = target.as_ref();
         let value = expand_assignment_rhs(rhs, env, runner)?;
         return if env.kind(target_name) == VarKind::Assoc {
-            let key = expand_string_to_string(subscript, env, runner)?;
+            let key = expand_subscript_text(subscript, env, runner)?.into_owned();
             let value = if append {
                 append_value(
                     env.get_array_assoc(target_name, &key).unwrap_or_default(),
@@ -98,18 +99,14 @@ pub fn expand_assignment_word(
                 value,
             }))
         } else {
-            let idx_text = expand_string_to_string(subscript, env, runner)?;
+            let idx_text = expand_subscript_text(subscript, env, runner)?;
             let trimmed = idx_text.trim();
             if subscript.is_empty() || matches!(trimmed, "*" | "@") {
                 return Err(ExpandError::Other(format!(
                     "{name}[{trimmed}]: bad array subscript"
                 )));
             }
-            let index = if trimmed.is_empty() {
-                0
-            } else {
-                crate::arith::eval_preexpanded(&idx_text, &mut crate::ExpCtx::new(env, runner))?
-            };
+            let index = eval_indexed_subscript_text(&idx_text, env, runner)?;
             let index = normalize_indexed_subscript(
                 env,
                 target_name,
@@ -145,7 +142,7 @@ pub fn expand_assignment_word(
         return Ok(None);
     }
     let target = assignment_target_name(env, lhs);
-    let target_name = target.as_str();
+    let target_name = target.as_ref();
     if target_name != lhs {
         if let Some((name, subscript)) = array_lhs(target_name) {
             let value = expand_assignment_rhs(rhs, env, runner)?;
@@ -191,7 +188,7 @@ fn expand_array_element_assignment(
     runner: &mut dyn CommandRunner,
 ) -> Result<Option<ExpandedAssignment>, ExpandError> {
     if env.kind(name) == VarKind::Assoc {
-        let key = expand_string_to_string(subscript, env, runner)?;
+        let key = expand_subscript_text(subscript, env, runner)?.into_owned();
         let value = if append {
             append_value(
                 env.get_array_assoc(name, &key).unwrap_or_default(),
@@ -215,18 +212,14 @@ fn expand_array_element_assignment(
         }));
     }
 
-    let idx_text = expand_string_to_string(subscript, env, runner)?;
+    let idx_text = expand_subscript_text(subscript, env, runner)?;
     let trimmed = idx_text.trim();
     if subscript.is_empty() || matches!(trimmed, "*" | "@") {
         return Err(ExpandError::Other(format!(
             "{name}[{trimmed}]: bad array subscript"
         )));
     }
-    let index = if trimmed.is_empty() {
-        0
-    } else {
-        crate::arith::eval_preexpanded(&idx_text, &mut crate::ExpCtx::new(env, runner))?
-    };
+    let index = eval_indexed_subscript_text(&idx_text, env, runner)?;
     let index = normalize_indexed_subscript(env, name, index, &format!("{name}[{trimmed}]"))?;
     let value = if append {
         append_value(
@@ -251,22 +244,155 @@ fn expand_array_element_assignment(
     }))
 }
 
-fn assignment_target_name(env: &dyn Environment, name: &str) -> String {
-    if env.attrs(name).contains(VarAttrs::NAMEREF) {
-        env.resolve_nameref(name)
-            .unwrap_or_else(|| name.to_string())
+fn expand_subscript_text<'a>(
+    subscript: &'a str,
+    env: &mut dyn Environment,
+    runner: &mut dyn CommandRunner,
+) -> Result<Cow<'a, str>, ExpandError> {
+    if let Some(expanded) = fast_expand_simple_subscript(subscript, env) {
+        return Ok(Cow::Owned(expanded));
+    }
+    let needs_expansion = subscript
+        .as_bytes()
+        .iter()
+        .any(|b| matches!(*b, b'$' | b'`' | b'\\' | b'\'' | b'"'));
+    if needs_expansion {
+        expand_string_to_string(subscript, env, runner).map(Cow::Owned)
     } else {
-        name.to_string()
+        Ok(Cow::Borrowed(subscript))
+    }
+}
+
+fn fast_expand_simple_subscript(subscript: &str, env: &dyn Environment) -> Option<String> {
+    if !subscript.is_ascii() {
+        return None;
+    }
+    let bytes = subscript.as_bytes();
+    let body = if bytes.len() >= 2 && bytes.first() == Some(&b'"') && bytes.last() == Some(&b'"') {
+        &subscript[1..subscript.len() - 1]
+    } else if bytes.iter().any(|b| matches!(*b, b'\'' | b'"')) {
+        return None;
+    } else {
+        subscript
+    };
+    if body
+        .as_bytes()
+        .iter()
+        .any(|b| matches!(*b, b'\\' | b'\'' | b'"' | b'`' | b'~'))
+    {
+        return None;
+    }
+    let body_bytes = body.as_bytes();
+    if !body_bytes.contains(&b'$') {
+        return (body.len() != subscript.len()).then(|| body.to_string());
+    }
+    let nounset = env.option("nounset");
+    let mut out = String::with_capacity(body.len());
+    let mut i = 0;
+    while i < body_bytes.len() {
+        if body_bytes[i] != b'$' {
+            out.push(body_bytes[i] as char);
+            i += 1;
+            continue;
+        }
+        let Some(next) = body_bytes.get(i + 1).copied() else {
+            return None;
+        };
+        if !(next == b'_' || next.is_ascii_alphabetic()) {
+            return None;
+        }
+        let start = i + 1;
+        let mut end = start + 1;
+        while end < body_bytes.len()
+            && (body_bytes[end] == b'_' || body_bytes[end].is_ascii_alphanumeric())
+        {
+            end += 1;
+        }
+        let name = &body[start..end];
+        if env.attrs(name).contains(VarAttrs::NAMEREF) {
+            return None;
+        }
+        match env.get_cow(name) {
+            Some(value) => out.push_str(value.as_ref()),
+            None if nounset => return None,
+            None => {}
+        }
+        i = end;
+    }
+    Some(out)
+}
+
+fn eval_indexed_subscript_text(
+    text: &str,
+    env: &mut dyn Environment,
+    runner: &mut dyn CommandRunner,
+) -> Result<i64, ExpandError> {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return Ok(0);
+    }
+    if let Some(value) = fast_decimal_arith_value(trimmed, env) {
+        return Ok(value);
+    }
+    crate::arith::eval_preexpanded(text, &mut crate::ExpCtx::new(env, runner))
+}
+
+fn fast_decimal_arith_value(expr: &str, env: &dyn Environment) -> Option<i64> {
+    if let Some(value) = parse_plain_decimal(expr) {
+        return Some(value);
+    }
+    let first = expr.as_bytes().first().copied()?;
+    if !(first == b'_' || first.is_ascii_alphabetic())
+        || !expr
+            .as_bytes()
+            .iter()
+            .all(|b| *b == b'_' || b.is_ascii_alphanumeric())
+    {
+        return None;
+    }
+    let Some(value) = env.get_cow(expr) else {
+        return Some(0);
+    };
+    let value = value.trim();
+    if value.is_empty() {
+        return Some(0);
+    }
+    parse_plain_decimal(value)
+}
+
+fn parse_plain_decimal(value: &str) -> Option<i64> {
+    let (negative, digits) = value
+        .strip_prefix('-')
+        .map_or((false, value), |rest| (true, rest));
+    if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    if digits.len() > 1 && digits.starts_with('0') {
+        return None;
+    }
+    let parsed = digits.parse::<i64>().ok()?;
+    Some(if negative {
+        parsed.wrapping_neg()
+    } else {
+        parsed
+    })
+}
+
+fn assignment_target_name<'a>(env: &dyn Environment, name: &'a str) -> Cow<'a, str> {
+    if env.attrs(name).contains(VarAttrs::NAMEREF) {
+        Cow::Owned(
+            env.resolve_nameref(name)
+                .unwrap_or_else(|| name.to_string()),
+        )
+    } else {
+        Cow::Borrowed(name)
     }
 }
 
 fn unresolved_nameref(env: &dyn Environment, name: &str) -> bool {
     env.attrs(name).contains(VarAttrs::NAMEREF)
         && env
-            .iter_vars()
-            .into_iter()
-            .find(|snap| snap.name == name)
-            .and_then(|snap| snap.nameref_target)
+            .nameref_target(name)
             .as_deref()
             .unwrap_or_default()
             .is_empty()
@@ -299,7 +425,7 @@ fn expand_compound_assignment(
     }
 
     let target = assignment_target_name(env, name);
-    let target_name = target.as_str();
+    let target_name = target.as_ref();
     if env.kind(target_name) == VarKind::Assoc {
         let entries = parse_assoc_compound(target_name, body, append, env, runner)?;
         return Ok(ExpandedAssignment::AssocArray {
@@ -327,7 +453,7 @@ fn normalize_indexed_subscript(
         return Ok(index);
     }
     let max = match env.kind(name) {
-        VarKind::Indexed => env.array_keys(name).and_then(|keys| keys.into_iter().max()),
+        VarKind::Indexed => env.array_max_index(name),
         VarKind::Scalar if env.get(name).is_some() => Some(0),
         _ => None,
     }
@@ -478,8 +604,7 @@ fn parse_indexed_compound(
             };
             if index < 0 {
                 if compound_append {
-                    if let Some(max) = env.array_keys(name).and_then(|keys| keys.into_iter().max())
-                    {
+                    if let Some(max) = env.array_max_index(name) {
                         let resolved = max + 1 + index;
                         if resolved >= 0 {
                             index = resolved;

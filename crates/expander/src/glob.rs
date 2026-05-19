@@ -13,7 +13,10 @@ use cherubsh_common::Environment;
 
 use crate::buf::dequote_bytes;
 use crate::error::ExpandError;
-use crate::pattern::{explicitly_matches_dot_name, fnmatch, has_glob_meta, GlobOpts};
+use crate::pattern::{
+    explicitly_matches_dot_name, explicitly_matches_dot_name_parsed, fnmatch, fnmatch_parsed,
+    has_glob_meta, parse, GlobOpts, Tok,
+};
 use crate::wd::Wd;
 
 #[derive(Clone, Debug, Default)]
@@ -174,6 +177,7 @@ pub fn pathname_expand(wd: &Wd, env: &dyn Environment) -> Result<Vec<Wd>, Expand
         }
         // Wildcard segment.
         let mut next = Vec::new();
+        let segment_tokens = parse(segment, flags.opts);
         if flags.globstar && segment == b"**" {
             for d in &current_dirs {
                 if is_last {
@@ -216,7 +220,7 @@ pub fn pathname_expand(wd: &Wd, env: &dyn Environment) -> Result<Vec<Wd>, Expand
                 let name_os = e.file_name();
                 let name_bytes = name_os.as_encoded_bytes();
                 let name_vec = name_bytes.to_vec();
-                if matches_glob_entry(&name_vec, segment, &flags) {
+                if matches_glob_entry_parsed(&name_vec, segment, &segment_tokens, &flags) {
                     names.push((name_vec, e.path()));
                 }
             }
@@ -291,17 +295,27 @@ fn dequote_glob_literal_segment(segment: &[u8]) -> Vec<u8> {
 }
 
 fn matches_glob_entry(name: &[u8], segment: &[u8], flags: &GlobFlags) -> bool {
+    let tokens = parse(segment, flags.opts);
+    matches_glob_entry_parsed(name, segment, &tokens, flags)
+}
+
+fn matches_glob_entry_parsed(
+    name: &[u8],
+    segment: &[u8],
+    segment_tokens: &[Tok],
+    flags: &GlobFlags,
+) -> bool {
     if name == b"." || name == b".." {
         if flags.globskipdots || !explicitly_matches_dot_name(segment, name, flags.opts) {
             return false;
         }
     } else if name.first() == Some(&b'.')
         && !flags.dotglob
-        && !explicitly_matches_dot_name(segment, name, flags.opts)
+        && !explicitly_matches_dot_name_parsed(segment_tokens, name, flags.opts)
     {
         return false;
     }
-    fnmatch(segment, name, flags.opts) && !is_ignored(name, flags)
+    fnmatch_parsed(segment_tokens, name, flags.opts) && !is_ignored(name, flags)
 }
 
 fn split_globignore(value: &str) -> Vec<&[u8]> {
