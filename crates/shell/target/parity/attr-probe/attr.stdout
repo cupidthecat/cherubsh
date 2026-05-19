@@ -1,0 +1,73 @@
+1,8c1,8
+< after f1:declare -ar a=([0]="(1)")
+< cupidshell: a: readonly variable
+< after f2:declare -ar a=([0]="(1)")
+< cupidshell: a: readonly variable
+< after f3:declare -ar a=([0]="(1)")
+< cupidshell: a: readonly variable
+< after f4:declare -ar a=([0]="(1)")
+< after f2:declare -ar b=([0]="(2)")
+---
+> after f1:declare -ar a=([0]="1")
+> ./attr.tests: line 17: a: readonly variable
+> after f2:declare -ar a=([0]="1")
+> ./attr.tests: line 18: a: readonly variable
+> after f3:declare -ar a=([0]="1")
+> ./attr.tests: line 19: readonly: a: readonly variable
+> after f4:declare -ar a=([0]="1")
+> after f2:declare -ar b=([0]="2")
+10c10
+< after f4:declare -ar d=([0]="(4)")
+---
+> after f4:declare -ar d=([0]="4")
+14c14
+< cupidshell: p: readonly variable
+---
+> ./attr1.sub: line 26: p: readonly variable
+16c16
+< cupidshell: r: readonly variable
+---
+> ./attr1.sub: line 32: r: readonly variable
+18c18
+< cupidshell: r: readonly variable
+---
+> ./attr1.sub: line 36: r: readonly variable
+20c20
+< cupidshell: r: readonly variable
+---
+> ./attr1.sub: line 40: r: readonly variable
+22c22
+< cupidshell: r: readonly variable
+---
+> ./attr1.sub: line 44: readonly: r: readonly variable
+24,32c24,32
+< declare -ar x=([0]="(4)")
+< in func:declare -ar y=([0]="(4)")
+< declare -ar y=([0]="(4)")
+< in func:declare -ar z=([0]="(4)")
+< declare -ar z=([0]="(4)")
+< in func:declare -r y1="(4)"
+< declare -r y1="(4)"
+< in func:declare -r z1="(4)"
+< declare -r z1="(4)"
+---
+> declare -ar x=([0]="4")
+> in func:declare -ar y=([0]="4")
+> declare -ar y=([0]="4")
+> in func:declare -ar z=([0]="4")
+> declare -ar z=([0]="4")
+> in func:declare -ar y1=([0]="4")
+> declare -ar y1=([0]="4")
+> in func:declare -ar z1=([0]="4")
+> declare -ar z1=([0]="4")
+34,38c34
+< declare -ax r=([0]="(4)")
+< declare -ax r=([0]="(5)")
+< cupidshell: export: -a: invalid option
+< declare -ax r=([0]="(5)")
+< cupidshell: export: -a: invalid option
+---
+> declare -ax r=([0]="4")
+39a36,37
+> declare -ax r=([0]="6")
+> declare -ax r=([0]="7")

@@ -1,0 +1,2 @@
+verdict	name	status	timed_out	stdout_path	stderr_path	tstout_path
+xfail	attr	1	false	target/parity/attr-probe/attr.stdout	target/parity/attr-probe/attr.stderr	/tmp/cupid-bashtst-775170-attr-1778868338357613191.out

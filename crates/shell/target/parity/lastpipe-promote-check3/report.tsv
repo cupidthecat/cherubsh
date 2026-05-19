@@ -1,0 +1,2 @@
+verdict	name	status	timed_out	stdout_path	stderr_path	tstout_path
+PASS	lastpipe	0	false	target/parity/lastpipe-promote-check3/lastpipe.stdout	target/parity/lastpipe-promote-check3/lastpipe.stderr	

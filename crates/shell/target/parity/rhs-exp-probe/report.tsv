@@ -1,0 +1,2 @@
+verdict	name	status	timed_out	stdout_path	stderr_path	tstout_path
+xfail	rhs-exp	1	false	target/parity/rhs-exp-probe/rhs-exp.stdout	target/parity/rhs-exp-probe/rhs-exp.stderr	/tmp/cupid-bashtst-773810-rhs-exp-1778868274867449375.out

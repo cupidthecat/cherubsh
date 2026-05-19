@@ -1,0 +1,2 @@
+verdict	name	status	timed_out	stdout_path	stderr_path	tstout_path
+xfail	case	1	false	target/parity/case-probe/case.stdout	target/parity/case-probe/case.stderr	/tmp/cupid-bashtst-773794-case-1778868274848189963.out

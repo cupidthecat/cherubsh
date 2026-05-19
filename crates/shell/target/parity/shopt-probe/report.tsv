@@ -1,0 +1,2 @@
+verdict	name	status	timed_out	stdout_path	stderr_path	tstout_path
+xfail	shopt	1	false	target/parity/shopt-probe/shopt.stdout	target/parity/shopt-probe/shopt.stderr	/tmp/cupid-bashtst-774716-shopt-1778868317598676751.out

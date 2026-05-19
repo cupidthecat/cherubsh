@@ -1,0 +1,2 @@
+verdict	name	status	timed_out	stdout_path	stderr_path	tstout_path
+XPASS	attr	0	false	target/parity/attr-promote-check/attr.stdout	target/parity/attr-promote-check/attr.stderr	

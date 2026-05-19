@@ -1,0 +1,2 @@
+verdict	name	status	timed_out	stdout_path	stderr_path	tstout_path
+PASS	input-test	0	false	target/parity/input-promote-check5/input-test.stdout	target/parity/input-promote-check5/input-test.stderr	

@@ -1,0 +1,2 @@
+verdict	name	status	timed_out	stdout_path	stderr_path	tstout_path
+xfail	lastpipe	1	false	target/parity/lastpipe-promote-check1/lastpipe.stdout	target/parity/lastpipe-promote-check1/lastpipe.stderr	/tmp/cupid-bashtst-931421-lastpipe-1778870951888313576.out

@@ -1,0 +1,2 @@
+verdict	name	status	timed_out	stdout_path	stderr_path	tstout_path
+XPASS	input-test	0	false	target/parity/input-promote-check4/input-test.stdout	target/parity/input-promote-check4/input-test.stderr	

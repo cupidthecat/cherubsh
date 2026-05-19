@@ -1,0 +1,6 @@
+22,24c22
+< cat: -: Bad file descriptor
+< cat: closing standard input: Bad file descriptor
+< x=
+---
+> x=x

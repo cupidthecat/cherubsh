@@ -1,0 +1,2 @@
+verdict	name	status	timed_out	stdout_path	stderr_path	tstout_path
+XPASS	invert	0	false	target/parity/invert-promote-check/invert.stdout	target/parity/invert-promote-check/invert.stderr	
