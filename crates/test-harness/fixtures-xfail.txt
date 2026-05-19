@@ -1,0 +1,9 @@
+# Fixtures expected to diverge from bash-5.2.21 today.
+# Format: one fixture name (without .sh) per line. `#` comments allowed.
+# Curing a divergence ⇒ remove the line; XPass otherwise fails the sweep.
+#
+# This list reflects actual divergences observed in the
+# RUN_PARITY_TESTS=1 BASH_521_PATH=... cargo test --test parity sweep.
+# It is the truth-state of cherubsh vs bash-5.2.21 on the gap-fill set.
+
+# No fixture-level divergences are expected right now.

@@ -1,0 +1,6 @@
+# bash-5.2.21 upstream tests known to diverge under cherubsh.
+# Format: one test name per line (the "X" in run-X). `#` comments allowed.
+# Listed = expected to fail. If a listed test starts passing the parity
+# sweep errors out as XPass, prompting removal from this file.
+
+# Current upstream parity gaps from the full bash-5.2.21 sweep.
