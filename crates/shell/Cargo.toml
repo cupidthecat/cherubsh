@@ -1,0 +1,17 @@
+[package]
+name = "cherubsh"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+cherubsh-common = { path = "../common" }
+cherubsh-lexer = { path = "../lexer" }
+cherubsh-parser = { path = "../parser" }
+cherubsh-expander = { path = "../expander" }
+cherubsh-exec = { path = "../exec" }
+cherubsh-builtins = { path = "../builtins" }
+cherubsh-lineedit = { path = "../lineedit" }
+libc = "0.2"
+
+[dev-dependencies]
+cherubsh-test-harness = { path = "../test-harness" }
