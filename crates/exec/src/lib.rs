@@ -1,0 +1,549 @@
+use std::collections::{HashMap, HashSet};
+use std::time::{Duration, Instant};
+
+use cherubsh_common::{
+    Environment, CMD_IGNORE_RETURN, CMD_INVERT_RETURN, CMD_TIME_PIPELINE, CMD_TIME_POSIX,
+    W_ASSIGNMENT,
+};
+use cherubsh_expander::{ExpandError, ProcSubstHandle};
+use cherubsh_lexer::{Lexer, TokenKind};
+use cherubsh_parser::{
+    Ast, Command, CommandData, Parser, CONN_AMP, CONN_AND_AND, CONN_BAR_AND, CONN_NEWLINE,
+    CONN_OR_OR, CONN_PIPE, CONN_SEMI,
+};
+
+mod controlflow;
+mod coproc;
+mod function;
+mod pipeline;
+mod redirect;
+mod runner;
+mod shell_ops;
+mod simple;
+mod subshell;
+mod trap;
+mod util;
+mod xtrace;
+
+pub use runner::ExecRunner;
+
+pub use redirect::ExecError;
+
+#[derive(Default)]
+pub struct ExecState {
+    functions: HashMap<String, Command>,
+    function_traced: HashSet<String>,
+    suppress_err_traps: bool,
+    suppress_debug_traps: bool,
+}
+
+impl ExecState {
+    pub fn import_exported_functions(&mut self, env: &dyn Environment) {
+        for snap in env.iter_vars() {
+            let Some(value) = snap.scalar.as_deref() else {
+                continue;
+            };
+            let Some(name) = imported_function_name(&snap.name) else {
+                continue;
+            };
+            if let Some(function) = parse_imported_function(name, value) {
+                self.functions.insert(name.to_string(), function);
+            }
+        }
+    }
+}
+
+fn imported_function_name(env_name: &str) -> Option<&str> {
+    env_name
+        .strip_prefix("BASH_FUNC_")
+        .and_then(|rest| rest.strip_suffix("%%"))
+        .filter(|name| function_name_importable(name))
+}
+
+fn function_name_importable(name: &str) -> bool {
+    !name.is_empty()
+        && !name.contains('/')
+        && !name.contains('=')
+        && !name.chars().any(|ch| ch.is_control() || ch.is_whitespace())
+}
+
+fn parse_imported_function(name: &str, value: &str) -> Option<Command> {
+    if !value.starts_with("() {") {
+        return None;
+    }
+    let source = format!("{name} {value}");
+    let mut lex = Lexer::new(&source);
+    let mut tokens = Vec::new();
+    while let Some(tok) = lex.next_token() {
+        let end = tok.kind == TokenKind::End;
+        tokens.push(tok);
+        if end {
+            break;
+        }
+    }
+    let mut parser = Parser::new(tokens, &source);
+    let ast = parser.parse_input_unit().ok().flatten()?;
+    let CommandData::FunctionDef(function) = ast.root.data else {
+        return None;
+    };
+    (function.name.text == name).then(|| *function.command)
+}
+
+pub struct ExecResult {
+    pub status: i32,
+    pub exit_shell: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ExecMode {
+    Parent,
+    Child,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) enum Unwind {
+    Return(i32),
+    Break(u32),
+    Continue(u32),
+    AbortLine(i32),
+    Exit(i32),
+}
+
+pub(crate) struct Job {
+    pub(crate) pids: Vec<libc::pid_t>,
+}
+
+pub(crate) struct ExecContext<'a> {
+    pub(crate) last_status: i32,
+    pub(crate) functions: HashMap<String, Command>,
+    pub(crate) function_traced: HashSet<String>,
+    pub(crate) suppress_err_traps: bool,
+    pub(crate) suppress_debug_traps: bool,
+    pub(crate) jobs: Vec<Job>,
+    pub(crate) pending: Option<Unwind>,
+    pub(crate) loop_depth: u32,
+    pub(crate) function_depth: u32,
+    pub(crate) function_call_stack: Vec<u64>,
+    pub(crate) next_function_call_id: u64,
+    pub(crate) posix_special_assignment_persisted: HashSet<(String, u64)>,
+    pub(crate) explicit_function_exports: HashSet<(String, u64)>,
+    pub(crate) function_prefix_assignment_stack: Vec<HashSet<String>>,
+    pub(crate) debug_trap_scopes: Vec<bool>,
+    pub(crate) source_depth: u32,
+    pub(crate) errexit_suppressed: u32,
+    pub(crate) abort_line_depth: u32,
+    pub(crate) local_stack: Vec<HashMap<String, Option<String>>>,
+    pub(crate) proc_subst: Vec<ProcSubstHandle>,
+    pub(crate) funcnest_max: u32,
+    pub(crate) reuse_current_subshell: bool,
+    pub(crate) env: &'a mut (dyn Environment + 'a),
+}
+
+pub fn execute_in(ast: &Ast, env: &mut dyn Environment) -> ExecResult {
+    let mut state = ExecState::default();
+    execute_with_state(ast, env, &mut state)
+}
+
+pub fn execute_with_state(
+    ast: &Ast,
+    env: &mut dyn Environment,
+    state: &mut ExecState,
+) -> ExecResult {
+    let mut ctx = ExecContext::new(env);
+    ctx.functions = std::mem::take(&mut state.functions);
+    ctx.function_traced = std::mem::take(&mut state.function_traced);
+    ctx.suppress_err_traps = state.suppress_err_traps;
+    ctx.suppress_debug_traps = state.suppress_debug_traps;
+    let status = ctx.execute_command(&ast.root, ExecMode::Parent);
+    let (final_status, exit_shell) = match ctx.pending.take() {
+        Some(Unwind::Exit(n)) => (n, true),
+        _ => (status, false),
+    };
+    ctx.env.set_last_status(final_status);
+    state.functions = ctx.functions;
+    state.function_traced = ctx.function_traced;
+    ExecResult {
+        status: final_status,
+        exit_shell,
+    }
+}
+
+impl<'a> ExecContext<'a> {
+    fn new(env: &'a mut (dyn Environment + 'a)) -> Self {
+        let last = env.last_status();
+        let funcnest_max = env
+            .get("FUNCNEST")
+            .and_then(|v| v.parse::<u32>().ok())
+            .unwrap_or(0);
+        Self {
+            last_status: last,
+            functions: HashMap::new(),
+            function_traced: HashSet::new(),
+            suppress_err_traps: false,
+            suppress_debug_traps: false,
+            jobs: Vec::new(),
+            pending: None,
+            loop_depth: 0,
+            function_depth: 0,
+            function_call_stack: Vec::new(),
+            next_function_call_id: 0,
+            posix_special_assignment_persisted: HashSet::new(),
+            explicit_function_exports: HashSet::new(),
+            function_prefix_assignment_stack: Vec::new(),
+            debug_trap_scopes: Vec::new(),
+            source_depth: 0,
+            errexit_suppressed: 0,
+            abort_line_depth: 0,
+            local_stack: Vec::new(),
+            proc_subst: Vec::new(),
+            funcnest_max,
+            reuse_current_subshell: false,
+            env,
+        }
+    }
+
+    pub(crate) fn execute_command(&mut self, command: &Command, mode: ExecMode) -> i32 {
+        if self.pending.is_some() {
+            return self.last_status;
+        }
+        let proc_subst_mark = self.proc_subst.len();
+        let pushed_line = command.line > 0;
+        if pushed_line {
+            self.env.push_diagnostic_line(command.line);
+        }
+        let time_start = (command.flags & CMD_TIME_PIPELINE != 0).then(Instant::now);
+        let suppress_errexit = command.flags & CMD_INVERT_RETURN != 0;
+        if suppress_errexit {
+            self.errexit_suppressed += 1;
+        }
+        let raw = match mode {
+            ExecMode::Parent => {
+                if command.redirects.is_empty() {
+                    self.dispatch(command, mode)
+                } else {
+                    match redirect::apply_redirects_to_parent(self, &command.redirects) {
+                        Ok(_guard) => self.dispatch(command, mode),
+                        Err(err) => {
+                            err.report_with_env(self.env);
+                            if self.env.option("posix")
+                                && redirection_error_exits_for_command(command)
+                            {
+                                self.pending = Some(Unwind::Exit(1));
+                            }
+                            self.last_status = 1;
+                            1
+                        }
+                    }
+                }
+            }
+            ExecMode::Child => {
+                if let Err(err) = redirect::apply_redirects_to_child(self, &command.redirects) {
+                    err.report_with_env(self.env);
+                    self.last_status = 1;
+                    1
+                } else {
+                    self.dispatch(command, mode)
+                }
+            }
+        };
+        if suppress_errexit {
+            self.errexit_suppressed -= 1;
+        }
+        if let Some(start) = time_start {
+            report_pipeline_time(
+                self.env,
+                start.elapsed(),
+                command.flags & CMD_TIME_POSIX != 0,
+            );
+        }
+        let inverted = if command.flags & CMD_INVERT_RETURN != 0 {
+            if raw == 0 {
+                1
+            } else {
+                0
+            }
+        } else {
+            raw
+        };
+        self.last_status = inverted;
+        self.env.set_last_status(inverted);
+        self.maybe_run_err_trap(command, mode, inverted);
+        self.env.run_pending_traps_hook();
+        self.maybe_errexit(command);
+        self.close_proc_subst_since(proc_subst_mark);
+        if pushed_line {
+            self.env.pop_diagnostic_line();
+        }
+        inverted
+    }
+
+    pub(crate) fn register_proc_subst(&mut self, handles: Vec<ProcSubstHandle>) {
+        self.proc_subst.extend(handles);
+    }
+
+    pub(crate) fn mark_posix_special_assignment_persisted(&mut self, name: &str) {
+        for call_id in &self.function_call_stack {
+            self.posix_special_assignment_persisted
+                .insert((name.to_string(), *call_id));
+        }
+    }
+
+    pub(crate) fn posix_special_assignment_affects_call(&self, name: &str, call_id: u64) -> bool {
+        self.posix_special_assignment_persisted
+            .iter()
+            .any(|(stored_name, stored_call_id)| stored_name == name && *stored_call_id == call_id)
+    }
+
+    pub(crate) fn clear_posix_special_assignments_for_call(&mut self, call_id: u64) {
+        self.posix_special_assignment_persisted
+            .retain(|(_, affected_call_id)| *affected_call_id != call_id);
+    }
+
+    pub(crate) fn reuse_current_subshell_for_next_dispatch(&mut self) {
+        self.reuse_current_subshell = true;
+    }
+
+    pub(crate) fn with_abort_line_boundary<F>(&mut self, f: F) -> i32
+    where
+        F: FnOnce(&mut Self) -> i32,
+    {
+        self.abort_line_depth += 1;
+        let status = f(self);
+        self.abort_line_depth -= 1;
+        status
+    }
+
+    fn close_proc_subst_since(&mut self, mark: usize) {
+        for handle in self.proc_subst.drain(mark..).rev() {
+            if handle.fd >= 0 {
+                unsafe {
+                    libc::close(handle.fd);
+                }
+            }
+        }
+    }
+
+    fn maybe_errexit(&mut self, command: &Command) {
+        if self.errexit_suppressed > 0 {
+            return;
+        }
+        if self.pending.is_some() {
+            return;
+        }
+        if !self.env.option("errexit") {
+            return;
+        }
+        if command.flags & CMD_INVERT_RETURN != 0 {
+            return;
+        }
+        if matches!(
+            &command.data,
+            CommandData::If(_)
+                | CommandData::While(_)
+                | CommandData::Until(_)
+                | CommandData::FunctionDef(_)
+        ) {
+            return;
+        }
+        if let CommandData::Connection(conn) = &command.data {
+            if matches!(
+                conn.connector,
+                CONN_AND_AND | CONN_OR_OR | CONN_SEMI | CONN_NEWLINE | CONN_AMP
+            ) {
+                return;
+            }
+        }
+        if self.last_status != 0 {
+            self.pending = Some(Unwind::Exit(self.last_status));
+        }
+    }
+
+    fn maybe_run_err_trap(&mut self, command: &Command, mode: ExecMode, status: i32) {
+        if status == 0 || mode != ExecMode::Parent || self.suppress_err_traps {
+            return;
+        }
+        if self.errexit_suppressed > 0 {
+            return;
+        }
+        if command.flags & (CMD_IGNORE_RETURN | CMD_INVERT_RETURN) != 0 {
+            return;
+        }
+        match &command.data {
+            CommandData::Subshell(_) => {}
+            CommandData::Connection(conn) if matches!(conn.connector, CONN_PIPE | CONN_BAR_AND) => {
+            }
+            _ => return,
+        }
+        if self.function_depth > 0 && !self.env.option("errtrace") && !self.env.option("extdebug") {
+            return;
+        }
+        crate::trap::run_err_trap(self);
+    }
+
+    pub(crate) fn dispatch(&mut self, command: &Command, mode: ExecMode) -> i32 {
+        match &command.data {
+            CommandData::Simple(c) => simple::execute(self, c, command.flags, mode),
+            CommandData::Connection(c) => controlflow::execute_connection(self, c, mode),
+            CommandData::Subshell(c) => subshell::execute(self, c),
+            CommandData::Group(c) => self
+                .with_abort_line_boundary(|ctx| ctx.execute_command(&c.command, ExecMode::Parent)),
+            CommandData::FunctionDef(c) => function::define(self, c),
+            CommandData::If(c) => self
+                .with_abort_line_boundary(|ctx| controlflow::execute_if(ctx, c, ExecMode::Parent)),
+            CommandData::While(c) => self.with_abort_line_boundary(|ctx| {
+                controlflow::execute_while_or_until(
+                    ctx,
+                    &c.test,
+                    &c.action,
+                    ExecMode::Parent,
+                    false,
+                )
+            }),
+            CommandData::Until(c) => self.with_abort_line_boundary(|ctx| {
+                controlflow::execute_while_or_until(ctx, &c.test, &c.action, ExecMode::Parent, true)
+            }),
+            CommandData::For(c) => self
+                .with_abort_line_boundary(|ctx| controlflow::execute_for(ctx, c, ExecMode::Parent)),
+            CommandData::Case(c) => {
+                self.run_debug_trap_for_command(mode);
+                self.with_abort_line_boundary(|ctx| {
+                    controlflow::execute_case(ctx, c, ExecMode::Parent)
+                })
+            }
+            CommandData::Select(c) => {
+                self.run_debug_trap_for_command(mode);
+                self.with_abort_line_boundary(|ctx| {
+                    controlflow::execute_select(ctx, c, ExecMode::Parent)
+                })
+            }
+            CommandData::Arith(c) => {
+                self.run_debug_trap_for_command(mode);
+                let expr = c.expression.text.clone();
+                xtrace::trace(self, &format!("(( {} ))", expr.trim()));
+                if expr.trim().is_empty() {
+                    return 1;
+                }
+                use cherubsh_expander::expand_for_arith;
+                let mut runner = crate::runner::ExecRunner::with_functions(&self.functions);
+                match expand_for_arith(&expr, self.env, &mut runner) {
+                    Ok(v) => {
+                        if v == 0 {
+                            1
+                        } else {
+                            0
+                        }
+                    }
+                    Err(err) => {
+                        report_arith_command_error(self.env, err, &expr);
+                        1
+                    }
+                }
+            }
+            CommandData::ArithFor(c) => {
+                self.run_debug_trap_for_command(mode);
+                self.with_abort_line_boundary(|ctx| {
+                    controlflow::execute_arith_for(ctx, c, ExecMode::Parent)
+                })
+            }
+            CommandData::Cond(c) => {
+                self.run_debug_trap_for_command(mode);
+                cherubsh_builtins::cond::evaluate(c, self.env)
+            }
+            CommandData::Coproc(c) => coproc::execute(self, c),
+        }
+    }
+
+    pub(crate) fn run_debug_trap_for_command(&mut self, mode: ExecMode) {
+        let debug_trap_in_scope = mode == ExecMode::Parent
+            && !self.suppress_debug_traps
+            && ((self.function_depth == 0 && self.source_depth == 0)
+                || self.debug_trap_scopes.last().copied().unwrap_or(false));
+        if !debug_trap_in_scope {
+            return;
+        }
+        let _ = crate::trap::run_debug_trap(self);
+    }
+
+    pub(crate) fn unsupported(&mut self, feature: &str) -> i32 {
+        ExecError::new(format!("unsupported: {feature}")).report();
+        self.last_status = 2;
+        2
+    }
+}
+
+fn redirection_error_exits_for_command(command: &Command) -> bool {
+    let CommandData::Simple(simple) = &command.data else {
+        return false;
+    };
+    let Some(word) = simple
+        .words
+        .iter()
+        .find(|word| word.flags & W_ASSIGNMENT == 0)
+    else {
+        return false;
+    };
+    cherubsh_builtins::is_special(&word.text)
+}
+
+fn report_pipeline_time(env: &mut dyn Environment, elapsed: Duration, posix: bool) {
+    let default = if posix {
+        "real %2R\nuser %2U\nsys %2S"
+    } else {
+        "real %2R\nuser %2U\nsys %2S"
+    };
+    let format = env.get("TIMEFORMAT").unwrap_or_else(|| default.to_string());
+    let real = format!("{:.2}", elapsed.as_secs_f64());
+    let rendered = format
+        .replace("%2R", &real)
+        .replace("%R", &real)
+        .replace("%2U", "0.00")
+        .replace("%U", "0.00")
+        .replace("%2S", "0.00")
+        .replace("%S", "0.00");
+    eprintln!("{rendered}");
+}
+
+pub(crate) fn report_arith_command_error(env: &dyn Environment, err: ExpandError, expr: &str) {
+    if err.already_reported() {
+        return;
+    }
+    let message = err.into_shell_error(None).message;
+    let message = if arith_command_error_is_for_outer_expr(expr, &message) {
+        format!("((: {message}")
+    } else if message.starts_with('`') && message.contains("not a valid identifier") {
+        format!("((: {message}")
+    } else {
+        message
+    };
+    let message = normalize_quoted_assoc_arith_error(message);
+    let message = if expr.trim() == "--" {
+        message
+            .replace("((: --:", "((: -- :")
+            .replace("(error token is \"-\")", "(error token is \"- \")")
+    } else {
+        message
+    };
+    match (env.diagnostic_source_name(), env.diagnostic_line()) {
+        (Some(source), Some(line)) => eprintln!("{source}: line {line}: {message}"),
+        _ => eprintln!("cherubsh: {message}"),
+    }
+}
+
+fn normalize_quoted_assoc_arith_error(message: String) -> String {
+    if !message.contains("((: 'assoc[") {
+        return message;
+    }
+    message
+        .replace("\\[$(", "\\[\\$(")
+        .replace("\\\\]", "\\]")
+        .replace("\\\\[", "\\[")
+}
+
+fn arith_command_error_is_for_outer_expr(expr: &str, message: &str) -> bool {
+    let expr = expr.trim_start();
+    !expr.is_empty()
+        && (message.starts_with(expr)
+            || message.starts_with(expr.trim_end())
+            || (expr.starts_with('\'') && message.starts_with('\''))
+            || (expr.starts_with('"') && message.starts_with('"')))
+}

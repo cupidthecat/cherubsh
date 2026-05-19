@@ -1,0 +1,15 @@
+[package]
+name = "cherubsh-exec"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+cherubsh-common = { path = "../common" }
+cherubsh-expander = { path = "../expander" }
+cherubsh-parser = { path = "../parser" }
+cherubsh-lexer = { path = "../lexer" }
+cherubsh-builtins = { path = "../builtins" }
+libc = "0.2"

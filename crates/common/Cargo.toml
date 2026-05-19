@@ -1,0 +1,11 @@
+[package]
+name = "cherubsh-common"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+libc = "0.2"
+bitflags = "2"
