@@ -1,0 +1,13 @@
+[workspace]
+members = [
+  "crates/common",
+  "crates/lexer",
+  "crates/parser",
+  "crates/expander",
+  "crates/builtins",
+  "crates/exec",
+  "crates/lineedit",
+  "crates/shell",
+  "crates/test-harness",
+]
+resolver = "2"
