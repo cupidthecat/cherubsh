@@ -872,7 +872,7 @@ fn emit_b_escape(
 
 fn emit_common_escape(
     bytes: &[u8],
-    mut i: usize,
+    i: usize,
     out: &mut Vec<u8>,
     env: Option<&dyn Environment>,
 ) -> usize {

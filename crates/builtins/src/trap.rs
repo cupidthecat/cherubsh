@@ -1,4 +1,4 @@
-//! `trap` builtin. 
+//! `trap` builtin.
 
 use crate::common::{ansi_c_quote, report_diagnostic};
 use crate::getopt::{GetOpt, OptParser};

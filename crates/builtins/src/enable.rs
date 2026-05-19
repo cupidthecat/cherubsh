@@ -17,7 +17,6 @@ impl Builtin for Enable {
         let mut disable = false;
         let mut list_only = false;
         let mut posix_only = false;
-        let mut shopt_form = false;
         let mut load: Option<String> = None;
         let mut parser = OptParser::new(ctx.args, "adnpsf:");
         loop {
@@ -49,8 +48,6 @@ impl Builtin for Enable {
             eprintln!("cherubsh: enable: -f: dynamic loading not available");
             return 1;
         }
-        let _ = shopt_form;
-
         let rest = parser.remaining(ctx.args);
 
         if rest.is_empty() {
