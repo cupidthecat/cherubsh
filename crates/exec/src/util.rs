@@ -500,10 +500,10 @@ pub(crate) fn wait_for_pid(pid: libc::pid_t) -> i32 {
             }
             return 1;
         }
-        if unsafe { libc::WIFSTOPPED(status) } {
+        if libc::WIFSTOPPED(status) {
             // Foreground process stopped (e.g. ^Z): return immediately so
             // the shell regains the terminal. Status follows bash 128+sig.
-            return 128 + unsafe { libc::WSTOPSIG(status) };
+            return 128 + libc::WSTOPSIG(status);
         }
         return decode_wait_status(status);
     }
@@ -520,7 +520,7 @@ pub(crate) fn wait_for_pid_ignoring_stops(pid: libc::pid_t) -> i32 {
             }
             return 1;
         }
-        if unsafe { libc::WIFSTOPPED(status) } || unsafe { libc::WIFCONTINUED(status) } {
+        if libc::WIFSTOPPED(status) || libc::WIFCONTINUED(status) {
             continue;
         }
         return decode_wait_status(status);
@@ -528,12 +528,12 @@ pub(crate) fn wait_for_pid_ignoring_stops(pid: libc::pid_t) -> i32 {
 }
 
 pub(crate) fn decode_wait_status(status: i32) -> i32 {
-    if unsafe { libc::WIFEXITED(status) } {
-        unsafe { libc::WEXITSTATUS(status) }
-    } else if unsafe { libc::WIFSIGNALED(status) } {
-        128 + unsafe { libc::WTERMSIG(status) }
-    } else if unsafe { libc::WIFSTOPPED(status) } {
-        128 + unsafe { libc::WSTOPSIG(status) }
+    if libc::WIFEXITED(status) {
+        libc::WEXITSTATUS(status)
+    } else if libc::WIFSIGNALED(status) {
+        128 + libc::WTERMSIG(status)
+    } else if libc::WIFSTOPPED(status) {
+        128 + libc::WSTOPSIG(status)
     } else {
         1
     }

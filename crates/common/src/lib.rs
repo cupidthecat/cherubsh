@@ -124,16 +124,14 @@ impl ExitStatus {
     }
 
     pub fn from_wait_status(raw: i32) -> Self {
-        unsafe {
-            if libc::WIFEXITED(raw) {
-                Self(libc::WEXITSTATUS(raw))
-            } else if libc::WIFSIGNALED(raw) {
-                Self(128 + libc::WTERMSIG(raw))
-            } else if libc::WIFSTOPPED(raw) {
-                Self(128 + libc::WSTOPSIG(raw))
-            } else {
-                Self::FAILURE
-            }
+        if libc::WIFEXITED(raw) {
+            Self(libc::WEXITSTATUS(raw))
+        } else if libc::WIFSIGNALED(raw) {
+            Self(128 + libc::WTERMSIG(raw))
+        } else if libc::WIFSTOPPED(raw) {
+            Self(128 + libc::WSTOPSIG(raw))
+        } else {
+            Self::FAILURE
         }
     }
 
@@ -256,7 +254,7 @@ bitflags! {
 // Redirect flag from command.h.
 pub const REDIR_VARASSIGN: u32 = 0x01;
 
-/// Plumbing for alias expansion at lex time. 
+/// Plumbing for alias expansion at lex time.
 pub trait AliasTable {
     fn lookup(&self, name: &str) -> Option<String>;
     fn expansion_enabled(&self) -> bool;

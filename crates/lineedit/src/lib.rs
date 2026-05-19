@@ -13,8 +13,6 @@ mod key;
 mod killring;
 mod raw_mode;
 mod render;
-mod termcap;
-mod vi;
 
 pub use buffer::EditBuffer;
 pub use key::KeyEvent;

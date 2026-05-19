@@ -398,14 +398,12 @@ impl JobTable {
             if pid <= 0 {
                 break;
             }
-            unsafe {
-                if libc::WIFEXITED(status) || libc::WIFSIGNALED(status) {
-                    self.mark_dead(pid, status);
-                } else if libc::WIFSTOPPED(status) {
-                    self.mark_stopped(pid, libc::WSTOPSIG(status));
-                } else if libc::WIFCONTINUED(status) {
-                    self.mark_running(pid);
-                }
+            if libc::WIFEXITED(status) || libc::WIFSIGNALED(status) {
+                self.mark_dead(pid, status);
+            } else if libc::WIFSTOPPED(status) {
+                self.mark_stopped(pid, libc::WSTOPSIG(status));
+            } else if libc::WIFCONTINUED(status) {
+                self.mark_running(pid);
             }
             reaped.push((pid, status));
         }
@@ -437,15 +435,13 @@ impl JobTable {
 /// Decode a raw `waitpid` status into the bash-conventional 0..255 exit code
 /// (signal-terminated → 128+sig, exited → status, stopped → 128+sig).
 pub fn decode_status(raw: i32) -> i32 {
-    unsafe {
-        if libc::WIFEXITED(raw) {
-            libc::WEXITSTATUS(raw)
-        } else if libc::WIFSIGNALED(raw) {
-            128 + libc::WTERMSIG(raw)
-        } else if libc::WIFSTOPPED(raw) {
-            128 + libc::WSTOPSIG(raw)
-        } else {
-            1
-        }
+    if libc::WIFEXITED(raw) {
+        libc::WEXITSTATUS(raw)
+    } else if libc::WIFSIGNALED(raw) {
+        128 + libc::WTERMSIG(raw)
+    } else if libc::WIFSTOPPED(raw) {
+        128 + libc::WSTOPSIG(raw)
+    } else {
+        1
     }
 }

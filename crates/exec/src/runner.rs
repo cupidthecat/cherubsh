@@ -137,10 +137,10 @@ impl ExecRunner {
         unsafe {
             libc::waitpid(pid, &mut status, 0);
         }
-        let code = if unsafe { libc::WIFEXITED(status) } {
-            unsafe { libc::WEXITSTATUS(status) }
-        } else if unsafe { libc::WIFSIGNALED(status) } {
-            128 + unsafe { libc::WTERMSIG(status) }
+        let code = if libc::WIFEXITED(status) {
+            libc::WEXITSTATUS(status)
+        } else if libc::WIFSIGNALED(status) {
+            128 + libc::WTERMSIG(status)
         } else {
             1
         };

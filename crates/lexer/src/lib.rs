@@ -136,10 +136,6 @@ impl<'a> Lexer<'a> {
         self.posix_mode = enabled;
     }
 
-    fn pst(&self) -> u32 {
-        self.parser_state.as_ref().map(|s| s.get()).unwrap_or(0)
-    }
-
     pub fn next_token(&mut self) -> Option<Token> {
         if self.done {
             return None;
@@ -258,10 +254,6 @@ impl<'a> Lexer<'a> {
             .expect("offset within input");
         self.offset += ch.len_utf8();
         ch
-    }
-
-    fn peek_byte_at(&self, off: usize) -> Option<u8> {
-        self.input.as_bytes().get(off).copied()
     }
 
     fn emit_simple(&mut self, kind: TokenKind, start: usize, end: usize) -> Token {
@@ -1343,10 +1335,6 @@ impl<'a> Lexer<'a> {
         if !delimiter.is_empty() {
             heredocs.push_back((delimiter, strip_tabs));
         }
-    }
-
-    fn at_proc_subst(&self) -> bool {
-        self.starts_with_proc_subst()
     }
 
     fn starts_with_proc_subst(&self) -> bool {

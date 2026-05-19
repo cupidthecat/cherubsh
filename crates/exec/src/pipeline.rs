@@ -1,6 +1,6 @@
 use std::os::unix::io::RawFd;
 
-use cherubsh_common::jobs::{JobFlags, Process};
+use cherubsh_common::jobs::Process;
 use cherubsh_common::JobState;
 use cherubsh_parser::{
     Command, CommandData, CONN_AMP, CONN_AND_AND, CONN_BAR_AND, CONN_NEWLINE, CONN_OR_OR,
@@ -11,7 +11,7 @@ use crate::util::{
     decode_wait_status, reset_child_signal_handlers, tcsetpgrp_blocked, wait_for_pid,
     wait_for_pid_ignoring_stops,
 };
-use crate::{ExecContext, ExecMode, Job};
+use crate::{ExecContext, ExecMode};
 
 pub(crate) fn execute<'a>(
     ctx: &mut ExecContext<'a>,
@@ -250,8 +250,6 @@ pub(crate) fn spawn_background<'a>(ctx: &mut ExecContext<'a>, command: &Command)
             eprintln!("[{}] {}", jid.raw(), pid);
         }
     }
-    ctx.jobs.push(Job { pids: vec![pid] });
-    let _ = JobFlags::ASYNC;
     0
 }
 

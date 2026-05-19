@@ -20,7 +20,6 @@ pub(crate) fn execute<'a>(ctx: &mut ExecContext<'a>, subshell: &SubshellCommand)
             libc::signal(libc::SIGQUIT, libc::SIG_DFL);
             libc::signal(libc::SIGTERM, libc::SIG_DFL);
         }
-        ctx.jobs.clear();
         let status = ctx.with_abort_line_boundary(|ctx| {
             ctx.execute_command(&subshell.command, ExecMode::Child)
         });

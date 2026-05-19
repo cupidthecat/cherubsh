@@ -109,17 +109,12 @@ pub(crate) enum Unwind {
     Exit(i32),
 }
 
-pub(crate) struct Job {
-    pub(crate) pids: Vec<libc::pid_t>,
-}
-
 pub(crate) struct ExecContext<'a> {
     pub(crate) last_status: i32,
     pub(crate) functions: HashMap<String, Command>,
     pub(crate) function_traced: HashSet<String>,
     pub(crate) suppress_err_traps: bool,
     pub(crate) suppress_debug_traps: bool,
-    pub(crate) jobs: Vec<Job>,
     pub(crate) pending: Option<Unwind>,
     pub(crate) loop_depth: u32,
     pub(crate) function_depth: u32,
@@ -181,7 +176,6 @@ impl<'a> ExecContext<'a> {
             function_traced: HashSet::new(),
             suppress_err_traps: false,
             suppress_debug_traps: false,
-            jobs: Vec::new(),
             pending: None,
             loop_depth: 0,
             function_depth: 0,
