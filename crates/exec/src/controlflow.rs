@@ -7,6 +7,7 @@ use cherubsh_parser::{
     PatternList, SelectCommand, CONN_AMP, CONN_AND_AND, CONN_BAR_AND, CONN_NEWLINE, CONN_OR_OR,
     CONN_PIPE, CONN_SEMI,
 };
+use std::borrow::Cow;
 
 use crate::pipeline;
 use crate::util::{expand_one, expand_words};
@@ -145,17 +146,17 @@ fn collect_async_chain(command: &Command, out: &mut Vec<Command>) {
     out.push(command.clone());
 }
 
-fn collect_pipeline(conn: &Connection, out: &mut Vec<Command>) {
+fn collect_pipeline<'a>(conn: &'a Connection, out: &mut Vec<&'a Command>) {
     if let CommandData::Connection(inner) = &conn.first.data {
         if inner.connector == CONN_PIPE || inner.connector == CONN_BAR_AND {
             collect_pipeline(inner, out);
         } else {
-            out.push((*conn.first).clone());
+            out.push(&conn.first);
         }
     } else {
-        out.push((*conn.first).clone());
+        out.push(&conn.first);
     }
-    out.push((*conn.second).clone());
+    out.push(&conn.second);
 }
 
 pub(crate) fn execute_if<'a>(ctx: &mut ExecContext<'a>, if_cmd: &IfCommand, mode: ExecMode) -> i32 {
@@ -388,6 +389,9 @@ pub(crate) fn execute_arith_for<'a>(
 }
 
 fn trace_arith_for_word(ctx: &mut ExecContext<'_>, word: &cherubsh_parser::WordDesc, step: bool) {
+    if !ctx.env.option("xtrace") {
+        return;
+    }
     let expr = sanitize_arith_for_expr(&word.text);
     if step {
         crate::xtrace::trace(ctx, &format!("(( {expr}  ))"));
@@ -398,29 +402,52 @@ fn trace_arith_for_word(ctx: &mut ExecContext<'_>, word: &cherubsh_parser::WordD
 
 fn eval_arith_word(ctx: &mut ExecContext<'_>, word: &cherubsh_parser::WordDesc) -> Option<i64> {
     use cherubsh_expander::expand_for_arith;
-    let mut runner = crate::runner::ExecRunner::default();
+    let mut runner = crate::runner::ExecRunner::with_functions(&ctx.functions);
     let expr = sanitize_arith_for_expr(&word.text);
-    match expand_for_arith(&expr, ctx.env, &mut runner) {
+    match expand_for_arith(expr.as_ref(), ctx.env, &mut runner) {
         Ok(v) => Some(v),
         Err(err) => {
-            crate::report_arith_command_error(ctx.env, err, &expr);
+            crate::report_arith_command_error(ctx.env, err, expr.as_ref());
             None
         }
     }
 }
 
-fn sanitize_arith_for_expr(text: &str) -> String {
-    let mut out = text.trim().to_string();
+fn sanitize_arith_for_expr(text: &str) -> Cow<'_, str> {
+    let trimmed = text.trim();
+    if !trimmed.ends_with(')') {
+        return Cow::Borrowed(trimmed);
+    }
+
+    let (mut opens, mut closes) = (0usize, 0usize);
+    for b in trimmed.bytes() {
+        match b {
+            b'(' => opens += 1,
+            b')' => closes += 1,
+            _ => {}
+        }
+    }
+    if closes <= opens {
+        return Cow::Borrowed(trimmed);
+    }
+
+    let mut out = trimmed.to_string();
     loop {
-        let opens = out.chars().filter(|c| *c == '(').count();
-        let closes = out.chars().filter(|c| *c == ')').count();
+        let (mut opens, mut closes) = (0usize, 0usize);
+        for b in out.bytes() {
+            match b {
+                b'(' => opens += 1,
+                b')' => closes += 1,
+                _ => {}
+            }
+        }
         if closes <= opens || !out.ends_with(')') {
             break;
         }
         out.pop();
         out = out.trim_end().to_string();
     }
-    out
+    Cow::Owned(out)
 }
 
 pub(crate) fn execute_case<'a>(
@@ -491,7 +518,7 @@ fn pattern_list_matches(
         globasciiranges: ctx.env.option("globasciiranges"),
     };
     for pat in &clause.patterns {
-        let mut runner = crate::runner::ExecRunner::default();
+        let mut runner = crate::runner::ExecRunner::with_functions(&ctx.functions);
         let expanded = match expand_case_pattern_bytes(pat, ctx.env, &mut runner) {
             Ok(value) => value,
             Err(err) => {

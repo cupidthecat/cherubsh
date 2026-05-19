@@ -44,15 +44,14 @@ fn eval_inner(cmd: &CondCommand, env: &mut dyn Environment) -> Result<bool, Stri
                 .as_ref()
                 .ok_or("missing unary operator")?
                 .text
-                .clone();
-            let term = cmd
+                .as_str();
+            let term_word = cmd
                 .left
                 .as_ref()
                 .and_then(|c| c.term.as_ref())
-                .ok_or("missing operand")?
-                .text
-                .clone();
-            let val = expand_word(&term, env);
+                .ok_or("missing operand")?;
+            let term = term_word.text.as_str();
+            let val = expand_word(term, env);
             if op == "!" {
                 let inner = !val.is_empty();
                 return Ok(!inner);
@@ -266,9 +265,30 @@ fn conditional_pattern_opts(env: &mut dyn Environment) -> GlobOpts {
 }
 
 fn expand_word(s: &str, env: &mut dyn Environment) -> String {
+    if let Some(name) = simple_parameter_word(s) {
+        return env.get(name).unwrap_or_default();
+    }
     use cherubsh_expander::{expand_assignment_rhs, NullRunner};
     let mut runner = NullRunner::default();
     expand_assignment_rhs(s, env, &mut runner).unwrap_or_else(|_| s.to_string())
+}
+
+fn simple_parameter_word(s: &str) -> Option<&str> {
+    let name = s.strip_prefix('$')?;
+    if name.is_empty() {
+        return None;
+    }
+    if matches!(name, "?" | "#" | "$" | "!" | "-") || name.bytes().all(|b| b.is_ascii_digit()) {
+        return Some(name);
+    }
+    let mut chars = name.chars();
+    let first = chars.next()?;
+    if !(first == '_' || first.is_ascii_alphabetic()) {
+        return None;
+    }
+    chars
+        .all(|ch| ch == '_' || ch.is_ascii_alphanumeric())
+        .then_some(name)
 }
 
 fn expand_operand_word(word: &WordDesc, env: &mut dyn Environment) -> Result<String, String> {
@@ -483,48 +503,15 @@ fn format_arithmetic_error(expr: &str, err: ExpandError) -> String {
 }
 
 fn unary_test(ch: char, arg: &str) -> bool {
-    // Reuse test_cmd::unary by going through the public boundary. test_cmd
-    // doesn't export `unary` directly; mirror the small subset needed here.
-    // Build a 2-arg test invocation: `test -X arg`.
-    let args = vec![format!("-{ch}"), arg.to_string()];
-    // run binary_or_unary_2 essentially:
-    let bin = run_two_arg_test(&args);
-    bin == 0
-}
-
-fn run_two_arg_test(args: &[String]) -> i32 {
-    // Use the public test invocation surface - exit_status 0 = true.
-    // We re-implement by spawning into Test::run via a private bridge - easier
-    // to just inline the unary dispatch.
     use std::os::unix::fs::MetadataExt;
     use std::path::Path;
-    let op = args[0].strip_prefix('-').unwrap_or("");
-    let ch = op.chars().next().unwrap_or(' ');
-    let arg = &args[1];
     let path = Path::new(arg);
-    let meta = std::fs::metadata(path);
-    let symlink_meta = std::fs::symlink_metadata(path);
-    let val = match ch {
-        'a' | 'e' => path.exists() || symlink_meta.is_ok(),
-        'b' => meta
-            .map(|m| (m.mode() & 0o170000) == 0o060000)
-            .unwrap_or(false),
-        'c' => meta
-            .map(|m| (m.mode() & 0o170000) == 0o020000)
-            .unwrap_or(false),
-        'd' => meta.map(|m| m.is_dir()).unwrap_or(false),
-        'f' => meta.map(|m| m.is_file()).unwrap_or(false),
-        'g' => meta.map(|m| m.mode() & 0o2000 != 0).unwrap_or(false),
-        'h' | 'L' => symlink_meta
+    match ch {
+        'a' | 'e' => path.exists() || std::fs::symlink_metadata(path).is_ok(),
+        'h' | 'L' => std::fs::symlink_metadata(path)
             .map(|m| m.file_type().is_symlink())
             .unwrap_or(false),
-        'k' => meta.map(|m| m.mode() & 0o1000 != 0).unwrap_or(false),
-        'p' => meta
-            .map(|m| (m.mode() & 0o170000) == 0o010000)
-            .unwrap_or(false),
         'r' => libc_access(arg, libc::R_OK),
-        's' => meta.map(|m| m.len() > 0).unwrap_or(false),
-        'u' => meta.map(|m| m.mode() & 0o4000 != 0).unwrap_or(false),
         'w' => libc_access(arg, libc::W_OK),
         'x' => libc_access(arg, libc::X_OK),
         'z' => arg.is_empty(),
@@ -533,12 +520,27 @@ fn run_two_arg_test(args: &[String]) -> i32 {
             let fd: i32 = arg.parse().unwrap_or(-1);
             unsafe { libc::isatty(fd) == 1 }
         }
-        _ => false,
-    };
-    if val {
-        0
-    } else {
-        1
+        _ => {
+            let meta = std::fs::metadata(path);
+            match ch {
+                'b' => meta
+                    .map(|m| (m.mode() & 0o170000) == 0o060000)
+                    .unwrap_or(false),
+                'c' => meta
+                    .map(|m| (m.mode() & 0o170000) == 0o020000)
+                    .unwrap_or(false),
+                'd' => meta.map(|m| m.is_dir()).unwrap_or(false),
+                'f' => meta.map(|m| m.is_file()).unwrap_or(false),
+                'g' => meta.map(|m| m.mode() & 0o2000 != 0).unwrap_or(false),
+                'k' => meta.map(|m| m.mode() & 0o1000 != 0).unwrap_or(false),
+                'p' => meta
+                    .map(|m| (m.mode() & 0o170000) == 0o010000)
+                    .unwrap_or(false),
+                's' => meta.map(|m| m.len() > 0).unwrap_or(false),
+                'u' => meta.map(|m| m.mode() & 0o4000 != 0).unwrap_or(false),
+                _ => false,
+            }
+        }
     }
 }
 

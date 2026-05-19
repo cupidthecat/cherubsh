@@ -1,31 +1,37 @@
 //! `CommandRunner` implementation. Bridges the expander back into exec so
 //! `$(cmd)`, backticks, and `<(cmd)` can fork+exec sub-shells.
 
-use std::collections::HashMap;
 use std::io::Read;
 use std::os::unix::io::{FromRawFd, RawFd};
+use std::sync::OnceLock;
 
 use cherubsh_common::{expand_aliases_for_parse, Environment, ProcSubstDir};
 use cherubsh_expander::{CommandRunner, ExpandError, ProcSubstHandle};
 use cherubsh_lexer::{Lexer, TokenKind};
 use cherubsh_parser::{Command, CommandData, Parser};
 
-use crate::{execute_with_state, ExecState};
+use crate::{execute_with_state, ExecState, FunctionMap};
 
-#[derive(Default)]
-pub struct ExecRunner {
-    functions: HashMap<String, Command>,
+pub struct ExecRunner<'a> {
+    functions: &'a FunctionMap,
 }
 
-impl ExecRunner {
-    pub(crate) fn with_functions(functions: &HashMap<String, Command>) -> Self {
+impl<'a> ExecRunner<'a> {
+    pub(crate) fn with_functions(functions: &'a FunctionMap) -> Self {
+        Self { functions }
+    }
+}
+
+impl Default for ExecRunner<'static> {
+    fn default() -> Self {
+        static EMPTY_FUNCTIONS: OnceLock<FunctionMap> = OnceLock::new();
         Self {
-            functions: functions.clone(),
+            functions: EMPTY_FUNCTIONS.get_or_init(Default::default),
         }
     }
 }
 
-impl CommandRunner for ExecRunner {
+impl CommandRunner for ExecRunner<'_> {
     fn run_subst(&mut self, env: &mut dyn Environment, src: &str) -> Result<Vec<u8>, ExpandError> {
         self.run_subst_with_mode(env, src, SubstMode::DollarParen)
     }
@@ -68,7 +74,7 @@ impl CommandRunner for ExecRunner {
                 libc::close(child_fd);
             }
             env.enter_subshell();
-            let status = run_inner(env, src, self.functions.clone(), SubstMode::DollarParen);
+            let status = run_inner(env, src, (*self.functions).clone(), SubstMode::DollarParen);
             unsafe { libc::_exit(status) };
         }
         unsafe {
@@ -90,7 +96,7 @@ enum SubstMode {
     Backquote,
 }
 
-impl ExecRunner {
+impl ExecRunner<'_> {
     fn run_subst_with_mode(
         &mut self,
         env: &mut dyn Environment,
@@ -123,7 +129,7 @@ impl ExecRunner {
             if !env.option("inherit_errexit") && !env.option("posix") {
                 env.set_option("errexit", false);
             }
-            let status = run_inner(env, src, self.functions.clone(), mode);
+            let status = run_inner(env, src, (*self.functions).clone(), mode);
             unsafe { libc::_exit(status) };
         }
         // Parent
@@ -149,12 +155,7 @@ impl ExecRunner {
     }
 }
 
-fn run_inner(
-    env: &mut dyn Environment,
-    src: &str,
-    functions: HashMap<String, Command>,
-    mode: SubstMode,
-) -> i32 {
+fn run_inner(env: &mut dyn Environment, src: &str, functions: FunctionMap, mode: SubstMode) -> i32 {
     let src = subst_parse_source(src);
     let parse_src = expand_aliases_for_parse(&src, env);
     let mut lex = Lexer::new(&parse_src);
@@ -308,9 +309,11 @@ fn offset_dollar_paren_command_lines(command: &mut Command, close_line: u32, fir
             offset_dollar_paren_command_lines(&mut c.first, close_line, first_line);
             offset_dollar_paren_command_lines(&mut c.second, close_line, first_line);
         }
-        CommandData::FunctionDef(c) => {
-            offset_dollar_paren_command_lines(&mut c.command, close_line, first_line)
-        }
+        CommandData::FunctionDef(c) => offset_dollar_paren_command_lines(
+            std::sync::Arc::make_mut(&mut c.command),
+            close_line,
+            first_line,
+        ),
         CommandData::Group(c) => {
             offset_dollar_paren_command_lines(&mut c.command, close_line, first_line)
         }
@@ -372,7 +375,9 @@ fn offset_backquote_command_lines(command: &mut Command, base: u32) {
             offset_backquote_command_lines(&mut c.first, base);
             offset_backquote_command_lines(&mut c.second, base);
         }
-        CommandData::FunctionDef(c) => offset_backquote_command_lines(&mut c.command, base),
+        CommandData::FunctionDef(c) => {
+            offset_backquote_command_lines(std::sync::Arc::make_mut(&mut c.command), base)
+        }
         CommandData::Group(c) => offset_backquote_command_lines(&mut c.command, base),
         CommandData::Select(c) => {
             offset_backquote_line(&mut c.line, base);

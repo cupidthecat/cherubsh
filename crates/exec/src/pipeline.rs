@@ -15,7 +15,7 @@ use crate::{ExecContext, ExecMode};
 
 pub(crate) fn execute<'a>(
     ctx: &mut ExecContext<'a>,
-    commands: Vec<Command>,
+    commands: Vec<&Command>,
     pipe_stderr: bool,
 ) -> i32 {
     if commands.is_empty() {
@@ -84,7 +84,7 @@ pub(crate) fn execute<'a>(
             if matches!(command.data, CommandData::Subshell(_)) {
                 ctx.reuse_current_subshell_for_next_dispatch();
             }
-            let status = ctx.execute_command(command, ExecMode::Child);
+            let status = ctx.execute_child_command(command);
             let mut final_status = match ctx.pending.take() {
                 Some(crate::Unwind::Exit(n)) => n,
                 _ => status,
@@ -221,7 +221,7 @@ pub(crate) fn spawn_background<'a>(ctx: &mut ExecContext<'a>, command: &Command)
             libc::signal(libc::SIGINT, libc::SIG_IGN);
             libc::signal(libc::SIGQUIT, libc::SIG_IGN);
         }
-        let status = ctx.execute_command(command, ExecMode::Child);
+        let status = ctx.execute_child_command(command);
         let final_status = match ctx.pending.take() {
             Some(crate::Unwind::Exit(n)) => n,
             _ => status,

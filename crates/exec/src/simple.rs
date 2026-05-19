@@ -44,10 +44,15 @@ pub(crate) fn execute<'a>(
         }
     }
     let (raw_assignments, remaining) = split_assignments(&simple.words, ctx.env.option("keyword"));
-    let trace_assignments = raw_assignments
-        .iter()
-        .map(|word| word.text.clone())
-        .collect::<Vec<_>>();
+    let trace_enabled = ctx.env.option("xtrace");
+    let trace_assignments = if trace_enabled {
+        raw_assignments
+            .iter()
+            .map(|word| word.text.clone())
+            .collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
     let mut assignment_expansion_status = 0;
     let mut scalar_readonly_assignment_error = false;
     let mut scalar_invalid_assignment_error = false;
@@ -121,7 +126,9 @@ pub(crate) fn execute<'a>(
         .collect();
 
     if remaining.is_empty() {
-        trace_simple(ctx, &trace_assignments, &[]);
+        if trace_enabled {
+            trace_simple(ctx, &trace_assignments, &[]);
+        }
         let _guard = if simple.redirects.is_empty() {
             None
         } else {
@@ -177,7 +184,9 @@ pub(crate) fn execute<'a>(
         }
     };
     if command_expanded.is_empty() {
-        trace_simple(ctx, &trace_assignments, &[]);
+        if trace_enabled {
+            trace_simple(ctx, &trace_assignments, &[]);
+        }
         let _guard = if simple.redirects.is_empty() {
             None
         } else {
@@ -222,10 +231,11 @@ pub(crate) fn execute<'a>(
     }
     let mut command_name = command_expanded[0].clone();
     let command_word_extra_args = command_expanded[1..].to_vec();
-    let assignment_builtin = lookup(&command_name)
-        .map(|b| ctx.env.builtin_enabled(b.name()) && is_assignment_builtin(&command_name))
-        .unwrap_or(false)
-        && !ctx.functions.contains_key(&command_name);
+    let command_is_function = ctx.functions.contains_key(&command_name);
+    let assignment_builtin = !command_is_function
+        && lookup(&command_name)
+            .map(|b| ctx.env.builtin_enabled(b.name()) && is_assignment_builtin(&command_name))
+            .unwrap_or(false);
     let (mut args, mut arg_flags) = if assignment_builtin {
         let (mut args, mut arg_flags) = expand_assignment_builtin_args(&remaining[1..], ctx);
         if !command_word_extra_args.is_empty() {
@@ -264,11 +274,13 @@ pub(crate) fn execute<'a>(
         }
         (args, arg_flags)
     };
-    trace_simple(
-        ctx,
-        &trace_assignments,
-        &command_words(&command_name, &args),
-    );
+    if trace_enabled {
+        trace_simple(
+            ctx,
+            &trace_assignments,
+            &command_words(&command_name, &args),
+        );
+    }
 
     if ctx.env.option("restricted") && command_name.contains('/') {
         cherubsh_builtins::common::report_diagnostic(
@@ -343,7 +355,7 @@ pub(crate) fn execute<'a>(
             let status = function::call(
                 ctx,
                 &command_name,
-                function_body,
+                &function_body,
                 args,
                 &simple.redirects,
                 &scalar_assignments,
@@ -403,7 +415,7 @@ pub(crate) fn execute<'a>(
             }
         }
         ExecMode::Child => {
-            if simple.redirects.is_empty() {
+            if !ctx.allow_child_external_exec {
                 execute_external_child_forked(
                     ctx,
                     &command_name,
@@ -412,16 +424,29 @@ pub(crate) fn execute<'a>(
                     simple,
                     path_override,
                 )
+            } else if simple.redirects.is_empty() {
+                crate::util::reset_child_signal_handlers(ctx.env);
+                execute_external_child(
+                    ctx,
+                    &command_name,
+                    &args,
+                    &scalar_assignments,
+                    simple,
+                    path_override,
+                )
             } else {
-                match redirect::apply_redirects_to_parent(ctx, &simple.redirects) {
-                    Ok(_guard) => execute_external_child_forked(
-                        ctx,
-                        &command_name,
-                        &args,
-                        &scalar_assignments,
-                        simple,
-                        path_override,
-                    ),
+                match redirect::apply_redirects_to_child(ctx, &simple.redirects) {
+                    Ok(()) => {
+                        crate::util::reset_child_signal_handlers(ctx.env);
+                        execute_external_child(
+                            ctx,
+                            &command_name,
+                            &args,
+                            &scalar_assignments,
+                            simple,
+                            path_override,
+                        )
+                    }
                     Err(err) => {
                         err.report_with_env(ctx.env);
                         1
@@ -450,6 +475,10 @@ fn execute_external_child_forked<'a>(
     }
     if pid == 0 {
         crate::util::reset_child_signal_handlers(ctx.env);
+        if let Err(err) = redirect::apply_redirects_to_child(ctx, &simple.redirects) {
+            err.report_with_env(ctx.env);
+            unsafe { libc::_exit(1) };
+        }
         let code = execute_external_child(ctx, name, args, assignments, simple, path_override);
         unsafe { libc::_exit(code) };
     }
@@ -570,10 +599,7 @@ fn scalar_assignment_invalid_nameref_target(
     };
     env.attrs(name).contains(cherubsh_common::VarAttrs::NAMEREF)
         && env
-            .iter_vars()
-            .into_iter()
-            .find(|snap| snap.name == *name)
-            .and_then(|snap| snap.nameref_target)
+            .nameref_target(name)
             .as_deref()
             .unwrap_or_default()
             .is_empty()
@@ -590,10 +616,7 @@ fn unresolved_nameref_prefix_assignment(
     };
     env.attrs(name).contains(cherubsh_common::VarAttrs::NAMEREF)
         && env
-            .iter_vars()
-            .into_iter()
-            .find(|snap| snap.name == *name)
-            .and_then(|snap| snap.nameref_target)
+            .nameref_target(name)
             .as_deref()
             .unwrap_or_default()
             .is_empty()
@@ -840,13 +863,15 @@ fn snapshot_assignments(
     ctx: &ExecContext,
     assignments: &[(String, String)],
 ) -> Vec<AssignmentSnapshot> {
-    let vars = ctx.env.iter_vars();
+    if assignments.is_empty() {
+        return Vec::new();
+    }
     assignments
         .iter()
         .map(|(k, _)| {
             let key = assignment_storage_name(ctx.env, k);
             let value = ctx.env.get(&key);
-            let snapshot = vars.iter().find(|snap| snap.name == key).cloned();
+            let snapshot = ctx.env.var_snapshot(&key);
             AssignmentSnapshot {
                 key,
                 value,
@@ -886,6 +911,9 @@ fn restore_assignments_except_declared_attrs_or_locals(
     snapshot: Vec<AssignmentSnapshot>,
     preserve_declared_attrs: bool,
 ) {
+    if snapshot.is_empty() {
+        return;
+    }
     let local_names = ctx
         .env
         .iter_local_vars()

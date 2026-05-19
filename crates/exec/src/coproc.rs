@@ -4,7 +4,7 @@ use cherubsh_common::{AssignError, Environment, JobState, VarAttrs};
 use cherubsh_parser::CoprocCommand;
 
 use crate::util::reset_child_signal_handlers;
-use crate::{ExecContext, ExecMode};
+use crate::ExecContext;
 
 const COPROC_READ_FD: i32 = 63;
 const COPROC_WRITE_FD: i32 = 60;
@@ -49,7 +49,7 @@ pub(crate) fn execute<'a>(ctx: &mut ExecContext<'a>, coproc: &CoprocCommand) -> 
         }
         reset_child_signal_handlers(ctx.env);
         ctx.env.enter_subshell();
-        let status = ctx.execute_command(&coproc.command, ExecMode::Child);
+        let status = ctx.execute_child_command(&coproc.command);
         let final_status = match ctx.pending.take() {
             Some(crate::Unwind::Exit(n)) => n,
             _ => status,

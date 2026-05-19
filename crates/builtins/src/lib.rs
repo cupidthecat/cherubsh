@@ -202,12 +202,43 @@ pub trait ShellOps {
 /// Resolve a builtin by name. Returns `None` if no such builtin exists or if
 /// the builtin has been disabled via `enable -n`.
 pub fn lookup(name: &str) -> Option<&'static dyn Builtin> {
-    BUILTINS.iter().copied().find(|b| b.name() == name)
+    lookup_raw(name)
 }
 
 /// Resolve including disabled state - for `enable`/`builtin` which need to
 /// see all entries.
 pub fn lookup_raw(name: &str) -> Option<&'static dyn Builtin> {
+    match name {
+        ":" => return Some(&colon::COLON),
+        "." => return Some(&source::DOT),
+        "[" => return Some(&test_cmd::LBRACKET),
+        "alias" => return Some(&alias::ALIAS),
+        "break" => return Some(&break_cmd::BREAK),
+        "builtin" => return Some(&builtin_cmd::BUILTIN),
+        "cd" => return Some(&cd::CD),
+        "command" => return Some(&command_cmd::COMMAND),
+        "continue" => return Some(&continue_cmd::CONTINUE),
+        "declare" => return Some(&declare::DECLARE),
+        "echo" => return Some(&echo::ECHO),
+        "eval" => return Some(&eval::EVAL),
+        "exec" => return Some(&exec_cmd::EXEC),
+        "exit" => return Some(&exit_cmd::EXIT),
+        "export" => return Some(&export::EXPORT),
+        "false" => return Some(&colon::FALSE),
+        "local" => return Some(&local::LOCAL),
+        "printf" => return Some(&printf::PRINTF),
+        "pwd" => return Some(&pwd::PWD),
+        "readonly" => return Some(&readonly::READONLY),
+        "return" => return Some(&return_cmd::RETURN),
+        "set" => return Some(&set::SET),
+        "shift" => return Some(&shift::SHIFT),
+        "source" => return Some(&source::SOURCE),
+        "test" => return Some(&test_cmd::TEST),
+        "true" => return Some(&colon::TRUE),
+        "typeset" => return Some(&declare::TYPESET),
+        "unset" => return Some(&unset::UNSET),
+        _ => {}
+    }
     BUILTINS.iter().copied().find(|b| b.name() == name)
 }
 

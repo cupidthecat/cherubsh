@@ -442,7 +442,7 @@ fn resolve_indexed_subscript(
         return Ok(index);
     }
     let max = match env.kind(name) {
-        VarKind::Indexed => env.array_keys(name).and_then(|keys| keys.into_iter().max()),
+        VarKind::Indexed => env.array_max_index(name),
         VarKind::Scalar if env.get(name).is_some() => Some(0),
         _ => None,
     }

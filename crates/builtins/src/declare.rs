@@ -547,12 +547,7 @@ fn run_declare(ctx: &mut BuiltinCtx<'_>, force_local: bool, diagnostic_name: &st
         } else {
             ctx.env_ref().is_readonly(&readonly_attr_name)
         };
-        let nameref_target = ctx
-            .env_ref()
-            .iter_vars()
-            .into_iter()
-            .find(|snap| snap.name == name)
-            .and_then(|snap| snap.nameref_target);
+        let nameref_target = ctx.env_ref().nameref_target(&name);
         let unresolved_nameref = ctx.env_ref().attrs(&name).contains(VarAttrs::NAMEREF)
             && nameref_target.as_deref().unwrap_or_default().is_empty();
         if f.clear.contains(VarAttrs::READONLY) && readonly_is_readonly {
@@ -757,9 +752,7 @@ fn run_declare(ctx: &mut BuiltinCtx<'_>, force_local: bool, diagnostic_name: &st
                         let value = if *append {
                             let current = ctx
                                 .env_ref()
-                                .iter_vars()
-                                .into_iter()
-                                .find(|snap| snap.name == name)
+                                .var_snapshot(&name)
                                 .and_then(|snap| snap.nameref_target.or(snap.scalar))
                                 .unwrap_or_default();
                             format!("{current}{rhs}")
@@ -808,10 +801,7 @@ fn run_declare(ctx: &mut BuiltinCtx<'_>, force_local: bool, diagnostic_name: &st
                                     && ctx.env_ref().attrs(&name).contains(VarAttrs::NAMEREF)
                                     && ctx
                                         .env_ref()
-                                        .iter_vars()
-                                        .into_iter()
-                                        .find(|snap| snap.name == name)
-                                        .and_then(|snap| snap.nameref_target)
+                                        .nameref_target(&name)
                                         .as_deref()
                                         .unwrap_or_default()
                                         .is_empty();
@@ -909,12 +899,7 @@ fn run_declare(ctx: &mut BuiltinCtx<'_>, force_local: bool, diagnostic_name: &st
         }
 
         if f.print {
-            if let Some(snap) = ctx
-                .env_ref()
-                .iter_vars()
-                .into_iter()
-                .find(|s| s.name == name)
-            {
+            if let Some(snap) = ctx.env_ref().var_snapshot(&name) {
                 println!("{}", format_var(&snap, Some("declare")));
             } else {
                 report_diagnostic(
@@ -1089,9 +1074,7 @@ fn nameref_assignment_target_value(
     }
     let current = ctx
         .env_ref()
-        .iter_vars()
-        .into_iter()
-        .find(|snap| snap.name == name)
+        .var_snapshot(name)
         .and_then(|snap| snap.nameref_target.or(snap.scalar))
         .unwrap_or_default();
     format!("{current}{rhs}")
@@ -1267,5 +1250,71 @@ fn declare_filter_matches(snap: &VarSnapshot, flags: &Flags) -> bool {
 }
 
 pub fn run_local_form(ctx: &mut BuiltinCtx<'_>) -> i32 {
+    if let Some(status) = try_simple_local(ctx) {
+        return status;
+    }
     run_declare(ctx, true, "local")
+}
+
+fn try_simple_local(ctx: &mut BuiltinCtx<'_>) -> Option<i32> {
+    if ctx.args.is_empty()
+        || !ctx.assignments.is_empty()
+        || ctx.env_ref().option("localvar_inherit")
+        || ctx.env_ref().option("allexport")
+    {
+        return None;
+    }
+
+    for (idx, arg) in ctx.args.iter().enumerate() {
+        if arg.is_empty()
+            || arg == "--"
+            || arg.starts_with('-')
+            || arg.starts_with('+')
+            || ctx.arg_flag(idx) & W_COMPASSIGN != 0
+        {
+            return None;
+        }
+        match split_assignment_op(arg) {
+            Some((lhs, _rhs, append))
+                if !append && is_valid_name(lhs) && simple_local_assignment_target(ctx, lhs) => {}
+            None if is_valid_name(arg)
+                && !ctx.assignments.iter().any(|(key, _)| key == arg)
+                && !ctx.shell.current_function_prefix_assignment(arg) => {}
+            _ => return None,
+        }
+    }
+
+    let mut status = 0;
+    for idx in 0..ctx.args.len() {
+        let (name, value) = {
+            let arg = &ctx.args[idx];
+            match split_assignment_op(arg) {
+                Some((lhs, rhs, _append)) => (lhs.to_string(), Some(rhs.to_string())),
+                None => (arg.clone(), None),
+            }
+        };
+
+        if let Err(err) = ctx.env().make_local_with_value(&name, value) {
+            if let AssignError::ReadOnly(readonly_name) = &err {
+                report_builtin_readonly_error(ctx.env_ref(), "local", readonly_name);
+            } else {
+                report_assign_error(ctx.env_ref(), &err);
+            }
+            status = 1;
+        }
+    }
+    Some(status)
+}
+
+fn simple_local_assignment_target(ctx: &BuiltinCtx<'_>, name: &str) -> bool {
+    !ctx.env_ref().attrs(name).intersects(
+        VarAttrs::ARRAY
+            | VarAttrs::ASSOC
+            | VarAttrs::INTEGER
+            | VarAttrs::LOWERCASE
+            | VarAttrs::UPPERCASE
+            | VarAttrs::CAPCASE
+            | VarAttrs::NAMEREF
+            | VarAttrs::READONLY,
+    )
 }

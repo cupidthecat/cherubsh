@@ -1,4 +1,6 @@
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
+use std::hash::{BuildHasherDefault, Hasher};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -22,6 +24,35 @@ pub use signals::{sigsuspend_empty, SignalMaskGuard, TrapAction, TrapKind, NSIG}
 pub type SourceId = u32;
 
 pub const SOURCE_NONE: SourceId = 0;
+
+pub type FastHashMap<K, V> = HashMap<K, V, BuildHasherDefault<FastHasher>>;
+pub type FastHashSet<T> = HashSet<T, BuildHasherDefault<FastHasher>>;
+
+#[derive(Default)]
+pub struct FastHasher(u64);
+
+impl Hasher for FastHasher {
+    fn write(&mut self, bytes: &[u8]) {
+        let mut hash = if self.0 == 0 {
+            0xcbf29ce484222325
+        } else {
+            self.0
+        };
+        for byte in bytes {
+            hash ^= u64::from(*byte);
+            hash = hash.wrapping_mul(0x100000001b3);
+        }
+        self.0 = hash;
+    }
+
+    fn finish(&self) -> u64 {
+        if self.0 == 0 {
+            0xcbf29ce484222325
+        } else {
+            self.0
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Span {
@@ -1190,6 +1221,9 @@ impl From<std::io::Error> for ShellError {
 /// without depending on the full ShellState.
 pub trait Environment {
     fn get(&self, name: &str) -> Option<String>;
+    fn get_cow<'a>(&'a self, name: &str) -> Option<Cow<'a, str>> {
+        self.get(name).map(Cow::Owned)
+    }
     fn set(&mut self, name: &str, value: String);
     fn unset(&mut self, name: &str);
     fn exported(&self, name: &str) -> bool;
@@ -1197,6 +1231,9 @@ pub trait Environment {
 
     /// Positional parameter $N (0-based: index 0 == $0).
     fn positional(&self, index: usize) -> Option<String>;
+    fn positional_cow<'a>(&'a self, index: usize) -> Option<Cow<'a, str>> {
+        self.positional(index).map(Cow::Owned)
+    }
     fn positional_count(&self) -> usize;
     fn set_positionals(&mut self, params: Vec<String>);
 
@@ -1273,6 +1310,36 @@ pub trait Environment {
         out
     }
 
+    /// Replace positional parameters for a function call, returning the old
+    /// vector for restoration. Implementors can override this to avoid cloning
+    /// the current positional store through the object-safe accessor methods.
+    fn push_function_positionals(&mut self, args: &[String]) -> Vec<String> {
+        let saved = self.positionals_clone();
+        let mut next = Vec::with_capacity(args.len() + 1);
+        next.push(
+            saved
+                .first()
+                .cloned()
+                .unwrap_or_else(|| "cherubsh".to_string()),
+        );
+        next.extend(args.iter().cloned());
+        self.set_positionals(next);
+        saved
+    }
+
+    /// Restore positional parameters saved by `push_function_positionals`,
+    /// preserving changes to `$0` made while the function was running.
+    fn pop_function_positionals(&mut self, mut saved: Vec<String>) {
+        if let Some(current_zero) = self.positional(0) {
+            if saved.is_empty() {
+                saved.push(current_zero);
+            } else {
+                saved[0] = current_zero;
+            }
+        }
+        self.set_positionals(saved);
+    }
+
     /// Indexed-array store. Falls back to scalar join when backend lacks
     /// array support (still useful for PIPESTATUS scalar consumers).
     fn set_array(&mut self, name: &str, values: Vec<String>) {
@@ -1288,6 +1355,9 @@ pub trait Environment {
     fn get_array_indexed(&self, _name: &str, _index: i64) -> Option<String> {
         None
     }
+    fn get_array_indexed_cow<'a>(&'a self, name: &str, index: i64) -> Option<Cow<'a, str>> {
+        self.get_array_indexed(name, index).map(Cow::Owned)
+    }
     /// Return all (index, value) pairs of an indexed array in index order.
     fn get_array_all(&self, _name: &str) -> Option<Vec<(i64, String)>> {
         None
@@ -1300,12 +1370,20 @@ pub trait Environment {
     fn array_len(&self, _name: &str) -> usize {
         0
     }
+    /// Highest assigned indexed-array subscript.
+    fn array_max_index(&self, name: &str) -> Option<i64> {
+        self.array_keys(name)
+            .and_then(|keys| keys.into_iter().max())
+    }
 
     /// Set associative array element (`m[key]=x`).
     fn set_array_assoc(&mut self, _name: &str, _key: &str, _value: String) {}
     /// Read associative array element.
     fn get_array_assoc(&self, _name: &str, _key: &str) -> Option<String> {
         None
+    }
+    fn get_array_assoc_cow<'a>(&'a self, name: &str, key: &str) -> Option<Cow<'a, str>> {
+        self.get_array_assoc(name, key).map(Cow::Owned)
     }
     /// All (key, value) pairs of an associative array.
     fn assoc_all(&self, _name: &str) -> Option<Vec<(String, String)>> {
@@ -1314,6 +1392,10 @@ pub trait Environment {
     /// Associative array keys.
     fn assoc_keys(&self, _name: &str) -> Option<Vec<String>> {
         None
+    }
+    /// Number of associative-array entries.
+    fn assoc_len(&self, name: &str) -> usize {
+        self.assoc_keys(name).map(|keys| keys.len()).unwrap_or(0)
     }
 
     /// Variable kind for the dispatch in `${...}` expansion.
@@ -1396,6 +1478,17 @@ pub trait Environment {
     fn make_local(&mut self, _name: &str) -> Result<(), AssignError> {
         Ok(())
     }
+    fn make_local_with_value(
+        &mut self,
+        name: &str,
+        value: Option<String>,
+    ) -> Result<(), AssignError> {
+        self.make_local(name)?;
+        if let Some(value) = value {
+            self.assign(name, value)?;
+        }
+        Ok(())
+    }
     /// Create a local binding initialized from the visible variable of the same
     /// name (`declare/local -I`). Implementations should not inherit NAMEREF.
     fn make_local_inherit(&mut self, name: &str) -> Result<(), AssignError> {
@@ -1434,6 +1527,16 @@ pub trait Environment {
     /// usually sorts by name).
     fn iter_vars(&self) -> Vec<VarSnapshot> {
         Vec::new()
+    }
+    /// Snapshot of one visible variable. Default keeps compatibility with
+    /// lightweight test environments that only implement `iter_vars`.
+    fn var_snapshot(&self, name: &str) -> Option<VarSnapshot> {
+        self.iter_vars().into_iter().find(|snap| snap.name == name)
+    }
+    /// Direct nameref target for one visible variable, without resolving the
+    /// chain. An empty or missing target indicates an unresolved nameref.
+    fn nameref_target(&self, name: &str) -> Option<String> {
+        self.var_snapshot(name).and_then(|snap| snap.nameref_target)
     }
     /// Variables declared in the innermost active local frame.
     fn iter_local_vars(&self) -> Vec<VarSnapshot> {

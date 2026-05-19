@@ -1,12 +1,12 @@
 use cherubsh_parser::SubshellCommand;
 
 use crate::util::wait_for_pid;
-use crate::{ExecContext, ExecMode, Unwind};
+use crate::{ExecContext, Unwind};
 
 pub(crate) fn execute<'a>(ctx: &mut ExecContext<'a>, subshell: &SubshellCommand) -> i32 {
     if ctx.reuse_current_subshell {
         ctx.reuse_current_subshell = false;
-        return ctx.execute_command(&subshell.command, ExecMode::Child);
+        return ctx.execute_child_command(&subshell.command);
     }
     let pid = unsafe { libc::fork() };
     if pid < 0 {
@@ -20,9 +20,8 @@ pub(crate) fn execute<'a>(ctx: &mut ExecContext<'a>, subshell: &SubshellCommand)
             libc::signal(libc::SIGQUIT, libc::SIG_DFL);
             libc::signal(libc::SIGTERM, libc::SIG_DFL);
         }
-        let status = ctx.with_abort_line_boundary(|ctx| {
-            ctx.execute_command(&subshell.command, ExecMode::Child)
-        });
+        let status =
+            ctx.with_abort_line_boundary(|ctx| ctx.execute_child_command(&subshell.command));
         let mut final_status = match ctx.pending.take() {
             Some(Unwind::Exit(n)) => n,
             _ => status,

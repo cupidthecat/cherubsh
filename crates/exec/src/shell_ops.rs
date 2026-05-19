@@ -6,6 +6,7 @@ use cherubsh_common::{expand_aliases_for_parse, Environment, Span, W_ASSIGNMENT,
 use cherubsh_expander::assignment::expand_assignment_word;
 use cherubsh_lexer::{Lexer, TokenKind};
 use cherubsh_parser::{Command, ParseError, Parser, WordDesc};
+use std::sync::Arc;
 
 use crate::runner::ExecRunner;
 use crate::util::{apply_assignment, report_expand_error, search_path};
@@ -25,11 +26,14 @@ impl<'a, 'b> ShellOps for ExecAdapter<'a, 'b> {
     }
 
     fn function_define(&mut self, name: &str, body: Command) {
-        self.ctx.functions.insert(name.to_string(), body);
+        self.ctx.functions.insert(name.to_string(), Arc::new(body));
     }
 
     fn function_get(&self, name: &str) -> Option<Command> {
-        self.ctx.functions.get(name).cloned()
+        self.ctx
+            .functions
+            .get(name)
+            .map(|body| body.as_ref().clone())
     }
 
     fn function_remove(&mut self, name: &str) -> bool {
@@ -140,28 +144,27 @@ impl<'a, 'b> ShellOps for ExecAdapter<'a, 'b> {
         None
     }
 
-    fn record_local(&mut self, name: &str, prior: Option<String>) -> bool {
-        let Some(frame) = self.ctx.local_stack.last_mut() else {
-            return false;
-        };
-        if !frame.contains_key(name) {
-            frame.insert(name.to_string(), prior);
-        }
-        true
+    fn record_local(&mut self, _name: &str, _prior: Option<String>) -> bool {
+        false
     }
-    fn local_recorded(&self, name: &str) -> bool {
-        self.ctx
-            .local_stack
-            .last()
-            .map(|f| f.contains_key(name))
-            .unwrap_or(false)
+    fn local_recorded(&self, _name: &str) -> bool {
+        false
     }
 
     fn note_exported(&mut self, name: &str) {
         if let Some(call_id) = self.ctx.function_call_stack.last().copied() {
-            self.ctx
+            if !self
+                .ctx
                 .explicit_function_exports
-                .insert((name.to_string(), call_id));
+                .iter()
+                .any(|(stored_name, stored_call_id)| {
+                    stored_name == name && *stored_call_id == call_id
+                })
+            {
+                self.ctx
+                    .explicit_function_exports
+                    .push((name.to_string(), call_id));
+            }
         }
     }
 
@@ -169,7 +172,7 @@ impl<'a, 'b> ShellOps for ExecAdapter<'a, 'b> {
         self.ctx
             .function_prefix_assignment_stack
             .last()
-            .is_some_and(|names| names.contains(name))
+            .is_some_and(|names| names.iter().any(|stored| stored == name))
     }
 }
 
@@ -290,7 +293,7 @@ fn offset_command_lines(command: &mut Command, delta: u32) {
             offset_command_lines(&mut c.second, delta);
         }
         cherubsh_parser::CommandData::FunctionDef(c) => {
-            offset_command_lines(&mut c.command, delta);
+            offset_command_lines(std::sync::Arc::make_mut(&mut c.command), delta);
         }
         cherubsh_parser::CommandData::Group(c) => {
             offset_command_lines(&mut c.command, delta);

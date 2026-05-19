@@ -1,9 +1,10 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use cherubsh_common::{
-    Environment, CMD_IGNORE_RETURN, CMD_INVERT_RETURN, CMD_TIME_PIPELINE, CMD_TIME_POSIX,
-    W_ASSIGNMENT,
+    Environment, FastHashMap as HashMap, CMD_IGNORE_RETURN, CMD_INVERT_RETURN, CMD_TIME_PIPELINE,
+    CMD_TIME_POSIX, W_ASSIGNMENT,
 };
 use cherubsh_expander::{ExpandError, ProcSubstHandle};
 use cherubsh_lexer::{Lexer, TokenKind};
@@ -29,9 +30,11 @@ pub use runner::ExecRunner;
 
 pub use redirect::ExecError;
 
+pub(crate) type FunctionMap = HashMap<String, Arc<Command>>;
+
 #[derive(Default)]
 pub struct ExecState {
-    functions: HashMap<String, Command>,
+    functions: FunctionMap,
     function_traced: HashSet<String>,
     suppress_err_traps: bool,
     suppress_debug_traps: bool,
@@ -47,7 +50,7 @@ impl ExecState {
                 continue;
             };
             if let Some(function) = parse_imported_function(name, value) {
-                self.functions.insert(name.to_string(), function);
+                self.functions.insert(name.to_string(), Arc::new(function));
             }
         }
     }
@@ -86,7 +89,7 @@ fn parse_imported_function(name: &str, value: &str) -> Option<Command> {
     let CommandData::FunctionDef(function) = ast.root.data else {
         return None;
     };
-    (function.name.text == name).then(|| *function.command)
+    (function.name.text == name).then(|| function.command.as_ref().clone())
 }
 
 pub struct ExecResult {
@@ -111,7 +114,7 @@ pub(crate) enum Unwind {
 
 pub(crate) struct ExecContext<'a> {
     pub(crate) last_status: i32,
-    pub(crate) functions: HashMap<String, Command>,
+    pub(crate) functions: FunctionMap,
     pub(crate) function_traced: HashSet<String>,
     pub(crate) suppress_err_traps: bool,
     pub(crate) suppress_debug_traps: bool,
@@ -120,17 +123,17 @@ pub(crate) struct ExecContext<'a> {
     pub(crate) function_depth: u32,
     pub(crate) function_call_stack: Vec<u64>,
     pub(crate) next_function_call_id: u64,
-    pub(crate) posix_special_assignment_persisted: HashSet<(String, u64)>,
-    pub(crate) explicit_function_exports: HashSet<(String, u64)>,
-    pub(crate) function_prefix_assignment_stack: Vec<HashSet<String>>,
+    pub(crate) posix_special_assignment_persisted: Vec<(String, u64)>,
+    pub(crate) explicit_function_exports: Vec<(String, u64)>,
+    pub(crate) function_prefix_assignment_stack: Vec<Vec<String>>,
     pub(crate) debug_trap_scopes: Vec<bool>,
     pub(crate) source_depth: u32,
     pub(crate) errexit_suppressed: u32,
     pub(crate) abort_line_depth: u32,
-    pub(crate) local_stack: Vec<HashMap<String, Option<String>>>,
     pub(crate) proc_subst: Vec<ProcSubstHandle>,
     pub(crate) funcnest_max: u32,
     pub(crate) reuse_current_subshell: bool,
+    pub(crate) allow_child_external_exec: bool,
     pub(crate) env: &'a mut (dyn Environment + 'a),
 }
 
@@ -172,7 +175,7 @@ impl<'a> ExecContext<'a> {
             .unwrap_or(0);
         Self {
             last_status: last,
-            functions: HashMap::new(),
+            functions: HashMap::default(),
             function_traced: HashSet::new(),
             suppress_err_traps: false,
             suppress_debug_traps: false,
@@ -181,19 +184,27 @@ impl<'a> ExecContext<'a> {
             function_depth: 0,
             function_call_stack: Vec::new(),
             next_function_call_id: 0,
-            posix_special_assignment_persisted: HashSet::new(),
-            explicit_function_exports: HashSet::new(),
+            posix_special_assignment_persisted: Vec::new(),
+            explicit_function_exports: Vec::new(),
             function_prefix_assignment_stack: Vec::new(),
             debug_trap_scopes: Vec::new(),
             source_depth: 0,
             errexit_suppressed: 0,
             abort_line_depth: 0,
-            local_stack: Vec::new(),
             proc_subst: Vec::new(),
             funcnest_max,
             reuse_current_subshell: false,
+            allow_child_external_exec: false,
             env,
         }
+    }
+
+    pub(crate) fn execute_child_command(&mut self, command: &Command) -> i32 {
+        let saved = self.allow_child_external_exec;
+        self.allow_child_external_exec = child_command_can_exec_direct(command);
+        let status = self.execute_command(command, ExecMode::Child);
+        self.allow_child_external_exec = saved;
+        status
     }
 
     pub(crate) fn execute_command(&mut self, command: &Command, mode: ExecMode) -> i32 {
@@ -277,8 +288,10 @@ impl<'a> ExecContext<'a> {
 
     pub(crate) fn mark_posix_special_assignment_persisted(&mut self, name: &str) {
         for call_id in &self.function_call_stack {
-            self.posix_special_assignment_persisted
-                .insert((name.to_string(), *call_id));
+            if !self.posix_special_assignment_affects_call(name, *call_id) {
+                self.posix_special_assignment_persisted
+                    .push((name.to_string(), *call_id));
+            }
         }
     }
 
@@ -412,14 +425,17 @@ impl<'a> ExecContext<'a> {
             }
             CommandData::Arith(c) => {
                 self.run_debug_trap_for_command(mode);
-                let expr = c.expression.text.clone();
-                xtrace::trace(self, &format!("(( {} ))", expr.trim()));
-                if expr.trim().is_empty() {
+                let expr = c.expression.text.as_str();
+                let trimmed = expr.trim();
+                if self.env.option("xtrace") {
+                    xtrace::trace(self, &format!("(( {} ))", trimmed));
+                }
+                if trimmed.is_empty() {
                     return 1;
                 }
                 use cherubsh_expander::expand_for_arith;
                 let mut runner = crate::runner::ExecRunner::with_functions(&self.functions);
-                match expand_for_arith(&expr, self.env, &mut runner) {
+                match expand_for_arith(expr, self.env, &mut runner) {
                     Ok(v) => {
                         if v == 0 {
                             1
@@ -428,7 +444,7 @@ impl<'a> ExecContext<'a> {
                         }
                     }
                     Err(err) => {
-                        report_arith_command_error(self.env, err, &expr);
+                        report_arith_command_error(self.env, err, expr);
                         1
                     }
                 }
@@ -477,6 +493,11 @@ fn redirection_error_exits_for_command(command: &Command) -> bool {
         return false;
     };
     cherubsh_builtins::is_special(&word.text)
+}
+
+fn child_command_can_exec_direct(command: &Command) -> bool {
+    matches!(command.data, CommandData::Simple(_))
+        && command.flags & (CMD_INVERT_RETURN | CMD_TIME_PIPELINE) == 0
 }
 
 fn report_pipeline_time(env: &mut dyn Environment, elapsed: Duration, posix: bool) {
