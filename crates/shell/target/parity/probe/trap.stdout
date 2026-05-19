@@ -1,0 +1,212 @@
+1,13c1,8
+< trap -- 'echo exiting' 0
+< trap -- 'echo aborting' 1
+< trap -- 'echo aborting' 15
+< trap -- 'echo aborting' 2
+< trap -- 'echo aborting' 3
+< trap -- 'echo aborting' 6
+< trap -- 'echo aborting' ABRT
+< trap -- 'echo exiting' EXIT
+< trap -- 'echo aborting' HUP
+< trap -- 'echo aborting' INT
+< trap -- 'echo aborting' QUIT
+< trap -- 'echo aborting' TERM
+< [] debug
+---
+> subshell exit
+> trap -- 'echo exiting' EXIT
+> trap -- 'echo aborting' SIGHUP
+> trap -- 'echo aborting' SIGINT
+> trap -- 'echo aborting' SIGQUIT
+> trap -- 'echo aborting' SIGABRT
+> trap -- 'echo aborting' SIGTERM
+> [33] debug
+15,23c10
+< [] debug
+< trap -- 'echo exiting' 0
+< trap -- 'echo aborting' 1
+< trap -- 'echo aborting' 15
+< trap -- 'echo aborting' 2
+< trap -- 'echo aborting' 3
+< trap -- 'echo aborting' 6
+< trap -- 'echo aborting' ABRT
+< trap -- 'echo [$LINENO] debug' DEBUG
+---
+> [35] debug
+25,29c12,19
+< trap -- 'echo aborting' HUP
+< trap -- 'echo aborting' INT
+< trap -- 'echo aborting' QUIT
+< trap -- 'echo aborting' TERM
+< [] debug
+---
+> trap -- 'echo aborting' SIGHUP
+> trap -- 'echo aborting' SIGINT
+> trap -- 'echo aborting' SIGQUIT
+> trap -- 'echo aborting' SIGABRT
+> trap -- 'echo aborting' SIGTERM
+> trap -- 'echo [$LINENO] debug' DEBUG
+> [37] debug
+> func[29] funcdebug
+31,39c21
+< ./trap.tests[] funcdebug
+< trap -- 'echo exiting' 0
+< trap -- 'echo aborting' 1
+< trap -- 'echo aborting' 15
+< trap -- 'echo aborting' 2
+< trap -- 'echo aborting' 3
+< trap -- 'echo aborting' 6
+< trap -- 'echo aborting' ABRT
+< trap -- 'echo ${FUNCNAME:-$0}[$LINENO] funcdebug' DEBUG
+---
+> ./trap.tests[39] funcdebug
+41,48c23,33
+< trap -- 'echo aborting' HUP
+< trap -- 'echo aborting' INT
+< trap -- 'echo aborting' QUIT
+< trap -- 'echo aborting' TERM
+< ./trap.tests[] funcdebug
+< ./trap.tests[] debug
+< func2 ()
+< ./trap.tests[] debug
+---
+> trap -- 'echo aborting' SIGHUP
+> trap -- 'echo aborting' SIGINT
+> trap -- 'echo aborting' SIGQUIT
+> trap -- 'echo aborting' SIGABRT
+> trap -- 'echo aborting' SIGTERM
+> trap -- 'echo ${FUNCNAME:-$0}[$LINENO] funcdebug' DEBUG
+> ./trap.tests[41] funcdebug
+> ./trap.tests[46] debug
+> ./trap.tests[47] debug
+> func2[43] debug
+> func2[44] debug
+50,58c35,42
+< ./trap.tests[] debug
+< ./trap.tests[] debug
+< trap -- 'echo exiting' 0
+< trap -- 'echo aborting' 1
+< trap -- 'echo aborting' 15
+< trap -- 'echo aborting' 2
+< trap -- 'echo aborting' 3
+< trap -- 'echo aborting' 6
+< trap -- 'echo aborting' ABRT
+---
+> ./trap.tests[49] debug
+> ./trap.tests[51] debug
+> trap -- 'echo exiting' EXIT
+> trap -- 'echo aborting' SIGHUP
+> trap -- 'echo aborting' SIGINT
+> trap -- 'echo aborting' SIGQUIT
+> trap -- 'echo aborting' SIGABRT
+> trap -- 'echo aborting' SIGTERM
+61,90c45,75
+< trap -- 'echo aborting' HUP
+< trap -- 'echo aborting' INT
+< trap -- 'echo aborting' QUIT
+< trap -- 'echo aborting' TERM
+< trap -- 'echo exiting' 0
+< trap -- 'echo aborting' 1
+< trap -- 'echo aborting' 15
+< trap -- 'echo aborting' 2
+< trap -- 'echo aborting' 3
+< trap -- 'echo aborting' 6
+< trap -- 'echo aborting' ABRT
+< trap -- 'echo exiting' EXIT
+< trap -- 'echo aborting' HUP
+< trap -- 'echo aborting' INT
+< trap -- 'echo aborting' QUIT
+< trap -- 'echo aborting' TERM
+< trap -- '' hup
+< trap -- 'echo exiting' 0
+< trap -- 'echo aborting' 15
+< trap -- '' 2
+< trap -- 'echo aborting' 3
+< trap -- 'echo aborting' 6
+< trap -- 'echo aborting' ABRT
+< trap -- 'echo exiting' EXIT
+< trap -- '' INT
+< trap -- 'echo aborting' QUIT
+< trap -- 'echo aborting' TERM
+< 1
+< cupidshell: ./trap1.sub: command not found
+< cupidshell: ./trap2.sub: command not found
+---
+> trap -- 'echo aborting' SIGHUP
+> trap -- 'echo aborting' SIGINT
+> trap -- 'echo aborting' SIGQUIT
+> trap -- 'echo aborting' SIGABRT
+> trap -- 'echo aborting' SIGTERM
+> trap -- 'echo exiting' EXIT
+> trap -- '' SIGINT
+> trap -- 'echo aborting' SIGQUIT
+> trap -- 'echo aborting' SIGABRT
+> trap -- 'echo aborting' SIGTERM
+> 0
+> trap -- '' SIGUSR2
+> ERRTRAP
+> ERRTRAP
+> ERRTRAP
+> after falses
+> if negation ok
+> after negation
+> after while
+> before false in trap2a.sub
+> after false in trap2a.sub
+> command substitution
+> ERRTRAP
+> ERRTRAP
+> bar
+> ERRTRAP
+> ERRTRAP
+> ERRTRAP
+> ERRTRAP
+> ERRTRAP
+> +[6] echo 1
+91a77
+> +[7] echo 2
+92a79,84
+> +[8] false
+> +[8] false
+> +[8] false
+> ++[8] echo trap: 8
+> trap: 8
+> +[9] echo 4
+93a86
+> exit subshell 1
+94a88
+> exit subshell 2
+102a97,99
+> wait $!
+> exit
+> in trap EXIT
+103a101,103
+> wait $!
+> exit
+> in trap EXIT
+105d104
+< cupidshell: fn: command not found
+108d106
+< cupidshell: fn: command not found
+110,122c108,111
+< trap -- 'echo exiting' 0
+< trap -- 'echo aborting' 15
+< trap -- '' 2
+< trap -- 'echo aborting' 3
+< trap -- 'echo aborting' 6
+< trap -- 'echo aborting' ABRT
+< trap -- 'echo exiting' EXIT
+< trap -- '' INT
+< trap -- 'echo aborting' QUIT
+< trap -- 'echo aborting' TERM
+< trap -- 'echo exiting' 0
+< trap -- 'echo aborting' 6
+< trap -- 'echo aborting' ABRT
+---
+> caught a child death
+> caught a child death
+> caught a child death
+> trap -- 'echo caught a child death' SIGCHLD
+123a113,114
+> trap -- 'echo aborting' SIGABRT
+> trap -- 'echo caught a child death' SIGCHLD

@@ -1,0 +1,3 @@
+verdict	name	status	timed_out	stdout_path	stderr_path	tstout_path
+xfail	exp-tests	1	false	target/parity/parser-exp-plan/exp-tests.stdout	target/parity/parser-exp-plan/exp-tests.stderr	/tmp/cupid-bashtst-539799-exp-tests-1778858013718506743.out
+xfail	parser	1	false	target/parity/parser-exp-plan/parser.stdout	target/parity/parser-exp-plan/parser.stderr	/tmp/cupid-bashtst-539799-parser-1778858014019184700.out

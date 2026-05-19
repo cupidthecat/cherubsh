@@ -1,0 +1,2 @@
+verdict	name	status	timed_out	stdout_path	stderr_path	tstout_path
+xfail	alias	1	false	target/parity/alias-plan/alias.stdout	target/parity/alias-plan/alias.stderr	/tmp/cupid-bashtst-538431-alias-1778857981531752824.out
