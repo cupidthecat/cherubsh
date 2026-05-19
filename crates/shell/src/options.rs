@@ -237,8 +237,12 @@ pub fn set_shell_name(argv0: &str, state: &mut ShellState) {
 }
 
 pub const SHELL_VERSION: &str = "5.2.21";
-pub const PATCH_LEVEL: u32 = 0;
+pub const MAJOR_VERSION: u32 = 5;
+pub const MINOR_VERSION: u32 = 2;
+pub const PATCH_LEVEL: u32 = 21;
+pub const BUILD_VERSION: u32 = 1;
 pub const DIST_VERSION: &str = "5.2";
+pub const MACHTYPE: &str = "x86_64-rust-linux-gnu";
 
 pub fn show_shell_version() {
     println!(

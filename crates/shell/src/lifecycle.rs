@@ -1,6 +1,8 @@
 use cherubsh_common::{Environment, VarAttrs};
 
-use crate::options::{DIST_VERSION, PATCH_LEVEL, SHELL_VERSION};
+use crate::options::{
+    BUILD_VERSION, MACHTYPE, MAJOR_VERSION, MINOR_VERSION, PATCH_LEVEL, SHELL_VERSION,
+};
 use crate::signals::{acquire_terminal, install_default_handlers, install_job_control_signals};
 use crate::state::{ShellState, StartupMode, VariableEntry};
 
@@ -56,11 +58,7 @@ pub fn shell_initialize(state: &mut ShellState) {
         "BASH_VERSION",
         format!("{SHELL_VERSION}-release(cherubsh)"),
     );
-    bind(
-        state,
-        "BASH_VERSINFO",
-        format!("({} {} {} 1 release)", DIST_VERSION, PATCH_LEVEL, 0),
-    );
+    bind_bash_versinfo(state);
     bind(
         state,
         "BASH",
@@ -133,6 +131,21 @@ fn bind_readonly_integer(state: &mut ShellState, name: &str, value: String) {
             attrs: VarAttrs::READONLY | VarAttrs::INTEGER,
         },
     );
+}
+
+fn bind_bash_versinfo(state: &mut ShellState) {
+    state.set_array(
+        "BASH_VERSINFO",
+        vec![
+            MAJOR_VERSION.to_string(),
+            MINOR_VERSION.to_string(),
+            PATCH_LEVEL.to_string(),
+            BUILD_VERSION.to_string(),
+            String::from("release"),
+            String::from(MACHTYPE),
+        ],
+    );
+    state.set_attr("BASH_VERSINFO", VarAttrs::READONLY, true);
 }
 
 fn current_groups() -> Vec<String> {

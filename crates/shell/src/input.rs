@@ -1,7 +1,7 @@
 use std::fs::File;
-use std::io::{self, BufRead, BufReader, IsTerminal, Read};
+use std::io::{self, BufRead, BufReader, IsTerminal};
 use std::os::unix::io::{AsRawFd, FromRawFd};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 /// Mirrors bash's BASH_INPUT tagged union (input.h:83-89).
 #[derive(Debug)]
@@ -17,7 +17,6 @@ pub enum BashInput {
     },
     Stream {
         name: String,
-        path: Option<PathBuf>,
         reader: BufReader<File>,
     },
 }
@@ -47,7 +46,6 @@ impl BashInput {
         let file = move_to_internal_fd(File::open(path)?);
         Ok(BashInput::Stream {
             name: path.display().to_string(),
-            path: Some(path.to_path_buf()),
             reader: BufReader::new(file),
         })
     }
@@ -73,28 +71,6 @@ impl BashInput {
         match self {
             BashInput::Stdin { .. } => io::stdin().is_terminal(),
             _ => false,
-        }
-    }
-
-    /// Read the entire remaining input into a single string. Used for non-interactive
-    /// stdin and script-file modes (mirrors bash's BUFFERED_INPUT bulk read path).
-    pub fn read_all(&mut self) -> io::Result<String> {
-        let mut out = String::new();
-        match self {
-            BashInput::None => Ok(String::new()),
-            BashInput::Stdin { .. } => {
-                io::stdin().read_to_string(&mut out)?;
-                Ok(out)
-            }
-            BashInput::String { buf, pos, .. } => {
-                let remaining = buf[*pos..].to_string();
-                *pos = buf.len();
-                Ok(remaining)
-            }
-            BashInput::Stream { reader, .. } => {
-                reader.read_to_string(&mut out)?;
-                Ok(out)
-            }
         }
     }
 

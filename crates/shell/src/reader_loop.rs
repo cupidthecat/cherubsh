@@ -1,5 +1,5 @@
 use cherubsh_common::{expand_aliases_for_parse, Environment, ShellJump, ShellResult};
-use cherubsh_exec::{execute_in, execute_with_state, ExecState};
+use cherubsh_exec::{execute_with_state, ExecState};
 use cherubsh_lexer::Lexer;
 use cherubsh_lineedit::{CompletionProvider, EditError, HistoryProvider, LineEditor};
 use cherubsh_parser::{Ast, Command, CommandData, ParseError, Parser};
@@ -10,13 +10,6 @@ use crate::prompt::{decode_prompt_string, prompt_again};
 use crate::signals::{arm_alarm, check_signals, disarm_alarm};
 use crate::state::ShellState;
 use crate::traps::{notify_completed_jobs, run_pending_traps};
-
-/// reader_loop: read-eval loop. Port of eval.c:57-194.
-pub fn reader_loop(state: &mut ShellState) -> i32 {
-    let mut exec_state = ExecState::default();
-    exec_state.import_exported_functions(state);
-    reader_loop_with_exec_state(state, &mut exec_state)
-}
 
 pub fn reader_loop_with_exec_state(state: &mut ShellState, exec_state: &mut ExecState) -> i32 {
     state.indirection_level += 1;
@@ -58,7 +51,7 @@ pub fn reader_loop_with_exec_state(state: &mut ShellState, exec_state: &mut Exec
 
         state.executing = false;
 
-        let parsed = match read_command(state) {
+        let parsed = match read_command(state, exec_state) {
             Ok(value) => value,
             Err(jump) => match jump {
                 ShellJump::ForceEof | ShellJump::ExitProg(_) | ShellJump::ExitBltin(_) => {
@@ -131,18 +124,21 @@ pub fn reader_loop_with_exec_state(state: &mut ShellState, exec_state: &mut Exec
 
 /// Run reader_loop until the current input source ends, used when sourcing
 /// a startup file. Restores the previous input on return.
-pub fn run_until_eof(state: &mut ShellState) {
+pub fn run_until_eof_with_exec_state(state: &mut ShellState, exec_state: &mut ExecState) {
     let saved_eof = state.eof_reached;
     let saved_just_one = state.just_one_command;
     state.eof_reached = false;
     state.just_one_command = false;
-    let _ = reader_loop(state);
+    let _ = reader_loop_with_exec_state(state, exec_state);
     state.just_one_command = saved_just_one;
     state.eof_reached = saved_eof;
 }
 
 /// read_command: port of eval.c:360-401.
-pub fn read_command(state: &mut ShellState) -> ShellResult<Option<Command>> {
+pub fn read_command(
+    state: &mut ShellState,
+    exec_state: &mut ExecState,
+) -> ShellResult<Option<Command>> {
     let mut tmout_armed = false;
     if state.interactive {
         if let Some(value) = state.get("TMOUT") {
@@ -155,7 +151,7 @@ pub fn read_command(state: &mut ShellState) -> ShellResult<Option<Command>> {
         }
     }
     check_signals()?;
-    let result = parse_command(state);
+    let result = parse_command(state, exec_state);
     if tmout_armed {
         disarm_alarm();
     }
@@ -163,7 +159,10 @@ pub fn read_command(state: &mut ShellState) -> ShellResult<Option<Command>> {
 }
 
 /// parse_command: port of eval.c:323-354.
-pub fn parse_command(state: &mut ShellState) -> ShellResult<Option<Command>> {
+pub fn parse_command(
+    state: &mut ShellState,
+    exec_state: &mut ExecState,
+) -> ShellResult<Option<Command>> {
     state.need_here_doc = false;
     // Dispatch any queued traps + reap completed jobs before prompting.
     run_pending_traps(state);
@@ -171,7 +170,7 @@ pub fn parse_command(state: &mut ShellState) -> ShellResult<Option<Command>> {
         notify_completed_jobs(state);
     }
     if state.interactive && !state.input.is_string() && !state.input.is_stream() {
-        execute_prompt_command(state);
+        execute_prompt_command(state, exec_state);
     }
     let input_text = read_logical_command(state)?;
     if input_text.trim().is_empty() {
@@ -2890,7 +2889,7 @@ fn heredocs_in_line(line: &str) -> Vec<(String, bool, bool)> {
     out
 }
 
-fn execute_prompt_command(state: &mut ShellState) {
+fn execute_prompt_command(state: &mut ShellState, exec_state: &mut ExecState) {
     let raw = state.get("PROMPT_COMMAND").unwrap_or_default();
     if raw.trim().is_empty() {
         return;
@@ -2906,7 +2905,7 @@ fn execute_prompt_command(state: &mut ShellState) {
     match parser.parse() {
         Ok(ast) => {
             let saved = state.last_command_exit_value;
-            let _ = execute_in(&ast, state);
+            let _ = execute_with_state(&ast, state, exec_state);
             state.last_command_exit_value = saved;
         }
         Err(err) => {

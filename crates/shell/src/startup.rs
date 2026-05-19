@@ -1,22 +1,33 @@
 use std::path::{Path, PathBuf};
 
 use cherubsh_common::Environment;
+use cherubsh_exec::ExecState;
 use cherubsh_expander::{expand_string_to_string, NullRunner};
 
 use crate::input::BashInput;
-use crate::reader_loop::run_until_eof;
+use crate::reader_loop::run_until_eof_with_exec_state;
 use crate::state::ShellState;
 
 const SYS_PROFILE: &str = "/etc/profile";
 
 /// Source a file if it exists and is readable. Mirrors maybe_execute_file.
 pub fn maybe_source(path: &Path, state: &mut ShellState) -> bool {
+    let mut exec_state = ExecState::default();
+    exec_state.import_exported_functions(state);
+    maybe_source_with_exec_state(path, state, &mut exec_state)
+}
+
+pub fn maybe_source_with_exec_state(
+    path: &Path,
+    state: &mut ShellState,
+    exec_state: &mut ExecState,
+) -> bool {
     let input = match BashInput::from_file(path) {
         Ok(value) => value,
         Err(_) => return false,
     };
     state.push_input(input);
-    run_until_eof(state);
+    run_until_eof_with_exec_state(state, exec_state);
     state.pop_input();
     true
 }
@@ -42,20 +53,20 @@ fn expanded_env_path(name: &str, state: &mut ShellState) -> Option<PathBuf> {
     }
 }
 
-fn source_login_files(state: &mut ShellState) {
+fn source_login_files(state: &mut ShellState, exec_state: &mut ExecState) {
     state.no_rc = true;
     if state.no_profile {
         return;
     }
-    maybe_source(Path::new(SYS_PROFILE), state);
+    maybe_source_with_exec_state(Path::new(SYS_PROFILE), state, exec_state);
     if state.act_like_sh {
         if let Some(profile) = home_path(".profile") {
-            maybe_source(&profile, state);
+            maybe_source_with_exec_state(&profile, state, exec_state);
         }
     } else {
         for candidate in [".bash_profile", ".bash_login", ".profile"] {
             if let Some(path) = home_path(candidate) {
-                if maybe_source(&path, state) {
+                if maybe_source_with_exec_state(&path, state, exec_state) {
                     break;
                 }
             }
@@ -64,13 +75,13 @@ fn source_login_files(state: &mut ShellState) {
 }
 
 /// run_startup_files: full port of shell.c:1124-1260.
-pub fn run_startup_files(state: &mut ShellState) {
+pub fn run_startup_files(state: &mut ShellState, exec_state: &mut ExecState) {
     let mut sourced_login = false;
 
     // A non-interactive shell only runs login startup files for --login/-l
     // in this local bash build (NON_INTERACTIVE_LOGIN_SHELLS is disabled).
     if state.login_shell < 0 && !state.posixly_correct {
-        source_login_files(state);
+        source_login_files(state, exec_state);
         sourced_login = true;
     }
 
@@ -84,7 +95,7 @@ pub fn run_startup_files(state: &mut ShellState) {
             {
                 state.sourced_env += 1;
                 if let Some(path) = expanded_env_path("BASH_ENV", state) {
-                    maybe_source(&path, state);
+                    maybe_source_with_exec_state(&path, state, exec_state);
                 }
             }
         }
@@ -94,23 +105,23 @@ pub fn run_startup_files(state: &mut ShellState) {
     // Interactive shell or `-su' shell.
     if !state.posixly_correct {
         if state.login_shell != 0 && !sourced_login {
-            source_login_files(state);
+            source_login_files(state, exec_state);
         }
 
         if !state.act_like_sh && !state.no_rc {
             let bashrc = state.bashrc_file.clone();
-            maybe_source(&bashrc, state);
+            maybe_source_with_exec_state(&bashrc, state, exec_state);
         } else if state.act_like_sh && !state.privileged_mode && state.sourced_env == 0 {
             state.sourced_env += 1;
             if let Some(path) = expanded_env_path("ENV", state) {
-                maybe_source(&path, state);
+                maybe_source_with_exec_state(&path, state, exec_state);
             }
         }
     } else {
         if !state.privileged_mode && state.sourced_env == 0 {
             state.sourced_env += 1;
             if let Some(path) = expanded_env_path("ENV", state) {
-                maybe_source(&path, state);
+                maybe_source_with_exec_state(&path, state, exec_state);
             }
         }
     }

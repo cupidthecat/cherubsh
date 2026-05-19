@@ -4,7 +4,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use cherubsh_common::Environment;
 
-use crate::options::{DIST_VERSION, PATCH_LEVEL, SHELL_VERSION};
+use crate::options::{DIST_VERSION, PATCH_LEVEL};
 use crate::state::ShellState;
 
 const RL_PROMPT_START_IGNORE: u8 = 0x01;
@@ -447,6 +447,7 @@ mod tests {
     fn decode_version() {
         let s = state();
         assert_eq!(decode_prompt_string(&s, "\\v"), DIST_VERSION);
+        assert_eq!(decode_prompt_string(&s, "\\V"), "5.2.21");
     }
 
     #[test]

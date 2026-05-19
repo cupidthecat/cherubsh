@@ -16,7 +16,8 @@ pub struct ExpandResult {
     pub print_only: bool,
 }
 
-pub fn expand(input: &str, history: &HistoryTable) -> ExpandResult {
+#[cfg(test)]
+fn expand(input: &str, history: &HistoryTable) -> ExpandResult {
     expand_with_options(input, history, false)
 }
 

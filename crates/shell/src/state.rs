@@ -130,7 +130,6 @@ pub enum StartupMode {
     Script = 0,
     Interactive = 1,
     DashC = 2,
-    Wordexp = 3,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -286,7 +285,6 @@ pub struct ShellState {
     pub original_pgrp_value: i32,
     pub tty_fd_value: Option<i32>,
     pub job_control: bool,
-    pub notify_immediately: bool,
     pub running_trap_sig: Option<i32>,
     pub history_table: HistoryTable,
     pub history_last_line_added: bool,
@@ -413,7 +411,6 @@ impl Default for ShellState {
             original_pgrp_value: unsafe { libc::getpgrp() },
             tty_fd_value: None,
             job_control: false,
-            notify_immediately: false,
             running_trap_sig: None,
             history_table: HistoryTable::new(500),
             history_last_line_added: false,
@@ -2930,45 +2927,6 @@ pub fn signal_short_name(num: i32) -> Option<&'static str> {
         31 => "SYS",
         _ => return None,
     })
-}
-
-pub fn signal_number(name: &str) -> Option<i32> {
-    let upper = name.to_ascii_uppercase();
-    let stripped = upper.strip_prefix("SIG").unwrap_or(&upper);
-    match stripped {
-        "HUP" => Some(1),
-        "INT" => Some(2),
-        "QUIT" => Some(3),
-        "ILL" => Some(4),
-        "TRAP" => Some(5),
-        "ABRT" | "IOT" => Some(6),
-        "BUS" => Some(7),
-        "FPE" => Some(8),
-        "KILL" => Some(9),
-        "USR1" => Some(10),
-        "SEGV" => Some(11),
-        "USR2" => Some(12),
-        "PIPE" => Some(13),
-        "ALRM" => Some(14),
-        "TERM" => Some(15),
-        "STKFLT" => Some(16),
-        "CHLD" | "CLD" => Some(17),
-        "CONT" => Some(18),
-        "STOP" => Some(19),
-        "TSTP" => Some(20),
-        "TTIN" => Some(21),
-        "TTOU" => Some(22),
-        "URG" => Some(23),
-        "XCPU" => Some(24),
-        "XFSZ" => Some(25),
-        "VTALRM" => Some(26),
-        "PROF" => Some(27),
-        "WINCH" => Some(28),
-        "IO" | "POLL" => Some(29),
-        "PWR" => Some(30),
-        "SYS" | "UNUSED" => Some(31),
-        _ => stripped.parse::<i32>().ok(),
-    }
 }
 
 pub fn seed_startup_ignored_traps(state: &mut ShellState) {

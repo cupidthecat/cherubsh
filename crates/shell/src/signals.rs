@@ -4,8 +4,8 @@
 //! - Handlers are async-signal-safe; they only `fetch_add` into a counter.
 //! - `check_signals()` converts SIGINT/SIGALRM/SIGTERM into `ShellJump`.
 //! - `pending_signal_take()` drains a counter for trap dispatch.
-//! - `acquire_terminal`, `give_terminal_to`, `restore_terminal` implement
-//!   the bash `set_job_control` tty handoff.
+//! - `acquire_terminal` initializes the bash `set_job_control` tty handoff;
+//!   exec-side helpers transfer and restore the foreground process group.
 //!
 //! Each signal we care about gets a `sigaction(SA_RESTART)` install. The
 //! actual dispatch lives in `crates/shell/src/traps.rs`.
@@ -221,37 +221,6 @@ pub fn configure_trap_signal(
     true
 }
 
-/// Reset signal dispositions to defaults - called inside child forks before
-/// exec so the child doesn't inherit our trap handlers.
-pub fn reset_child_signals() {
-    for sig in [
-        libc::SIGINT,
-        libc::SIGTERM,
-        libc::SIGHUP,
-        libc::SIGQUIT,
-        libc::SIGCHLD,
-        libc::SIGTSTP,
-        libc::SIGTTIN,
-        libc::SIGTTOU,
-        libc::SIGPIPE,
-        libc::SIGUSR1,
-        libc::SIGUSR2,
-        libc::SIGWINCH,
-        libc::SIGALRM,
-    ] {
-        install_default(sig);
-    }
-    // Clear our internal pending state - the child must not run our traps.
-    for s in PENDING_COUNTS.iter() {
-        s.store(0, Ordering::SeqCst);
-    }
-    CATCH_FLAG.store(false, Ordering::SeqCst);
-    SIGINT_RECEIVED.store(false, Ordering::SeqCst);
-    TERM_RECEIVED.store(0, Ordering::SeqCst);
-    ALARM_FIRED.store(false, Ordering::SeqCst);
-    WINCH_FIRED.store(false, Ordering::SeqCst);
-}
-
 pub fn install_early_sigint() {
     extern "C" fn early(_sig: libc::c_int) {
         unsafe {
@@ -273,10 +242,6 @@ pub fn term_taken() -> i32 {
     TERM_RECEIVED.swap(0, Ordering::SeqCst)
 }
 
-pub fn winch_taken() -> bool {
-    WINCH_FIRED.swap(false, Ordering::SeqCst)
-}
-
 pub fn catch_flag_set() -> bool {
     CATCH_FLAG.load(Ordering::SeqCst)
 }
@@ -291,14 +256,6 @@ pub fn pending_signal_take(sig: i32) -> u32 {
         return 0;
     }
     PENDING_COUNTS[sig as usize].swap(0, Ordering::SeqCst)
-}
-
-/// Peek at a signal's pending counter without draining.
-pub fn pending_signal_peek(sig: i32) -> u32 {
-    if sig <= 0 || (sig as usize) >= NSIG {
-        return 0;
-    }
-    PENDING_COUNTS[sig as usize].load(Ordering::SeqCst)
 }
 
 /// Iterator over all signals with pending events (non-zero counter).
@@ -409,18 +366,4 @@ pub fn acquire_terminal(
     }
     *shell_pgrp_out = shell_pid;
     true
-}
-
-/// Transfer terminal ownership to a child process group.
-pub fn give_terminal_to(tty_fd: RawFd, pgid: i32) -> bool {
-    let _guard = SignalMaskGuard::block_terminal_handoff();
-    let rc = unsafe { libc::tcsetpgrp(tty_fd, pgid) };
-    rc == 0
-}
-
-/// Restore terminal ownership to the shell.
-pub fn restore_terminal(tty_fd: RawFd, shell_pgrp: i32) -> bool {
-    let _guard = SignalMaskGuard::block_terminal_handoff();
-    let rc = unsafe { libc::tcsetpgrp(tty_fd, shell_pgrp) };
-    rc == 0
 }

@@ -15,6 +15,7 @@ use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 
 use cherubsh_common::{Environment, ShellError};
+use cherubsh_exec::ExecState;
 
 use crate::exit::exit_shell;
 use crate::input::BashInput;
@@ -23,7 +24,7 @@ use crate::options::{
     bind_args, parse_long_options, parse_shell_options, set_shell_name, show_shell_usage,
     show_shell_version,
 };
-use crate::reader_loop::reader_loop;
+use crate::reader_loop::reader_loop_with_exec_state;
 use crate::signals::{install_default_handlers, install_early_sigint};
 use crate::startup::run_startup_files;
 use crate::state::{seed_startup_ignored_traps, ShellState, StartupMode};
@@ -249,10 +250,13 @@ fn run(argv: Vec<String>) -> Result<i32, ShellError> {
         bind_args(&argv, arg_index, 1, &mut state);
     }
 
+    let mut exec_state = ExecState::default();
+    exec_state.import_exported_functions(&state);
+
     if !state.running_setuid {
         let old_errexit = state.errexit;
         state.errexit = false;
-        run_startup_files(&mut state);
+        run_startup_files(&mut state, &mut exec_state);
         state.errexit |= old_errexit;
     }
 
@@ -287,7 +291,7 @@ fn run(argv: Vec<String>) -> Result<i32, ShellError> {
         state.input = BashInput::stdin();
     }
 
-    let status = reader_loop(&mut state);
+    let status = reader_loop_with_exec_state(&mut state, &mut exec_state);
     exit_shell(&mut state, status);
 }
 
