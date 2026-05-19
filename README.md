@@ -48,10 +48,93 @@ The parity driver also runs CherubSH's own differential fixtures against the Bas
 
 Regular Cargo unit and integration tests run as part of the same workspace sweep.
 
+## Switching From Bash
+
+CherubSH is meant to run Bash-compatible scripts directly, but a shell is a critical part of a system. Keep `/bin/bash` installed and test your dotfiles and scripts before changing your login shell.
+
+Build CherubSH:
+
+```sh
+cargo build --release -p cherubsh
+```
+
+Run it without installing:
+
+```sh
+target/release/cherubsh
+target/release/cherubsh examples/01-basics.sh
+```
+
+Install it somewhere on `PATH`:
+
+```sh
+sudo install -m 0755 target/release/cherubsh /usr/local/bin/cherubsh
+```
+
+Run existing Bash scripts with CherubSH:
+
+```sh
+cherubsh ./script.sh
+cherubsh -c 'printf "%s\n" "${BASH_VERSION:-compatible}"'
+```
+
+Use CherubSH for new scripts:
+
+```sh
+#!/usr/bin/env cherubsh
+set -euo pipefail
+
+name=${1:-world}
+printf 'hello %s\n' "$name"
+```
+
+Try it as your current interactive shell:
+
+```sh
+exec cherubsh
+```
+
+Make it your login shell after testing:
+
+```sh
+command -v cherubsh | sudo tee -a /etc/shells
+chsh -s "$(command -v cherubsh)"
+```
+
+Switch back to Bash if needed:
+
+```sh
+chsh -s /bin/bash
+```
+
+Do not replace `/bin/bash` with CherubSH on a system install. System scripts often depend on the exact path and build options of the distro-provided Bash. Prefer explicit script shebangs, `SHELL=/usr/local/bin/cherubsh` for user tools, or `chsh` for your own login shell.
+
 ## Running
 
 ```sh
 cargo run -p cherubsh
+```
+
+Run a script:
+
+```sh
+cargo run -p cherubsh -- examples/01-basics.sh
+```
+
+## Examples
+
+Runnable examples live in `examples/`:
+
+- `examples/01-basics.sh`: functions, arrays, associative arrays, loops, and `case`.
+- `examples/02-expansion-and-redirection.sh`: parameter expansion, command substitution, brace expansion, here-documents, and process substitution.
+- `examples/03-traps-coproc-and-jobs.sh`: traps, background jobs, `wait`, and named coprocess file descriptors.
+
+Run them from the repository root:
+
+```sh
+cargo run -p cherubsh -- examples/01-basics.sh
+cargo run -p cherubsh -- examples/02-expansion-and-redirection.sh
+cargo run -p cherubsh -- examples/03-traps-coproc-and-jobs.sh
 ```
 
 ## Testing
