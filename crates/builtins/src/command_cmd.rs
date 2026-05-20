@@ -6,7 +6,7 @@ use crate::{lookup_raw, Builtin, BuiltinCtx};
 pub struct Command;
 pub static COMMAND: Command = Command;
 
-pub const DEFAULT_PATH: &str = "/usr/local/bin:/usr/GNU/bin:/usr/bin:/bin:.";
+pub const DEFAULT_PATH: &str = "/usr/local/bin:/usr/GNU/bin:/bin:/usr/bin:.";
 
 impl Builtin for Command {
     fn name(&self) -> &'static str {

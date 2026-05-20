@@ -193,11 +193,11 @@ impl CompSpec {
         }
         if let Some(g) = &self.glob_pattern {
             out.push_str(" -G ");
-            out.push_str(&quote_complete_arg(g));
+            out.push_str(&quote_complete_arg_always(g));
         }
         if let Some(w) = &self.wordlist {
             out.push_str(" -W ");
-            out.push_str(&quote_complete_arg(w));
+            out.push_str(&quote_complete_arg_always(w));
         }
         if let Some(f) = &self.function {
             out.push_str(" -F ");
@@ -205,22 +205,26 @@ impl CompSpec {
         }
         if let Some(c) = &self.command {
             out.push_str(" -C ");
-            out.push_str(&quote_complete_arg(c));
+            out.push_str(&quote_complete_arg_always(c));
         }
         if let Some(x) = &self.filterpat {
             out.push_str(" -X ");
-            out.push_str(&quote_complete_arg(x));
+            out.push_str(&quote_complete_arg_always(x));
         }
         if let Some(p) = &self.prefix {
             out.push_str(" -P ");
-            out.push_str(&quote_complete_arg(p));
+            out.push_str(&quote_complete_arg_always(p));
         }
         if let Some(s) = &self.suffix {
             out.push_str(" -S ");
-            out.push_str(&quote_complete_arg(s));
+            out.push_str(&quote_complete_arg_always(s));
         }
         out
     }
+}
+
+fn quote_complete_arg_always(value: &str) -> String {
+    shell_single_quote(value)
 }
 
 fn quote_complete_arg(value: &str) -> String {
@@ -231,6 +235,10 @@ fn quote_complete_arg(value: &str) -> String {
     {
         return value.to_string();
     }
+    shell_single_quote(value)
+}
+
+fn shell_single_quote(value: &str) -> String {
     let mut out = String::from("'");
     for ch in value.chars() {
         if ch == '\'' {

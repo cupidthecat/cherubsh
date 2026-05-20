@@ -1,4 +1,6 @@
-use crate::common::{report_diagnostic, search_path};
+use std::path::PathBuf;
+
+use crate::common::{is_executable, report_diagnostic, search_path};
 use crate::getopt::{GetOpt, OptParser};
 use crate::{lookup_raw, Builtin, BuiltinCtx};
 use cherubsh_common::{
@@ -59,6 +61,13 @@ impl Builtin for Type {
         let mut status = 0;
         for name in rest {
             let mut found_any = false;
+
+            if path_only
+                && !force_path
+                && command_exists_without_path(ctx, name, suppress_function_lookup)
+            {
+                found_any = true;
+            }
 
             if ctx.env_ref().aliases_enabled()
                 && !suppress_function_lookup
@@ -141,7 +150,18 @@ impl Builtin for Type {
             }
 
             let env_ref: &dyn cherubsh_common::Environment = ctx.env_ref();
-            if let Some(path) = search_path(name, env_ref) {
+            if all_paths {
+                for path in search_all_paths(name, env_ref) {
+                    if type_only {
+                        println!("file");
+                    } else if path_only || force_path {
+                        println!("{}", path.display());
+                    } else {
+                        println!("{name} is {}", path.display());
+                    }
+                    found_any = true;
+                }
+            } else if let Some(path) = search_path(name, env_ref) {
                 if type_only {
                     println!("file");
                 } else if path_only || force_path {
@@ -153,7 +173,7 @@ impl Builtin for Type {
             }
 
             if !found_any {
-                if !type_only {
+                if !type_only && !path_only && !force_path {
                     report_diagnostic(ctx.env_ref(), "type", &format!("{name}: not found"));
                 }
                 status = 1;
@@ -161,6 +181,41 @@ impl Builtin for Type {
         }
         status
     }
+}
+
+fn command_exists_without_path(
+    ctx: &BuiltinCtx<'_>,
+    name: &str,
+    suppress_function_lookup: bool,
+) -> bool {
+    (ctx.env_ref().aliases_enabled() && ctx.env_ref().alias_get(name).is_some())
+        || is_keyword(name)
+        || (!suppress_function_lookup && ctx.shell.function_get(name).is_some())
+        || (lookup_raw(name).is_some() && ctx.env_ref().builtin_enabled(name))
+}
+
+fn search_all_paths(name: &str, env: &dyn cherubsh_common::Environment) -> Vec<PathBuf> {
+    if name.contains('/') {
+        let path = PathBuf::from(name);
+        return if is_executable(&path) {
+            vec![path]
+        } else {
+            Vec::new()
+        };
+    }
+    let mut out = Vec::new();
+    let path = env.get("PATH").unwrap_or_default();
+    for dir in path.split(':') {
+        if dir.is_empty() {
+            continue;
+        }
+        let mut candidate = PathBuf::from(dir);
+        candidate.push(name);
+        if is_executable(&candidate) {
+            out.push(candidate);
+        }
+    }
+    out
 }
 
 fn is_keyword(s: &str) -> bool {

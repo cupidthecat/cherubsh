@@ -1,7 +1,8 @@
 use cherubsh_builtins::common::{array_reference, is_valid_name, split_assignment_op};
 use cherubsh_builtins::{is_assignment_builtin, is_special, lookup, BuiltinCtx};
 use cherubsh_common::{
-    Environment, VarSnapshot, CMD_IGNORE_RETURN, CMD_INVERT_RETURN, W_ASSIGNMENT, W_COMPASSIGN,
+    Environment, VarAttrs, VarSnapshot, CMD_IGNORE_RETURN, CMD_INVERT_RETURN, W_ASSIGNMENT,
+    W_COMPASSIGN,
 };
 use cherubsh_expander::assignment::ExpandedAssignment;
 use cherubsh_expander::assignment::{expand_assignment_word, looks_like_assignment};
@@ -25,6 +26,10 @@ pub(crate) fn execute<'a>(
     flags: u32,
     mode: ExecMode,
 ) -> i32 {
+    if simple.words.is_empty() && simple.redirects.is_empty() {
+        return 0;
+    }
+
     let debug_trap_in_scope = mode == ExecMode::Parent
         && !ctx.suppress_debug_traps
         && ((ctx.function_depth == 0 && ctx.source_depth == 0)
@@ -45,18 +50,12 @@ pub(crate) fn execute<'a>(
     }
     let (raw_assignments, remaining) = split_assignments(&simple.words, ctx.env.option("keyword"));
     let trace_enabled = ctx.env.option("xtrace");
-    let trace_assignments = if trace_enabled {
-        raw_assignments
-            .iter()
-            .map(|word| word.text.clone())
-            .collect::<Vec<_>>()
-    } else {
-        Vec::new()
-    };
+    let trace_fd_before_assignments = trace_enabled.then(|| ctx.env.get("BASH_XTRACEFD"));
     let mut assignment_expansion_status = 0;
     let mut scalar_readonly_assignment_error = false;
     let mut scalar_invalid_assignment_error = false;
     let mut assignments = Vec::new();
+    let mut trace_assignments = Vec::new();
     let command_prefix_assignments = !remaining.is_empty();
     let mut assignment_expansion_snapshot = Vec::new();
     for word in raw_assignments {
@@ -70,7 +69,7 @@ pub(crate) fn execute<'a>(
             }
         }
         let has_command_subst = word.text.contains("$(") || word.text.contains('`');
-        let mut runner = ExecRunner::with_functions(&ctx.functions);
+        let mut runner = ExecRunner::with_functions(&ctx.functions, &ctx.function_sources);
         match expand_assignment_word(&word, ctx.env, &mut runner) {
             Ok(Some(a)) => {
                 if has_command_subst {
@@ -94,13 +93,17 @@ pub(crate) fn execute<'a>(
                 if scalar_assignment_invalid_nameref_target(ctx.env, &a) && assignment_status != 0 {
                     scalar_invalid_assignment_error = true;
                 }
+                if trace_enabled {
+                    trace_assignments.push(trace_assignment_for_raw(&a, &word.text));
+                }
                 assignments.push(a);
             }
             Ok(None) => {}
             Err(err) => {
                 let status = expansion_error_status(&err);
-                let unwind_status = expansion_error_unwind_status(&err, status, mode);
+                let unwind_status = expansion_error_unwind_status(&err, status, mode, ctx.env);
                 let exits_shell = expansion_error_exits_shell(&err, ctx.env);
+                let aborts_line = expansion_error_aborts_line(&err, ctx.env);
                 if !err.already_reported() {
                     report_expand_error_with_source_line(
                         ctx.env,
@@ -113,6 +116,9 @@ pub(crate) fn execute<'a>(
                 if exits_shell {
                     ctx.pending = Some(Unwind::Exit(unwind_status));
                     return status;
+                } else if aborts_line {
+                    ctx.pending = Some(Unwind::AbortLine(status));
+                    return status;
                 }
             }
         }
@@ -124,10 +130,16 @@ pub(crate) fn execute<'a>(
         .iter()
         .filter_map(ExpandedAssignment::scalar_pair)
         .collect();
-
     if remaining.is_empty() {
         if trace_enabled {
-            trace_simple(ctx, &trace_assignments, &[]);
+            trace_simple_with_fd_value(
+                ctx,
+                &trace_assignments,
+                &[],
+                trace_fd_before_assignments
+                    .as_ref()
+                    .and_then(|v| v.as_deref()),
+            );
         }
         let _guard = if simple.redirects.is_empty() {
             None
@@ -139,7 +151,7 @@ pub(crate) fn execute<'a>(
                         Err(err) => {
                             err.report_with_env(ctx.env);
                             if err_trap_in_scope {
-                                crate::trap::run_err_trap(ctx);
+                                run_err_trap_with_status(ctx, 1);
                             }
                             return 1;
                         }
@@ -149,7 +161,7 @@ pub(crate) fn execute<'a>(
                     if let Err(err) = redirect::apply_redirects_to_child(ctx, &simple.redirects) {
                         err.report_with_env(ctx.env);
                         if err_trap_in_scope {
-                            crate::trap::run_err_trap(ctx);
+                            run_err_trap_with_status(ctx, 1);
                         }
                         return 1;
                     }
@@ -162,30 +174,42 @@ pub(crate) fn execute<'a>(
             handle_scalar_assignment_error(ctx, scalar_readonly_assignment_error);
         }
         if status != 0 && err_trap_in_scope {
-            crate::trap::run_err_trap(ctx);
+            run_err_trap_with_status(ctx, status);
         }
+        update_underscore(ctx, String::new());
         return status;
     }
 
+    let command_word_had_subst = has_command_substitution(&remaining[0].text);
     let command_expanded = match try_expand_words(&remaining[..1], ctx) {
         Ok(words) => words,
         Err(err) => {
             let status = expansion_error_status(&err);
-            let unwind_status = expansion_error_unwind_status(&err, status, mode);
+            let unwind_status = expansion_error_unwind_status(&err, status, mode, ctx.env);
             let exits_shell = expansion_error_exits_shell(&err, ctx.env);
+            let aborts_line = expansion_error_aborts_line(&err, ctx.env);
             report_expand_error(ctx.env, err, Some(remaining[0].span));
             if err_trap_in_scope {
-                crate::trap::run_err_trap(ctx);
+                run_err_trap_with_status(ctx, status);
             }
             if exits_shell {
                 ctx.pending = Some(Unwind::Exit(unwind_status));
+            } else if aborts_line {
+                ctx.pending = Some(Unwind::AbortLine(status));
             }
             return status;
         }
     };
     if command_expanded.is_empty() {
         if trace_enabled {
-            trace_simple(ctx, &trace_assignments, &[]);
+            trace_simple_with_fd_value(
+                ctx,
+                &trace_assignments,
+                &[],
+                trace_fd_before_assignments
+                    .as_ref()
+                    .and_then(|v| v.as_deref()),
+            );
         }
         let _guard = if simple.redirects.is_empty() {
             None
@@ -197,7 +221,7 @@ pub(crate) fn execute<'a>(
                         Err(err) => {
                             err.report_with_env(ctx.env);
                             if err_trap_in_scope {
-                                crate::trap::run_err_trap(ctx);
+                                run_err_trap_with_status(ctx, 1);
                             }
                             return 1;
                         }
@@ -207,7 +231,7 @@ pub(crate) fn execute<'a>(
                     if let Err(err) = redirect::apply_redirects_to_child(ctx, &simple.redirects) {
                         err.report_with_env(ctx.env);
                         if err_trap_in_scope {
-                            crate::trap::run_err_trap(ctx);
+                            run_err_trap_with_status(ctx, 1);
                         }
                         return 1;
                     }
@@ -215,7 +239,11 @@ pub(crate) fn execute<'a>(
                 }
             }
         };
-        let mut status = assignment_expansion_status;
+        let mut status = if command_word_had_subst {
+            ctx.env.last_status()
+        } else {
+            assignment_expansion_status
+        };
         if status == 0 {
             for assignment in &assignments {
                 status |= apply_assignment(ctx.env, assignment);
@@ -225,8 +253,9 @@ pub(crate) fn execute<'a>(
             handle_scalar_assignment_error(ctx, scalar_readonly_assignment_error);
         }
         if status != 0 && err_trap_in_scope {
-            crate::trap::run_err_trap(ctx);
+            run_err_trap_with_status(ctx, status);
         }
+        update_underscore(ctx, String::new());
         return status;
     }
     let mut command_name = command_expanded[0].clone();
@@ -252,14 +281,17 @@ pub(crate) fn execute<'a>(
             Ok(words) => words,
             Err(err) => {
                 let status = expansion_error_status(&err);
-                let unwind_status = expansion_error_unwind_status(&err, status, mode);
+                let unwind_status = expansion_error_unwind_status(&err, status, mode, ctx.env);
                 let exits_shell = expansion_error_exits_shell(&err, ctx.env);
+                let aborts_line = expansion_error_aborts_line(&err, ctx.env);
                 report_expand_error(ctx.env, err, None);
                 if err_trap_in_scope {
-                    crate::trap::run_err_trap(ctx);
+                    run_err_trap_with_status(ctx, status);
                 }
                 if exits_shell {
                     ctx.pending = Some(Unwind::Exit(unwind_status));
+                } else if aborts_line {
+                    ctx.pending = Some(Unwind::AbortLine(status));
                 }
                 return status;
             }
@@ -275,11 +307,24 @@ pub(crate) fn execute<'a>(
         (args, arg_flags)
     };
     if trace_enabled {
-        trace_simple(
-            ctx,
-            &trace_assignments,
-            &command_words(&command_name, &args),
-        );
+        if !trace_assignments.is_empty() {
+            trace_simple_with_fd_value(
+                ctx,
+                &trace_assignments,
+                &[],
+                trace_fd_before_assignments
+                    .as_ref()
+                    .and_then(|v| v.as_deref()),
+            );
+        }
+        trace_simple(ctx, &[], &command_words(&command_name, &args));
+    }
+
+    if mode == ExecMode::Parent {
+        crate::trap::run_pending_traps(ctx);
+        if ctx.pending.is_some() {
+            return ctx.last_status;
+        }
     }
 
     if ctx.env.option("restricted") && command_name.contains('/') {
@@ -331,6 +376,8 @@ pub(crate) fn execute<'a>(
         return 1;
     }
 
+    let underscore_value = underscore_value(&command_name, &args);
+
     if !suppress_function_lookup {
         if command_name.starts_with('%') && ctx.env.job_control_enabled() {
             let fg_args = std::iter::once(command_name.clone())
@@ -347,8 +394,9 @@ pub(crate) fn execute<'a>(
                 suppress_function_lookup,
             );
             if status != 0 && err_trap_in_scope {
-                crate::trap::run_err_trap(ctx);
+                run_err_trap_with_status(ctx, status);
             }
+            update_underscore(ctx, underscore_value);
             return status;
         }
         if let Some(function_body) = ctx.functions.get(&command_name).cloned() {
@@ -362,8 +410,9 @@ pub(crate) fn execute<'a>(
                 ExecMode::Parent,
             );
             if status != 0 && err_trap_in_scope {
-                crate::trap::run_err_trap(ctx);
+                run_err_trap_with_status(ctx, status);
             }
+            update_underscore(ctx, underscore_value);
             return status;
         }
     }
@@ -375,6 +424,7 @@ pub(crate) fn execute<'a>(
             err.report_with_env(ctx.env);
             return 1;
         }
+        update_underscore(ctx, underscore_value);
         return 0;
     }
 
@@ -391,8 +441,9 @@ pub(crate) fn execute<'a>(
                 suppress_function_lookup,
             );
             if status != 0 && err_trap_in_scope {
-                crate::trap::run_err_trap(ctx);
+                run_err_trap_with_status(ctx, status);
             }
+            update_underscore(ctx, underscore_value);
             return status;
         }
     }
@@ -456,9 +507,34 @@ pub(crate) fn execute<'a>(
         }
     };
     if status != 0 && err_trap_in_scope {
-        crate::trap::run_err_trap(ctx);
+        run_err_trap_with_status(ctx, status);
     }
+    update_underscore(ctx, underscore_value);
     status
+}
+
+fn underscore_value(name: &str, args: &[String]) -> String {
+    args.last().cloned().unwrap_or_else(|| name.to_string())
+}
+
+fn run_err_trap_with_status(ctx: &mut ExecContext<'_>, status: i32) {
+    let saved_status = ctx.last_status;
+    let saved_env_status = ctx.env.last_status();
+    ctx.last_status = status;
+    ctx.env.set_last_status(status);
+    crate::trap::run_err_trap(ctx);
+    ctx.last_status = saved_status;
+    ctx.env.set_last_status(saved_env_status);
+}
+
+fn update_underscore(ctx: &mut ExecContext<'_>, value: String) {
+    if ctx.env.assign("_", value).is_ok() {
+        ctx.env.set_attr("_", VarAttrs::EXPORT, false);
+    }
+}
+
+fn has_command_substitution(text: &str) -> bool {
+    text.contains("$(") || text.contains('`')
 }
 
 fn execute_external_child_forked<'a>(
@@ -541,15 +617,67 @@ fn command_words(name: &str, args: &[String]) -> Vec<String> {
 }
 
 fn trace_simple(ctx: &mut ExecContext<'_>, assignments: &[String], words: &[String]) {
+    trace_simple_inner(ctx, assignments, words, None);
+}
+
+fn trace_simple_with_fd_value(
+    ctx: &mut ExecContext<'_>,
+    assignments: &[String],
+    words: &[String],
+    fd_value: Option<&str>,
+) {
+    trace_simple_inner(ctx, assignments, words, Some(fd_value));
+}
+
+fn trace_simple_inner(
+    ctx: &mut ExecContext<'_>,
+    assignments: &[String],
+    words: &[String],
+    fd_value: Option<Option<&str>>,
+) {
     let line = assignments
         .iter()
         .chain(words.iter())
-        .map(|word| cherubsh_builtins::common::diagnostic_subject(word))
+        .map(|word| crate::xtrace::quote_word(word))
         .collect::<Vec<_>>()
         .join(" ");
     if !line.is_empty() {
-        crate::xtrace::trace(ctx, &line);
+        if let Some(fd_value) = fd_value {
+            crate::xtrace::trace_with_fd_value(ctx, &line, fd_value);
+        } else {
+            crate::xtrace::trace(ctx, &line);
+        }
     }
+}
+
+fn trace_assignment(assignment: &ExpandedAssignment) -> String {
+    match assignment {
+        ExpandedAssignment::Scalar { name, value } => {
+            format!("{name}={}", crate::xtrace::quote_word(value))
+        }
+        ExpandedAssignment::IndexedElem { name, index, value } => {
+            format!("{name}[{index}]={}", crate::xtrace::quote_word(value))
+        }
+        ExpandedAssignment::AssocElem { name, key, value } => format!(
+            "{name}[{}]={}",
+            crate::xtrace::quote_word(key),
+            crate::xtrace::quote_word(value)
+        ),
+        ExpandedAssignment::IndexedArray { name, .. }
+        | ExpandedAssignment::AssocArray { name, .. } => name.to_string(),
+    }
+}
+
+fn trace_assignment_for_raw(assignment: &ExpandedAssignment, raw: &str) -> String {
+    if let Some((lhs, rhs, true)) = split_assignment_op(raw) {
+        if rhs
+            .bytes()
+            .all(|b| matches!(b, b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'_' | b'@' | b'%' | b'+' | b'=' | b':' | b',' | b'.' | b'/' | b'-'))
+        {
+            return format!("{lhs}+={rhs}");
+        }
+    }
+    trace_assignment(assignment)
 }
 
 fn remember_assignment_snapshot(
@@ -956,6 +1084,18 @@ fn execute_external_parent<'a>(
     simple: &SimpleCommand,
     path_override: Option<&'static str>,
 ) -> Result<i32, ExecError> {
+    let assignment_path = assignments.iter().rev().find_map(|(key, value)| {
+        (assignment_storage_name(ctx.env, key) == "PATH").then_some(value.as_str())
+    });
+    if path_override.is_none() && assignment_path.is_none() && !name.contains('/') {
+        let lookup_name = if name == "egrep" { "grep" } else { name };
+        if ctx.env.hash_get(lookup_name).is_none() {
+            if let Some(path) = search_path(lookup_name, ctx.env) {
+                ctx.env.hash_set(lookup_name, path);
+            }
+        }
+    }
+
     let job_control = ctx.env.job_control_enabled();
     let tty_fd = ctx.env.tty_fd();
     let shell_pgrp = ctx.env.shell_pgrp();
@@ -1060,12 +1200,21 @@ fn execute_external_child<'a>(
         .as_ref()
         .map(|path| path.as_os_str().to_string_lossy().into_owned())
         .unwrap_or_else(|| name.to_string());
+    std::env::set_var("_", &exec_path);
     let status = execv_or_script(&exec_path, &argv, ctx.env.option("globskipdots"));
     eprintln!("cherubsh: {name}: exec failed");
     status
 }
 
 fn expansion_error_exits_shell(err: &ExpandError, env: &dyn Environment) -> bool {
+    if env.option("interactive")
+        && matches!(
+            err,
+            ExpandError::UnboundVariable(_) | ExpandError::UnboundColonError(_, _)
+        )
+    {
+        return false;
+    }
     matches!(err, ExpandError::AssignToReadonly(_)) && env.arithmetic_expansion_errors_exit_shell()
         || (!matches!(err, ExpandError::AssignToReadonly(_)) && err.is_fatal())
         || matches!(err, ExpandError::UnboundVariable(_))
@@ -1081,22 +1230,51 @@ fn expansion_error_exits_shell(err: &ExpandError, env: &dyn Environment) -> bool
             ))
 }
 
+fn expansion_error_aborts_line(err: &ExpandError, env: &dyn Environment) -> bool {
+    matches!(err, ExpandError::FailGlob(_))
+        || (env.option("interactive")
+            && matches!(
+                err,
+                ExpandError::UnboundVariable(_) | ExpandError::UnboundColonError(_, _)
+            ))
+        || (!env.arithmetic_expansion_errors_exit_shell()
+            && matches!(
+                err,
+                ExpandError::DivisionByZero
+                    | ExpandError::ArithSyntax(_)
+                    | ExpandError::ArithOverflow
+                    | ExpandError::ArithRecursion
+            ))
+}
+
 fn expansion_error_status(err: &ExpandError) -> i32 {
     match err {
-        ExpandError::UnboundVariable(_) | ExpandError::UnboundColonError(_, _) => 127,
+        ExpandError::UnboundVariable(_) | ExpandError::UnboundColonError(_, _) => 1,
         ExpandError::AlreadyReported(status) | ExpandError::CommandSubstFailed(status) => *status,
         _ => 1,
     }
 }
 
-fn expansion_error_unwind_status(err: &ExpandError, status: i32, mode: ExecMode) -> i32 {
-    if mode == ExecMode::Child
+fn expansion_error_unwind_status(
+    err: &ExpandError,
+    status: i32,
+    mode: ExecMode,
+    env: &dyn Environment,
+) -> i32 {
+    if (mode == ExecMode::Child || env.subshell_level() > 0)
         && matches!(
             err,
             ExpandError::UnboundVariable(_) | ExpandError::UnboundColonError(_, _)
         )
     {
         1
+    } else if env.arithmetic_expansion_errors_exit_shell()
+        && matches!(
+            err,
+            ExpandError::UnboundVariable(_) | ExpandError::UnboundColonError(_, _)
+        )
+    {
+        127
     } else {
         status
     }

@@ -28,7 +28,7 @@ pub(crate) fn try_expand_words(
     words: &[WordDesc],
     ctx: &mut ExecContext<'_>,
 ) -> Result<Vec<String>, ExpandError> {
-    let mut runner = ExecRunner::with_functions(&ctx.functions);
+    let mut runner = ExecRunner::with_functions(&ctx.functions, &ctx.function_sources);
     let out = expand_word_list_with_proc_subst(
         words,
         ctx.env,
@@ -69,21 +69,8 @@ fn prints_source_line(message: &str) -> bool {
 }
 
 pub(crate) fn expand_one(word: &WordDesc, ctx: &mut ExecContext<'_>) -> String {
-    let mut runner = ExecRunner::with_functions(&ctx.functions);
-    match expand_word_list_with_proc_subst(
-        std::slice::from_ref(word),
-        ctx.env,
-        &mut runner,
-        ExpandFlags::QUOTE_REMOVAL,
-    ) {
-        Ok(out) => {
-            ctx.register_proc_subst(out.proc_subst);
-            out.words
-                .into_iter()
-                .next()
-                .map(|w| w.text)
-                .unwrap_or_default()
-        }
+    match try_expand_one(word, ctx) {
+        Ok(value) => value,
         Err(err) => {
             if !err.already_reported() {
                 err.into_shell_error(None).report();
@@ -93,8 +80,28 @@ pub(crate) fn expand_one(word: &WordDesc, ctx: &mut ExecContext<'_>) -> String {
     }
 }
 
+pub(crate) fn try_expand_one(
+    word: &WordDesc,
+    ctx: &mut ExecContext<'_>,
+) -> Result<String, ExpandError> {
+    let mut runner = ExecRunner::with_functions(&ctx.functions, &ctx.function_sources);
+    let out = expand_word_list_with_proc_subst(
+        std::slice::from_ref(word),
+        ctx.env,
+        &mut runner,
+        ExpandFlags::QUOTE_REMOVAL,
+    )?;
+    ctx.register_proc_subst(out.proc_subst);
+    Ok(out
+        .words
+        .into_iter()
+        .next()
+        .map(|w| w.text)
+        .unwrap_or_default())
+}
+
 pub(crate) fn expand_herestring_word(word: &WordDesc, ctx: &mut ExecContext<'_>) -> String {
-    let mut runner = ExecRunner::with_functions(&ctx.functions);
+    let mut runner = ExecRunner::with_functions(&ctx.functions, &ctx.function_sources);
     match expand_word_list_with_proc_subst(
         std::slice::from_ref(word),
         ctx.env,
@@ -119,7 +126,7 @@ pub(crate) fn expand_herestring_word(word: &WordDesc, ctx: &mut ExecContext<'_>)
 }
 
 pub(crate) fn expand_heredoc_body(body: &str, ctx: &mut ExecContext<'_>) -> String {
-    let mut runner = ExecRunner::with_functions(&ctx.functions);
+    let mut runner = ExecRunner::with_functions(&ctx.functions, &ctx.function_sources);
     expand_heredoc_string(body, ctx.env, &mut runner).unwrap_or_else(|err| {
         report_expand_error(ctx.env, err, None);
         String::new()
@@ -129,7 +136,12 @@ pub(crate) fn expand_heredoc_body(body: &str, ctx: &mut ExecContext<'_>) -> Stri
 pub(crate) fn apply_assignment(env: &mut dyn Environment, assignment: &ExpandedAssignment) -> i32 {
     match assignment {
         ExpandedAssignment::Scalar { name, value } => match env.assign(name, value.clone()) {
-            Ok(()) => 0,
+            Ok(()) => {
+                if env.option("allexport") {
+                    env.set_attr(name, VarAttrs::EXPORT, true);
+                }
+                0
+            }
             Err(err) => {
                 report_assign_error(env, &err);
                 1
@@ -475,6 +487,7 @@ fn report_assign_error(env: &dyn Environment, err: &AssignError) {
                 eprintln!("{source}: line {line}: `{name}': not a valid identifier");
                 return;
             }
+            AssignError::CircularNameReference(_) => return,
             _ => {}
         }
     }

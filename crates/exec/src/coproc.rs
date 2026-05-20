@@ -10,6 +10,15 @@ const COPROC_READ_FD: i32 = 63;
 const COPROC_WRITE_FD: i32 = 60;
 
 pub(crate) fn execute<'a>(ctx: &mut ExecContext<'a>, coproc: &CoprocCommand) -> i32 {
+    let name = coproc
+        .name
+        .as_ref()
+        .map(|word| word.text.as_str())
+        .unwrap_or("COPROC");
+    let Some(storage_name) = coproc_storage_name(ctx.env, name) else {
+        return 1;
+    };
+
     let mut to_child = [0i32; 2];
     let mut from_child = [0i32; 2];
     if unsafe { libc::pipe(to_child.as_mut_ptr()) } < 0 {
@@ -65,32 +74,25 @@ pub(crate) fn execute<'a>(ctx: &mut ExecContext<'a>, coproc: &CoprocCommand) -> 
     let read_fd = move_fd_to(from_child[0], COPROC_READ_FD);
     let write_fd = move_fd_to(to_child[1], COPROC_WRITE_FD);
 
-    let name = coproc
-        .name
-        .as_ref()
-        .map(|word| word.text.as_str())
-        .unwrap_or("COPROC");
-    if let Some(storage_name) = coproc_storage_name(ctx.env, name) {
-        if ctx.env.is_readonly(&storage_name) {
-            report_readonly_error(ctx.env, &storage_name);
-            ctx.env
-                .queue_coproc_cleanup(storage_name.clone(), Some(format!("{storage_name}_PID")));
-        } else {
-            if storage_name == name && ctx.env.attrs(name).contains(VarAttrs::NAMEREF) {
-                report_removing_nameref_attribute(ctx.env, name);
-            }
-            ctx.env.set_array(
-                &storage_name,
-                vec![read_fd.to_string(), write_fd.to_string()],
-            );
-            let pid_name = format!("{storage_name}_PID");
-            if let Err(err) = ctx.env.assign(&pid_name, pid.to_string()) {
+    if ctx.env.is_readonly(&storage_name) {
+        report_readonly_error(ctx.env, &storage_name);
+        ctx.env
+            .queue_coproc_cleanup(storage_name.clone(), Some(format!("{storage_name}_PID")));
+    } else {
+        if storage_name == name && ctx.env.attrs(name).contains(VarAttrs::NAMEREF) {
+            report_removing_nameref_attribute(ctx.env, name);
+        }
+        ctx.env.set_array(
+            &storage_name,
+            vec![read_fd.to_string(), write_fd.to_string()],
+        );
+        let pid_name = format!("{storage_name}_PID");
+        if let Err(err) = ctx.env.assign(&pid_name, pid.to_string()) {
+            report_assign_error(ctx.env, &err);
+        }
+        if name == "COPROC" {
+            if let Err(err) = ctx.env.assign("COPROC_PID", pid.to_string()) {
                 report_assign_error(ctx.env, &err);
-            }
-            if name == "COPROC" {
-                if let Err(err) = ctx.env.assign("COPROC_PID", pid.to_string()) {
-                    report_assign_error(ctx.env, &err);
-                }
             }
         }
     }
@@ -169,6 +171,7 @@ fn report_assign_error(env: &dyn Environment, err: &AssignError) {
                 eprintln!("cherubsh: {value}: invalid integer");
             }
         }
+        AssignError::CircularNameReference(_) => {}
     }
 }
 

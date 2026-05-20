@@ -40,32 +40,31 @@ impl Builtin for Echo {
             idx += 1;
         }
         let mut first = true;
+        let mut out = Vec::new();
         let suppress_trailing_newline = no_newline;
         for arg in &ctx.args[idx..] {
             if !first {
-                if let Err(err) = write_stdout_all(b" ") {
-                    return report_write_error(ctx, err);
-                }
+                out.push(b' ');
             }
             first = false;
             if interpret_escapes {
                 let (bytes, stop) = interpret_echo_escapes(arg);
-                if let Err(err) = write_stdout_all(&bytes) {
-                    return report_write_error(ctx, err);
-                }
+                out.extend_from_slice(&bytes);
                 if stop {
+                    if let Err(err) = write_stdout_all(&out) {
+                        return report_write_error(ctx, err);
+                    }
                     return 0;
                 }
             } else {
-                if let Err(err) = write_stdout_all(&shell_string_to_bytes(arg)) {
-                    return report_write_error(ctx, err);
-                }
+                out.extend_from_slice(&shell_string_to_bytes(arg));
             }
         }
         if !suppress_trailing_newline {
-            if let Err(err) = write_stdout_all(b"\n") {
-                return report_write_error(ctx, err);
-            }
+            out.push(b'\n');
+        }
+        if let Err(err) = write_stdout_all(&out) {
+            return report_write_error(ctx, err);
         }
         0
     }

@@ -91,11 +91,15 @@ impl Builtin for Bind {
         if let Some(_fn_name) = unbind_fn {
             // Iterate keymap; remove all bindings to the named function.
             if let Some(kmap) = ctx.env_ref().keymap_get(&active) {
-                let to_remove: Vec<String> = kmap.bindings.iter().map(|(k, _)| k.clone()).collect();
-                let _ = to_remove;
-                // Implementation note: full readline `bind -u` removes only the
-                // bindings whose action equals the named function - we mirror
-                // that by walking the keymap once.
+                let want = parse_function_name(_fn_name.as_str());
+                let to_remove: Vec<String> = kmap
+                    .bindings
+                    .iter()
+                    .filter_map(|(seq, action)| (Some(*action) == want).then_some(seq.clone()))
+                    .collect();
+                for seq in to_remove {
+                    ctx.env().keymap_unbind(&active, &seq);
+                }
             }
             return 0;
         }
@@ -113,16 +117,8 @@ impl Builtin for Bind {
         }
         if let Some(spec) = x_bind {
             if let Some((seq, _cmd)) = spec.split_once(':') {
-                // Store the shell command in the keymap as ShellCommand(idx).
-                if let Some(mut kmap) = ctx.env_ref().keymap_get(&active) {
-                    let idx = kmap.shell_commands.len() as u32;
-                    kmap.shell_commands.push(spec[seq.len() + 1..].to_string());
-                    kmap.bind(seq, EditAction::ShellCommand(idx));
-                    // Re-install the keymap. (No mut accessor; rebuild via bind.)
-                    for (s, a) in kmap.bindings {
-                        ctx.env().keymap_bind(&active, &s, a);
-                    }
-                }
+                ctx.env()
+                    .keymap_bind_shell_command(&active, seq, &spec[seq.len() + 1..]);
             }
             return 0;
         }
@@ -136,10 +132,24 @@ impl Builtin for Bind {
         {
             if let Some(kmap) = ctx.env_ref().keymap_get(&active) {
                 for (seq, act) in &kmap.bindings {
-                    if print_short {
-                        println!("\"{}\": {}", seq, action_name(*act));
-                    } else if print_bindings {
-                        println!("\"{}\" -> {}", seq, action_name(*act));
+                    match *act {
+                        EditAction::Macro(idx) => {
+                            let Some(text) = kmap.macros.get(idx as usize) else {
+                                continue;
+                            };
+                            if print_macros_short {
+                                println!("{seq} outputs {text}");
+                            } else if print_macros {
+                                println!("\"{seq}\": \"{text}\"");
+                            }
+                        }
+                        _ => {
+                            if print_short {
+                                println!("{} can be found on \"{}\".", action_name(*act), seq);
+                            } else if print_bindings {
+                                println!("\"{}\": {}", seq, action_name(*act));
+                            }
+                        }
                     }
                 }
             }
@@ -149,13 +159,22 @@ impl Builtin for Bind {
         for t in targets {
             if let Some((seq_raw, fn_raw)) = t.split_once(':') {
                 let seq = seq_raw.trim_matches('"');
-                if let Some(action) = parse_function_name(fn_raw.trim()) {
+                let rhs = fn_raw.trim();
+                if let Some(action) = parse_function_name(rhs) {
                     ctx.env().keymap_bind(&active, seq, action);
+                } else if let Some(text) = quoted_macro(rhs) {
+                    ctx.env().keymap_bind_macro(&active, seq, text);
                 }
             }
         }
         0
     }
+}
+
+fn quoted_macro(value: &str) -> Option<&str> {
+    value
+        .strip_prefix('"')
+        .and_then(|value| value.strip_suffix('"'))
 }
 
 fn parse_function_name(name: &str) -> Option<EditAction> {

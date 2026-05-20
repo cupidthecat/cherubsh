@@ -95,6 +95,10 @@ impl Builtin for Kill {
                 return 0;
             }
             for arg in rest {
+                if arg.eq_ignore_ascii_case("EXIT") {
+                    println!("0");
+                    continue;
+                }
                 if let Ok(n) = arg.parse::<i32>() {
                     let sig = if n > 128 { n - 128 } else { n };
                     match cherubsh_shell_signal_name(sig) {
@@ -178,10 +182,18 @@ impl Builtin for Kill {
                 let err = std::io::Error::last_os_error();
                 eprintln!("cherubsh: kill: ({pid}) - {err}");
                 status = 1;
+            } else if targets_current_shell(ctx, pid) {
+                std::thread::yield_now();
+                ctx.shell.run_pending_traps();
             }
         }
         status
     }
+}
+
+fn targets_current_shell(ctx: &BuiltinCtx<'_>, pid: i32) -> bool {
+    let env = ctx.env_ref();
+    pid == env.bashpid() || pid == env.shell_pid()
 }
 
 fn resolve_jobspec(ctx: &mut BuiltinCtx<'_>, target: &str) -> Option<(JobId, i32)> {

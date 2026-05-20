@@ -1,4 +1,4 @@
-use crate::common::flush_stdout;
+use crate::common::{errno_message, flush_stdout};
 use crate::getopt::{GetOpt, OptParser};
 use crate::{Builtin, BuiltinCtx};
 
@@ -38,12 +38,15 @@ impl Builtin for Pwd {
                     Err(_) => p.display().to_string(),
                 },
                 Err(err) => {
-                    eprintln!("cherubsh: pwd: {err}");
+                    eprintln!(
+                        "pwd: error retrieving current directory: getcwd: cannot access parent directories: {}",
+                        errno_message(&err)
+                    );
                     return 1;
                 }
             }
         } else {
-            ctx.env_ref().get("PWD").unwrap_or_else(|| {
+            ctx.env_ref().logical_pwd().unwrap_or_else(|| {
                 std::env::current_dir()
                     .map(|p| p.display().to_string())
                     .unwrap_or_default()

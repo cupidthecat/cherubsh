@@ -10,7 +10,7 @@ use cherubsh_parser::{
 use std::borrow::Cow;
 
 use crate::pipeline;
-use crate::util::{expand_one, expand_words};
+use crate::util::{expand_words, report_expand_error, try_expand_one, try_expand_words};
 use crate::{ExecContext, ExecMode, Unwind};
 
 pub(crate) fn execute_connection<'a>(
@@ -188,8 +188,10 @@ pub(crate) fn execute_while_or_until<'a>(
         ctx.errexit_suppressed += 1;
         let test_status = ctx.execute_command(test, mode);
         ctx.errexit_suppressed -= 1;
-        if ctx.pending.is_some() {
-            break;
+        match handle_loop_condition_unwind(ctx, invert) {
+            LoopConditionUnwind::Proceed => {}
+            LoopConditionUnwind::Continue => continue,
+            LoopConditionUnwind::Break => break,
         }
         let ok = if invert {
             test_status != 0
@@ -215,7 +217,21 @@ pub(crate) fn execute_for<'a>(
 ) -> i32 {
     ctx.loop_depth += 1;
     let items: Vec<String> = if let Some(map_list) = for_cmd.map_list.as_ref() {
-        expand_words(map_list, ctx)
+        match try_expand_words(map_list, ctx) {
+            Ok(items) => items,
+            Err(err) => {
+                let exits_shell = expansion_error_exits_shell(&err);
+                if !err.already_reported() {
+                    report_expand_error(ctx.env, err, None);
+                }
+                if exits_shell {
+                    ctx.pending = Some(Unwind::Exit(1));
+                    ctx.loop_depth -= 1;
+                    return 1;
+                }
+                map_list.iter().map(|w| w.text.clone()).collect()
+            }
+        }
     } else {
         // iterate over positionals $1..$N
         let mut out = Vec::new();
@@ -227,8 +243,14 @@ pub(crate) fn execute_for<'a>(
         out
     };
     let mut status = 0;
+    let loop_command = for_command_label(for_cmd);
     for item in items {
-        ctx.run_debug_trap_for_command(mode);
+        if ctx.env.running_trap().is_none() {
+            ctx.env.set_current_command(Some(loop_command.clone()));
+        }
+        if ctx.run_debug_trap_for_command(mode) == Some(2) && ctx.env.option("extdebug") {
+            continue;
+        }
         trace_for(ctx, for_cmd);
         if let Err(err) = assign_for_value(ctx, &for_cmd.name.text, item) {
             cherubsh_builtins::common::report_assign_error(ctx.env, &err);
@@ -244,6 +266,25 @@ pub(crate) fn execute_for<'a>(
     }
     ctx.loop_depth -= 1;
     status
+}
+
+fn for_command_label(for_cmd: &ForCommand) -> String {
+    let mut line = format!(
+        "for {}",
+        for_cmd
+            .name
+            .raw
+            .as_deref()
+            .unwrap_or(for_cmd.name.text.as_str())
+    );
+    if let Some(words) = for_cmd.map_list.as_ref() {
+        line.push_str(" in");
+        for word in words {
+            line.push(' ');
+            line.push_str(word.raw.as_deref().unwrap_or(word.text.as_str()));
+        }
+    }
+    line
 }
 
 fn assign_for_value(
@@ -311,7 +352,7 @@ pub(crate) fn execute_select<'a>(
             .and_then(|idx| items.get(idx))
             .cloned()
             .unwrap_or_default();
-        if let Err(err) = assign_for_value(ctx, &select_cmd.name.text, selected) {
+        if let Err(err) = ctx.env.assign(&select_cmd.name.text, selected) {
             cherubsh_builtins::common::report_assign_error(ctx.env, &err);
             break;
         }
@@ -388,21 +429,18 @@ pub(crate) fn execute_arith_for<'a>(
     status
 }
 
-fn trace_arith_for_word(ctx: &mut ExecContext<'_>, word: &cherubsh_parser::WordDesc, step: bool) {
+fn trace_arith_for_word(ctx: &mut ExecContext<'_>, word: &cherubsh_parser::WordDesc, _step: bool) {
     if !ctx.env.option("xtrace") {
         return;
     }
-    let expr = sanitize_arith_for_expr(&word.text);
-    if step {
-        crate::xtrace::trace(ctx, &format!("(( {expr}  ))"));
-    } else {
-        crate::xtrace::trace(ctx, &format!("(( {expr} ))"));
-    }
+    let expr = word.raw.as_deref().unwrap_or(&word.text).trim_start();
+    crate::xtrace::trace(ctx, &format!("(( {expr} ))"));
 }
 
 fn eval_arith_word(ctx: &mut ExecContext<'_>, word: &cherubsh_parser::WordDesc) -> Option<i64> {
     use cherubsh_expander::expand_for_arith;
-    let mut runner = crate::runner::ExecRunner::with_functions(&ctx.functions);
+    let mut runner =
+        crate::runner::ExecRunner::with_functions(&ctx.functions, &ctx.function_sources);
     let expr = sanitize_arith_for_expr(&word.text);
     match expand_for_arith(expr.as_ref(), ctx.env, &mut runner) {
         Ok(v) => Some(v),
@@ -455,7 +493,20 @@ pub(crate) fn execute_case<'a>(
     case_cmd: &CaseCommand,
     mode: ExecMode,
 ) -> i32 {
-    let word_value = expand_one(&case_cmd.word, ctx);
+    let word_value = match try_expand_one(&case_cmd.word, ctx) {
+        Ok(value) => value,
+        Err(err) => {
+            let exits_shell = expansion_error_exits_shell(&err);
+            if !err.already_reported() {
+                report_expand_error(ctx.env, err, Some(case_cmd.word.span));
+            }
+            if exits_shell {
+                ctx.pending = Some(Unwind::Exit(1));
+                return 1;
+            }
+            case_cmd.word.text.clone()
+        }
+    };
     crate::xtrace::trace(ctx, &format!("case {word_value} in"));
     let mut matched = false;
     let mut status = 0;
@@ -518,7 +569,8 @@ fn pattern_list_matches(
         globasciiranges: ctx.env.option("globasciiranges"),
     };
     for pat in &clause.patterns {
-        let mut runner = crate::runner::ExecRunner::with_functions(&ctx.functions);
+        let mut runner =
+            crate::runner::ExecRunner::with_functions(&ctx.functions, &ctx.function_sources);
         let expanded = match expand_case_pattern_bytes(pat, ctx.env, &mut runner) {
             Ok(value) => value,
             Err(err) => {
@@ -545,6 +597,13 @@ fn report_case_pattern_error(ctx: &ExecContext<'_>, err: ExpandError) {
     err.into_shell_error(None).report();
 }
 
+fn expansion_error_exits_shell(err: &ExpandError) -> bool {
+    matches!(
+        err,
+        ExpandError::UnboundVariable(_) | ExpandError::UnboundColonError(_, _)
+    )
+}
+
 fn handle_loop_unwind(ctx: &mut ExecContext) -> bool {
     match ctx.pending.clone() {
         Some(Unwind::Break(1)) => {
@@ -564,7 +623,41 @@ fn handle_loop_unwind(ctx: &mut ExecContext) -> bool {
             true
         }
         Some(Unwind::AbortLine(_)) => true,
-        Some(Unwind::Return(_)) | Some(Unwind::Exit(_)) => true,
+        Some(Unwind::Return { .. }) | Some(Unwind::Exit(_)) => true,
         None => false,
+    }
+}
+
+enum LoopConditionUnwind {
+    Proceed,
+    Continue,
+    Break,
+}
+
+fn handle_loop_condition_unwind(ctx: &mut ExecContext, invert: bool) -> LoopConditionUnwind {
+    match ctx.pending.clone() {
+        Some(Unwind::Break(1)) => {
+            ctx.pending = None;
+            LoopConditionUnwind::Break
+        }
+        Some(Unwind::Break(n)) => {
+            ctx.pending = Some(Unwind::Break(n - 1));
+            LoopConditionUnwind::Break
+        }
+        Some(Unwind::Continue(1)) => {
+            ctx.pending = None;
+            if invert {
+                LoopConditionUnwind::Proceed
+            } else {
+                LoopConditionUnwind::Continue
+            }
+        }
+        Some(Unwind::Continue(n)) => {
+            ctx.pending = Some(Unwind::Continue(n - 1));
+            LoopConditionUnwind::Break
+        }
+        Some(Unwind::AbortLine(_)) => LoopConditionUnwind::Break,
+        Some(Unwind::Return { .. }) | Some(Unwind::Exit(_)) => LoopConditionUnwind::Break,
+        None => LoopConditionUnwind::Proceed,
     }
 }

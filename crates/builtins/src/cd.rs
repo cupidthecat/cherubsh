@@ -95,7 +95,17 @@ impl Builtin for Cd {
         let absolute = if target_path.is_absolute() {
             target_path
         } else {
-            let cur = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+            let cur = if physical {
+                std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
+            } else {
+                ctx.env_ref()
+                    .logical_pwd()
+                    .map(PathBuf::from)
+                    .filter(|p| !p.as_os_str().is_empty())
+                    .unwrap_or_else(|| {
+                        std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
+                    })
+            };
             cur.join(target_path)
         };
 
@@ -136,7 +146,7 @@ impl Builtin for Cd {
         let oldpwd = ctx.env_ref().get("PWD").unwrap_or_default();
         let new_pwd = final_path.display().to_string();
         let _ = ctx.env().assign("OLDPWD", oldpwd);
-        let _ = ctx.env().assign("PWD", new_pwd.clone());
+        ctx.env().set_logical_pwd(new_pwd.clone());
 
         if check_after && physical {
             if let Err(err) = std::fs::canonicalize(&final_path) {

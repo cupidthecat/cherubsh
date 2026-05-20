@@ -5,28 +5,38 @@ use std::io::Read;
 use std::os::unix::io::{FromRawFd, RawFd};
 use std::sync::OnceLock;
 
+use cherubsh_common::signals::TrapKind;
 use cherubsh_common::{expand_aliases_for_parse, Environment, ProcSubstDir};
 use cherubsh_expander::{CommandRunner, ExpandError, ProcSubstHandle};
 use cherubsh_lexer::{Lexer, TokenKind};
 use cherubsh_parser::{Command, CommandData, Parser};
 
-use crate::{execute_with_state, ExecState, FunctionMap};
+use crate::{execute_with_state, ExecState, FunctionMap, FunctionSourceMap};
 
 pub struct ExecRunner<'a> {
     functions: &'a FunctionMap,
+    function_sources: &'a FunctionSourceMap,
 }
 
 impl<'a> ExecRunner<'a> {
-    pub(crate) fn with_functions(functions: &'a FunctionMap) -> Self {
-        Self { functions }
+    pub(crate) fn with_functions(
+        functions: &'a FunctionMap,
+        function_sources: &'a FunctionSourceMap,
+    ) -> Self {
+        Self {
+            functions,
+            function_sources,
+        }
     }
 }
 
 impl Default for ExecRunner<'static> {
     fn default() -> Self {
         static EMPTY_FUNCTIONS: OnceLock<FunctionMap> = OnceLock::new();
+        static EMPTY_FUNCTION_SOURCES: OnceLock<FunctionSourceMap> = OnceLock::new();
         Self {
             functions: EMPTY_FUNCTIONS.get_or_init(Default::default),
+            function_sources: EMPTY_FUNCTION_SOURCES.get_or_init(Default::default),
         }
     }
 }
@@ -54,7 +64,7 @@ impl CommandRunner for ExecRunner<'_> {
         if unsafe { libc::pipe(fds.as_mut_ptr()) } != 0 {
             return Err(ExpandError::Io("pipe failed".into()));
         }
-        let (parent_fd, child_fd, child_target) = match dir {
+        let (mut parent_fd, child_fd, child_target) = match dir {
             ProcSubstDir::Input => (fds[0], fds[1], 1i32), // parent reads, child writes stdout
             ProcSubstDir::Output => (fds[1], fds[0], 0i32), // parent writes, child reads stdin
         };
@@ -74,12 +84,26 @@ impl CommandRunner for ExecRunner<'_> {
                 libc::close(child_fd);
             }
             env.enter_subshell();
-            let status = run_inner(env, src, (*self.functions).clone(), SubstMode::DollarParen);
+            env.enter_command_substitution();
+            env.suppress_inherited_exit_trap();
+            clear_inherited_signal_traps_for_proc_subst(env);
+            let mut status = run_inner(
+                env,
+                src,
+                (*self.functions).clone(),
+                (*self.function_sources).clone(),
+                SubstMode::DollarParen,
+            );
+            env.set_last_status(status);
+            if let Some(trap_status) = env.run_exit_trap_hook() {
+                status = trap_status;
+            }
             unsafe { libc::_exit(status) };
         }
         unsafe {
             libc::close(child_fd);
         }
+        parent_fd = move_proc_subst_parent_fd(parent_fd);
         let path = format!("/dev/fd/{}", parent_fd);
         env.set_last_async_pid(pid);
         Ok(ProcSubstHandle {
@@ -87,6 +111,35 @@ impl CommandRunner for ExecRunner<'_> {
             pid,
             fd: parent_fd,
         })
+    }
+}
+
+fn move_proc_subst_parent_fd(fd: RawFd) -> RawFd {
+    if fd >= 63 {
+        return fd;
+    }
+    let moved = unsafe { libc::fcntl(fd, libc::F_DUPFD, 63) };
+    if moved >= 0 {
+        unsafe {
+            libc::close(fd);
+        }
+        moved
+    } else {
+        fd
+    }
+}
+
+fn clear_inherited_signal_traps_for_proc_subst(env: &mut dyn Environment) {
+    let signals = env
+        .trap_all()
+        .into_iter()
+        .filter_map(|(kind, _)| match kind {
+            TrapKind::Numeric(_) => Some(kind),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    for kind in signals {
+        env.trap_clear(kind);
     }
 }
 
@@ -126,10 +179,22 @@ impl ExecRunner<'_> {
                 libc::close(write_fd);
             }
             env.enter_subshell();
+            env.enter_command_substitution();
+            env.suppress_inherited_exit_trap();
             if !env.option("inherit_errexit") && !env.option("posix") {
                 env.set_option("errexit", false);
             }
-            let status = run_inner(env, src, (*self.functions).clone(), mode);
+            let mut status = run_inner(
+                env,
+                src,
+                (*self.functions).clone(),
+                (*self.function_sources).clone(),
+                mode,
+            );
+            env.set_last_status(status);
+            if let Some(trap_status) = env.run_exit_trap_hook() {
+                status = trap_status;
+            }
             unsafe { libc::_exit(status) };
         }
         // Parent
@@ -155,7 +220,13 @@ impl ExecRunner<'_> {
     }
 }
 
-fn run_inner(env: &mut dyn Environment, src: &str, functions: FunctionMap, mode: SubstMode) -> i32 {
+fn run_inner(
+    env: &mut dyn Environment,
+    src: &str,
+    functions: FunctionMap,
+    function_sources: FunctionSourceMap,
+    mode: SubstMode,
+) -> i32 {
     let src = subst_parse_source(src);
     let parse_src = expand_aliases_for_parse(&src, env);
     let mut lex = Lexer::new(&parse_src);
@@ -186,6 +257,7 @@ fn run_inner(env: &mut dyn Environment, src: &str, functions: FunctionMap, mode:
             }
             let mut state = ExecState {
                 functions,
+                function_sources,
                 function_traced: Default::default(),
                 suppress_err_traps: matches!(mode, SubstMode::DollarParen | SubstMode::Backquote)
                     && !env.option("errtrace")

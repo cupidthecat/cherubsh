@@ -30,7 +30,7 @@ impl Builtin for Getopts {
         if !is_valid_name(name) {
             report_getopts_error(ctx, &format!("`{name}': not a valid identifier"));
             let _ = assign(ctx, "OPTIND", "2".to_string());
-            return 2;
+            return 1;
         }
 
         let optind: usize = ctx
@@ -108,8 +108,9 @@ fn walk(
     if optind > source.len() {
         let _ = assign(ctx, name, "?".to_string());
         ctx.env().unset("OPTARG");
-        let _ = assign(ctx, "OPTIND", optind.to_string());
-        reset_inner(ctx, optind, last_optind_var, next_char_var);
+        let end = source.len() + 1;
+        let _ = assign(ctx, "OPTIND", end.to_string());
+        reset_inner(ctx, end, last_optind_var, next_char_var);
         return 1;
     }
     let arg = &source[optind - 1];
@@ -135,8 +136,9 @@ fn walk(
     if optind > source.len() {
         let _ = assign(ctx, name, "?".to_string());
         ctx.env().unset("OPTARG");
-        let _ = assign(ctx, "OPTIND", optind.to_string());
-        reset_inner(ctx, optind, last_optind_var, next_char_var);
+        let end = source.len() + 1;
+        let _ = assign(ctx, "OPTIND", end.to_string());
+        reset_inner(ctx, end, last_optind_var, next_char_var);
         return 1;
     }
 
@@ -211,21 +213,30 @@ fn walk(
 }
 
 fn option_present(optstring: &str, option: char) -> bool {
-    optstring
-        .trim_start_matches(':')
-        .chars()
-        .enumerate()
-        .any(|(i, ch)| ch == option && (i == 0 || optstring.as_bytes()[i] != b':'))
+    option_spec(optstring, option).is_some()
 }
 
 fn option_requires_arg(optstring: &str, option: char) -> bool {
-    let chars: Vec<char> = optstring.chars().collect();
-    for i in 0..chars.len() {
-        if chars[i] == option && i + 1 < chars.len() && chars[i + 1] == ':' {
-            return true;
+    option_spec(optstring, option).unwrap_or(false)
+}
+
+fn option_spec(optstring: &str, option: char) -> Option<bool> {
+    let body = optstring.strip_prefix(':').unwrap_or(optstring).as_bytes();
+    let option = option as u8;
+    let mut i = 0;
+    while i < body.len() {
+        let ch = body[i];
+        if ch == b':' {
+            i += 1;
+            continue;
         }
+        let takes_arg = i + 1 < body.len() && body[i + 1] == b':';
+        if ch == option {
+            return Some(takes_arg);
+        }
+        i += if takes_arg { 2 } else { 1 };
     }
-    false
+    None
 }
 
 fn assign(ctx: &mut BuiltinCtx<'_>, name: &str, value: String) -> bool {

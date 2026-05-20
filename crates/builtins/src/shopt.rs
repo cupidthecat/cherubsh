@@ -116,10 +116,11 @@ impl Builtin for Shopt {
                 Some(on) => ctx.env().set_option(name, on),
                 None => {
                     let on = ctx.env_ref().option(name);
+                    if !on {
+                        status = 1;
+                    }
                     if quiet {
-                        if !on {
-                            status = 1;
-                        }
+                        continue;
                     } else if set_o_mode && print_form {
                         println!("set {}o {}", if on { "-" } else { "+" }, name);
                     } else if print_form {

@@ -33,6 +33,14 @@ impl Builtin for BuiltinDispatcher {
             );
             return 1;
         };
+        if !ctx.env_ref().builtin_enabled(b.name()) {
+            report_diagnostic(
+                ctx.env_ref(),
+                "builtin",
+                &format!("{target_name}: not a shell builtin"),
+            );
+            return 1;
+        }
         let mut inner = BuiltinCtx {
             args: &rest,
             arg_flags: &rest_flags,

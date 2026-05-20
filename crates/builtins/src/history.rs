@@ -1,6 +1,8 @@
 //! `history` builtin.
 
+use std::ffi::{CStr, CString};
 use std::path::PathBuf;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::common::report_diagnostic;
 use crate::getopt::{GetOpt, OptParser};
@@ -70,8 +72,14 @@ impl Builtin for History {
                 return 2;
             }
             let joined = rest.join(" ");
+            let current_added = ctx.env_ref().history_last_line_added();
+            let control = ctx.env_ref().histcontrol();
             if let Some(t) = ctx.env().history_mut() {
-                t.add_forced(&joined, None);
+                if current_added {
+                    t.replace_last(&joined, control);
+                } else {
+                    t.add_forced(&joined, None);
+                }
             }
             return 0;
         }
@@ -103,11 +111,43 @@ impl Builtin for History {
         };
         let total = table.len();
         let start = limit.map(|n| total.saturating_sub(n)).unwrap_or(0);
+        let time_format = ctx.env_ref().get("HISTTIMEFORMAT");
         for (i, entry) in table.iter().enumerate().skip(start) {
-            println!("{:>5}  {}", table.base() + i + 1, entry.line);
+            let time = time_format
+                .as_deref()
+                .map(|fmt| format_history_time(fmt, entry.timestamp))
+                .unwrap_or_default();
+            println!("{:>5}  {}{}", table.base() + i + 1, time, entry.line);
         }
         0
     }
+}
+
+fn format_history_time(format: &str, timestamp: Option<u64>) -> String {
+    let ts = timestamp.unwrap_or_else(current_epoch);
+    let Ok(fmt) = CString::new(format) else {
+        return String::new();
+    };
+    let mut tm = unsafe { std::mem::zeroed::<libc::tm>() };
+    let t = ts as libc::time_t;
+    if unsafe { libc::localtime_r(&t, &mut tm) }.is_null() {
+        return String::new();
+    }
+    let mut buf = vec![0u8; 256];
+    let len = unsafe { libc::strftime(buf.as_mut_ptr().cast(), buf.len(), fmt.as_ptr(), &tm) };
+    if len == 0 {
+        return String::new();
+    }
+    unsafe { CStr::from_ptr(buf.as_ptr().cast()) }
+        .to_string_lossy()
+        .into_owned()
+}
+
+fn current_epoch() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
 }
 
 fn handle_delete(ctx: &mut BuiltinCtx<'_>, spec: &str) -> i32 {

@@ -217,6 +217,7 @@ pub fn apply_assignment_arg(env: &mut dyn Environment, arg: &str, compound: bool
         text: arg.to_string(),
         flags: W_ASSIGNMENT | if compound { W_COMPASSIGN } else { 0 },
         span: cherubsh_common::Span::dummy(),
+        raw: None,
     };
     let mut runner = NullRunner;
     match cherubsh_expander::assignment::expand_assignment_word(&word, env, &mut runner) {
@@ -234,6 +235,7 @@ pub fn apply_assignment_arg_global(env: &mut dyn Environment, arg: &str, compoun
         text: arg.to_string(),
         flags: W_ASSIGNMENT | if compound { W_COMPASSIGN } else { 0 },
         span: cherubsh_common::Span::dummy(),
+        raw: None,
     };
     let mut runner = NullRunner;
     match cherubsh_expander::assignment::expand_assignment_word(&word, env, &mut runner) {
@@ -597,6 +599,7 @@ pub fn report_assign_error(env: &dyn Environment, err: &AssignError) {
                 eprintln!("{source}: line {line}: `{name}': not a valid identifier");
                 return;
             }
+            AssignError::CircularNameReference(_) => return,
             _ => {}
         }
     }
@@ -608,6 +611,7 @@ pub fn report_builtin_assign_error(env: &dyn Environment, builtin: &str, err: &A
         AssignError::InvalidName(name) => {
             report_diagnostic(env, builtin, &format!("`{name}': not a valid identifier"));
         }
+        AssignError::CircularNameReference(_) => {}
         _ => report_assign_error(env, err),
     }
 }
@@ -1220,6 +1224,7 @@ pub fn ansi_c_quote(value: &str) -> String {
                 b'\r' => out.push_str("\\r"),
                 b'\x07' => out.push_str("\\a"),
                 b'\x08' => out.push_str("\\b"),
+                b'\x1b' => out.push_str("\\E"),
                 b'\x0c' => out.push_str("\\f"),
                 b'\x0b' => out.push_str("\\v"),
                 b if b < 0x20 || b == 0x7f => {
@@ -1259,6 +1264,7 @@ fn ansi_c_quote_bytes(bytes: &[u8]) -> String {
             b'\r' => out.push_str("\\r"),
             b'\x07' => out.push_str("\\a"),
             b'\x08' => out.push_str("\\b"),
+            b'\x1b' => out.push_str("\\E"),
             b'\x0c' => out.push_str("\\f"),
             b'\x0b' => out.push_str("\\v"),
             0x20..=0x7e => out.push(b as char),
@@ -1468,6 +1474,44 @@ pub fn format_set_var(snapshot: &cherubsh_common::VarSnapshot, posix: bool) -> O
             let entries = snapshot.assoc.as_ref()?;
             if entries.is_empty() {
                 return None;
+            }
+            let body = entries
+                .iter()
+                .map(|(k, val)| format!("[{}]={}", assoc_key_quote(k), shell_quote(val)))
+                .collect::<Vec<_>>()
+                .join(" ");
+            Some(format!("{}=({body} )", snapshot.name))
+        }
+        VarKind::Unset => None,
+    }
+}
+
+pub fn format_declare_listing_var(
+    snapshot: &cherubsh_common::VarSnapshot,
+    posix: bool,
+) -> Option<String> {
+    use cherubsh_common::VarKind;
+    match snapshot.kind {
+        VarKind::Scalar | VarKind::Nameref => snapshot
+            .scalar
+            .as_ref()
+            .map(|v| format!("{}={}", snapshot.name, assignment_quote(v, posix))),
+        VarKind::Indexed => {
+            let entries = snapshot.indexed.as_ref()?;
+            if entries.is_empty() {
+                return Some(format!("{}=()", snapshot.name));
+            }
+            let body = entries
+                .iter()
+                .map(|(k, val)| format!("[{k}]={}", shell_quote(val)))
+                .collect::<Vec<_>>()
+                .join(" ");
+            Some(format!("{}=({body})", snapshot.name))
+        }
+        VarKind::Assoc => {
+            let entries = snapshot.assoc.as_ref()?;
+            if entries.is_empty() {
+                return Some(format!("{}=()", snapshot.name));
             }
             let body = entries
                 .iter()

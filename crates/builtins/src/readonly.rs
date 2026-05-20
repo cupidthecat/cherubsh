@@ -126,6 +126,7 @@ impl Builtin for Readonly {
                         text: arg.clone(),
                         flags: W_ASSIGNMENT | W_COMPASSIGN,
                         span: cherubsh_common::Span::dummy(),
+                        raw: None,
                     };
                     let mut runner = NullRunner;
                     match expand_assignment_word(&word, ctx.env(), &mut runner) {

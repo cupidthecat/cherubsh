@@ -1,8 +1,9 @@
 use crate::common::{
     apply_assignment_arg_global, array_reference, assign_direct_target_op,
     assign_direct_target_op_global, assign_value, assign_value_global, assignment_base_name,
-    format_var, is_valid_name, report_assign_error, report_builtin_assign_error,
-    report_builtin_readonly_error, report_diagnostic, split_assignment_op,
+    format_declare_listing_var, format_var, is_valid_name, report_assign_error,
+    report_builtin_assign_error, report_builtin_readonly_error, report_diagnostic,
+    split_assignment_op,
 };
 use crate::type_cmd::{function_export_value, print_function_definition};
 use crate::{Builtin, BuiltinCtx, BuiltinFlags};
@@ -191,6 +192,26 @@ fn run_declare(ctx: &mut BuiltinCtx<'_>, force_local: bool, diagnostic_name: &st
     if f.function && rest.is_empty() {
         return print_function_listing(ctx, &f);
     }
+    if f.print && !f.function && !rest.is_empty() {
+        let mut status = 0;
+        for name in rest {
+            if let Some(snap) = ctx
+                .env_ref()
+                .var_snapshot(name)
+                .filter(|snap| declare_filter_matches(snap, &f))
+            {
+                println!("{}", format_var(&snap, Some("declare")));
+            } else {
+                report_diagnostic(
+                    ctx.env_ref(),
+                    diagnostic_name,
+                    &format!("{name}: not found"),
+                );
+                status = 1;
+            }
+        }
+        return status;
+    }
     if rest.is_empty() && (f.print || !f.set.is_empty() || !f.clear.is_empty()) {
         for snap in listing_vars(ctx, diagnostic_name) {
             if !declare_filter_matches(&snap, &f) {
@@ -201,8 +222,13 @@ fn run_declare(ctx: &mut BuiltinCtx<'_>, force_local: bool, diagnostic_name: &st
         return 0;
     }
     if rest.is_empty() && f.set.is_empty() && f.clear.is_empty() {
+        let posix = ctx.env_ref().option("posix");
         for snap in listing_vars(ctx, diagnostic_name) {
-            println!("{}", format_var(&snap, Some("declare")));
+            if diagnostic_name == "local" {
+                println!("{}", format_var(&snap, Some("declare")));
+            } else if let Some(line) = format_declare_listing_var(&snap, posix) {
+                println!("{line}");
+            }
         }
         return 0;
     }
@@ -213,6 +239,7 @@ fn run_declare(ctx: &mut BuiltinCtx<'_>, force_local: bool, diagnostic_name: &st
         return 0;
     }
     for (offset, arg) in rest.iter().enumerate() {
+        let mut f = f;
         if f.function {
             status |= handle_function_arg(ctx, &f, arg);
             continue;
@@ -259,6 +286,18 @@ fn run_declare(ctx: &mut BuiltinCtx<'_>, force_local: bool, diagnostic_name: &st
                 (base.0.to_string(), false, base.1)
             }
         };
+        if f.set.contains(VarAttrs::NAMEREF)
+            && f.set.contains(VarAttrs::INTEGER)
+            && value
+            && !f.set.intersects(VarAttrs::ARRAY | VarAttrs::ASSOC)
+        {
+            status = 1;
+            continue;
+        }
+        if f.set.contains(VarAttrs::NAMEREF) && f.set.intersects(VarAttrs::ARRAY | VarAttrs::ASSOC)
+        {
+            f.set.remove(VarAttrs::NAMEREF);
+        }
 
         if f.print && array_ref_without_value && !value {
             report_diagnostic(ctx.env_ref(), diagnostic_name, &format!("{arg}: not found"));
@@ -657,7 +696,11 @@ fn run_declare(ctx: &mut BuiltinCtx<'_>, force_local: bool, diagnostic_name: &st
                 ctx.env().set_attr(&name, VarAttrs::empty(), true);
             }
         }
-        if value && ctx.env_ref().option("allexport") && !f.clear.contains(VarAttrs::EXPORT) {
+        if value
+            && ctx.env_ref().option("allexport")
+            && !f.clear.contains(VarAttrs::EXPORT)
+            && !f.set.intersects(VarAttrs::ARRAY | VarAttrs::ASSOC)
+        {
             if f.global {
                 ctx.env()
                     .set_global_attr(&attr_target_name, VarAttrs::EXPORT, true);
@@ -929,7 +972,7 @@ fn print_function_listing(ctx: &mut BuiltinCtx<'_>, f: &Flags) -> i32 {
             continue;
         }
         if f.function_names_only {
-            println!("{} {name}", function_declare_prefix(attrs));
+            print_function_name(ctx, &name, attrs, true, false);
         } else if let Some(function) = ctx.shell.function_get(&name) {
             print_function_definition(&name, &function);
         }
@@ -956,11 +999,10 @@ fn handle_function_arg(ctx: &mut BuiltinCtx<'_>, f: &Flags, name: &str) -> i32 {
     }
 
     let Some(function) = ctx.shell.function_get(name) else {
-        if f.print || f.function_names_only {
+        if f.print {
             report_diagnostic(ctx.env_ref(), "declare", &format!("{name}: not found"));
-            return 1;
         }
-        return 0;
+        return 1;
     };
 
     if f.clear.contains(VarAttrs::READONLY) && ctx.env_ref().function_is_readonly(name) {
@@ -992,12 +1034,9 @@ fn handle_function_arg(ctx: &mut BuiltinCtx<'_>, f: &Flags, name: &str) -> i32 {
 
     if f.function_names_only {
         if f.print {
-            println!(
-                "{} {name}",
-                function_declare_prefix(function_attrs(ctx, name))
-            );
+            print_function_name(ctx, name, function_attrs(ctx, name), true, false);
         } else if (f.set | f.clear).is_empty() {
-            println!("{name}");
+            print_function_name(ctx, name, function_attrs(ctx, name), false, true);
         }
     } else if f.print {
         print_function_definition(name, &function);
@@ -1005,6 +1044,27 @@ fn handle_function_arg(ctx: &mut BuiltinCtx<'_>, f: &Flags, name: &str) -> i32 {
         print_function_definition(name, &function);
     }
     0
+}
+
+fn print_function_name(
+    ctx: &BuiltinCtx<'_>,
+    name: &str,
+    attrs: VarAttrs,
+    prefix_declare: bool,
+    source_info: bool,
+) {
+    let prefix = if prefix_declare {
+        format!("{} ", function_declare_prefix(attrs))
+    } else {
+        String::new()
+    };
+    if source_info && ctx.env_ref().option("extdebug") {
+        if let Some((source, line)) = ctx.shell.function_source(name) {
+            println!("{prefix}{name} {line} {source}");
+            return;
+        }
+    }
+    println!("{prefix}{name}");
 }
 
 fn function_attrs(ctx: &BuiltinCtx<'_>, name: &str) -> VarAttrs {
@@ -1031,9 +1091,7 @@ fn readonly_attr_target_name(ctx: &BuiltinCtx<'_>, name: &str, flags: &Flags) ->
         return name.to_string();
     }
     if ctx.env_ref().attrs(name).contains(VarAttrs::NAMEREF) {
-        ctx.env_ref()
-            .resolve_nameref(name)
-            .unwrap_or_else(|| name.to_string())
+        resolved_attr_target_name(ctx, name)
     } else {
         name.to_string()
     }
@@ -1044,12 +1102,21 @@ fn attr_target_name(ctx: &BuiltinCtx<'_>, name: &str, flags: &Flags) -> String {
         return name.to_string();
     }
     if ctx.env_ref().attrs(name).contains(VarAttrs::NAMEREF) {
-        ctx.env_ref()
-            .resolve_nameref(name)
-            .unwrap_or_else(|| name.to_string())
+        resolved_attr_target_name(ctx, name)
     } else {
         name.to_string()
     }
+}
+
+fn resolved_attr_target_name(ctx: &BuiltinCtx<'_>, name: &str) -> String {
+    ctx.env_ref()
+        .resolve_nameref(name)
+        .map(|target| {
+            nameref_target_base(&target)
+                .unwrap_or(target.as_str())
+                .to_string()
+        })
+        .unwrap_or_else(|| name.to_string())
 }
 
 fn global_assignment_target_name(ctx: &BuiltinCtx<'_>, name: &str) -> String {

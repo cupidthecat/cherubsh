@@ -42,6 +42,7 @@ impl HistControl {
 pub struct HistoryEntry {
     pub line: String,
     pub timestamp: Option<u64>,
+    pub timestamp_from_file: bool,
 }
 
 #[derive(Default, Debug)]
@@ -134,6 +135,7 @@ impl HistoryTable {
         self.entries.push(HistoryEntry {
             line: line.to_string(),
             timestamp: ts,
+            timestamp_from_file: false,
         });
         self.trim();
         true
@@ -144,6 +146,7 @@ impl HistoryTable {
         self.entries.push(HistoryEntry {
             line: line.to_string(),
             timestamp,
+            timestamp_from_file: false,
         });
         self.trim();
     }
@@ -240,6 +243,7 @@ impl HistoryTable {
                 self.entries.push(HistoryEntry {
                     line: std::mem::take(&mut entry),
                     timestamp: entry_ts.take(),
+                    timestamp_from_file: true,
                 });
             }
         }
@@ -247,6 +251,7 @@ impl HistoryTable {
             self.entries.push(HistoryEntry {
                 line: entry,
                 timestamp: entry_ts,
+                timestamp_from_file: true,
             });
         }
         self.trim();
@@ -275,6 +280,7 @@ impl HistoryTable {
             self.entries.push(HistoryEntry {
                 line,
                 timestamp: pending_ts.take(),
+                timestamp_from_file: true,
             });
         }
         self.trim();
@@ -291,7 +297,7 @@ impl HistoryTable {
             .open(path)?;
         let start = self.entries.len().saturating_sub(max_size);
         for entry in &self.entries[start..] {
-            if with_timestamps {
+            if with_timestamps || entry.timestamp_from_file {
                 if let Some(ts) = entry.timestamp {
                     writeln!(f, "#{}", ts)?;
                 }
@@ -310,7 +316,7 @@ impl HistoryTable {
         let mut f = OpenOptions::new().append(true).create(true).open(path)?;
         let start = self.entries.len() - new;
         for entry in &self.entries[start..] {
-            if with_timestamps {
+            if with_timestamps || entry.timestamp_from_file {
                 if let Some(ts) = entry.timestamp {
                     writeln!(f, "#{}", ts)?;
                 }

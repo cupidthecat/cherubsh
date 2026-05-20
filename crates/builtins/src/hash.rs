@@ -109,6 +109,8 @@ impl Builtin for Hash {
                 ctx.env().hash_remove(name);
             } else if type_only {
                 match ctx.env_ref().hash_get(name) {
+                    Some(p) if list_form => println!("builtin hash -p {} {}", p.display(), name),
+                    Some(p) if rest.len() > 1 => println!("{name}\t{}", p.display()),
                     Some(p) => println!("{}", p.display()),
                     None => {
                         report_diagnostic(ctx.env_ref(), "hash", &format!("{name}: not found"));
@@ -116,10 +118,15 @@ impl Builtin for Hash {
                     }
                 }
             } else {
+                if name.contains('/') {
+                    ctx.env().hash_set(name, PathBuf::from(name));
+                    continue;
+                }
                 let env_ref: &dyn cherubsh_common::Environment = ctx.env_ref();
                 match search_path(name, env_ref) {
                     Some(path) => ctx.env().hash_set(name, path),
                     None => {
+                        ctx.env().hash_remove(name);
                         report_diagnostic(ctx.env_ref(), "hash", &format!("{name}: not found"));
                         status = 1;
                     }

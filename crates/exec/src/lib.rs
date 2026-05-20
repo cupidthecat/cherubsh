@@ -9,8 +9,9 @@ use cherubsh_common::{
 use cherubsh_expander::{ExpandError, ProcSubstHandle};
 use cherubsh_lexer::{Lexer, TokenKind};
 use cherubsh_parser::{
-    Ast, Command, CommandData, Parser, CONN_AMP, CONN_AND_AND, CONN_BAR_AND, CONN_NEWLINE,
-    CONN_OR_OR, CONN_PIPE, CONN_SEMI,
+    Ast, Command, CommandData, Parser, Redirect, RedirectInstruction, Redirectee, Redirector,
+    SimpleCommand, WordDesc, CONN_AMP, CONN_AND_AND, CONN_BAR_AND, CONN_NEWLINE, CONN_OR_OR,
+    CONN_PIPE, CONN_SEMI,
 };
 
 mod controlflow;
@@ -31,10 +32,12 @@ pub use runner::ExecRunner;
 pub use redirect::ExecError;
 
 pub(crate) type FunctionMap = HashMap<String, Arc<Command>>;
+pub(crate) type FunctionSourceMap = HashMap<String, String>;
 
 #[derive(Default)]
 pub struct ExecState {
     functions: FunctionMap,
+    function_sources: FunctionSourceMap,
     function_traced: HashSet<String>,
     suppress_err_traps: bool,
     suppress_debug_traps: bool,
@@ -51,6 +54,8 @@ impl ExecState {
             };
             if let Some(function) = parse_imported_function(name, value) {
                 self.functions.insert(name.to_string(), Arc::new(function));
+                self.function_sources
+                    .insert(name.to_string(), "main".to_string());
             }
         }
     }
@@ -105,7 +110,7 @@ pub(crate) enum ExecMode {
 
 #[derive(Clone, Debug)]
 pub(crate) enum Unwind {
-    Return(i32),
+    Return { status: i32, trap_status: i32 },
     Break(u32),
     Continue(u32),
     AbortLine(i32),
@@ -115,6 +120,7 @@ pub(crate) enum Unwind {
 pub(crate) struct ExecContext<'a> {
     pub(crate) last_status: i32,
     pub(crate) functions: FunctionMap,
+    pub(crate) function_sources: FunctionSourceMap,
     pub(crate) function_traced: HashSet<String>,
     pub(crate) suppress_err_traps: bool,
     pub(crate) suppress_debug_traps: bool,
@@ -149,6 +155,7 @@ pub fn execute_with_state(
 ) -> ExecResult {
     let mut ctx = ExecContext::new(env);
     ctx.functions = std::mem::take(&mut state.functions);
+    ctx.function_sources = std::mem::take(&mut state.function_sources);
     ctx.function_traced = std::mem::take(&mut state.function_traced);
     ctx.suppress_err_traps = state.suppress_err_traps;
     ctx.suppress_debug_traps = state.suppress_debug_traps;
@@ -159,6 +166,7 @@ pub fn execute_with_state(
     };
     ctx.env.set_last_status(final_status);
     state.functions = ctx.functions;
+    state.function_sources = ctx.function_sources;
     state.function_traced = ctx.function_traced;
     ExecResult {
         status: final_status,
@@ -176,6 +184,7 @@ impl<'a> ExecContext<'a> {
         Self {
             last_status: last,
             functions: HashMap::default(),
+            function_sources: HashMap::default(),
             function_traced: HashSet::new(),
             suppress_err_traps: false,
             suppress_debug_traps: false,
@@ -210,6 +219,15 @@ impl<'a> ExecContext<'a> {
     pub(crate) fn execute_command(&mut self, command: &Command, mode: ExecMode) -> i32 {
         if self.pending.is_some() {
             return self.last_status;
+        }
+        if mode == ExecMode::Parent {
+            crate::trap::run_pending_traps(self);
+            if self.pending.is_some() {
+                return self.last_status;
+            }
+        }
+        if self.env.running_trap().is_none() {
+            self.env.set_current_command(Some(command_label(command)));
         }
         let proc_subst_mark = self.proc_subst.len();
         let pushed_line = command.line > 0;
@@ -261,7 +279,9 @@ impl<'a> ExecContext<'a> {
                 command.flags & CMD_TIME_POSIX != 0,
             );
         }
-        let inverted = if command.flags & CMD_INVERT_RETURN != 0 {
+        let inverted = if command.flags & CMD_INVERT_RETURN != 0
+            && !matches!(self.pending, Some(Unwind::AbortLine(_)))
+        {
             if raw == 0 {
                 1
             } else {
@@ -272,8 +292,11 @@ impl<'a> ExecContext<'a> {
         };
         self.last_status = inverted;
         self.env.set_last_status(inverted);
+        if !is_pipeline_command(command) {
+            self.env.set_array("PIPESTATUS", vec![inverted.to_string()]);
+        }
         self.maybe_run_err_trap(command, mode, inverted);
-        self.env.run_pending_traps_hook();
+        crate::trap::run_pending_traps(self);
         self.maybe_errexit(command);
         self.close_proc_subst_since(proc_subst_mark);
         if pushed_line {
@@ -377,6 +400,7 @@ impl<'a> ExecContext<'a> {
         }
         match &command.data {
             CommandData::Subshell(_) => {}
+            CommandData::Arith(_) | CommandData::Cond(_) => {}
             CommandData::Connection(conn) if matches!(conn.connector, CONN_PIPE | CONN_BAR_AND) => {
             }
             _ => return,
@@ -434,7 +458,10 @@ impl<'a> ExecContext<'a> {
                     return 1;
                 }
                 use cherubsh_expander::expand_for_arith;
-                let mut runner = crate::runner::ExecRunner::with_functions(&self.functions);
+                let mut runner = crate::runner::ExecRunner::with_functions(
+                    &self.functions,
+                    &self.function_sources,
+                );
                 match expand_for_arith(expr, self.env, &mut runner) {
                     Ok(v) => {
                         if v == 0 {
@@ -457,21 +484,45 @@ impl<'a> ExecContext<'a> {
             }
             CommandData::Cond(c) => {
                 self.run_debug_trap_for_command(mode);
-                cherubsh_builtins::cond::evaluate(c, self.env)
+                let mut runner = crate::runner::ExecRunner::with_functions(
+                    &self.functions,
+                    &self.function_sources,
+                );
+                let status = if self.env.option("xtrace") {
+                    let mut traces = Vec::new();
+                    let status = cherubsh_builtins::cond::evaluate_with_runner_and_tracer(
+                        c,
+                        self.env,
+                        &mut runner,
+                        Some(&mut |line| traces.push(line)),
+                    );
+                    for line in traces {
+                        xtrace::trace(self, &line);
+                    }
+                    status
+                } else {
+                    cherubsh_builtins::cond::evaluate_with_runner(c, self.env, &mut runner)
+                };
+                if status == 2 && self.env.option("nounset") {
+                    self.pending = Some(Unwind::Exit(1));
+                    1
+                } else {
+                    status
+                }
             }
             CommandData::Coproc(c) => coproc::execute(self, c),
         }
     }
 
-    pub(crate) fn run_debug_trap_for_command(&mut self, mode: ExecMode) {
+    pub(crate) fn run_debug_trap_for_command(&mut self, mode: ExecMode) -> Option<i32> {
         let debug_trap_in_scope = mode == ExecMode::Parent
             && !self.suppress_debug_traps
             && ((self.function_depth == 0 && self.source_depth == 0)
                 || self.debug_trap_scopes.last().copied().unwrap_or(false));
         if !debug_trap_in_scope {
-            return;
+            return None;
         }
-        let _ = crate::trap::run_debug_trap(self);
+        crate::trap::run_debug_trap(self)
     }
 
     pub(crate) fn unsupported(&mut self, feature: &str) -> i32 {
@@ -479,6 +530,134 @@ impl<'a> ExecContext<'a> {
         self.last_status = 2;
         2
     }
+}
+
+pub(crate) fn command_label(command: &Command) -> String {
+    match &command.data {
+        CommandData::Simple(simple) => render_simple_command(simple, &command.redirects),
+        CommandData::For(for_cmd) => {
+            let mut line = format!("for {}", raw_word(&for_cmd.name));
+            if let Some(words) = for_cmd.map_list.as_ref() {
+                line.push_str(" in");
+                for word in words {
+                    line.push(' ');
+                    line.push_str(&raw_word(word));
+                }
+            }
+            line
+        }
+        CommandData::Arith(arith) => format!("(( {} ))", arith.expression.text.trim()),
+        CommandData::Cond(_) => "[[ ... ]]".to_string(),
+        CommandData::Subshell(_) => "( ... )".to_string(),
+        CommandData::Group(_) => "{ ...; }".to_string(),
+        CommandData::FunctionDef(function) => format!("{} ()", raw_word(&function.name)),
+        CommandData::Connection(conn) => {
+            let op = match conn.connector {
+                CONN_AND_AND => "&&",
+                CONN_OR_OR => "||",
+                CONN_PIPE => "|",
+                CONN_BAR_AND => "|&",
+                CONN_SEMI | CONN_NEWLINE => ";",
+                CONN_AMP => "&",
+                _ => "",
+            };
+            if op.is_empty() {
+                String::new()
+            } else {
+                format!(
+                    "{} {} {}",
+                    command_label(&conn.first),
+                    op,
+                    command_label(&conn.second)
+                )
+            }
+        }
+        CommandData::If(_) => "if".to_string(),
+        CommandData::While(_) => "while".to_string(),
+        CommandData::Until(_) => "until".to_string(),
+        CommandData::Case(case_cmd) => format!("case {}", raw_word(&case_cmd.word)),
+        CommandData::Select(select_cmd) => format!("select {}", raw_word(&select_cmd.name)),
+        CommandData::ArithFor(_) => "for (( ... ))".to_string(),
+        CommandData::Coproc(coproc) => coproc
+            .name
+            .as_ref()
+            .map(|name| format!("coproc {}", raw_word(name)))
+            .unwrap_or_else(|| "coproc".to_string()),
+    }
+}
+
+fn render_simple_command(simple: &SimpleCommand, trailing_redirects: &[Redirect]) -> String {
+    let mut parts = simple.words.iter().map(raw_word).collect::<Vec<_>>();
+    parts.extend(simple.redirects.iter().map(render_redirect));
+    parts.extend(trailing_redirects.iter().map(render_redirect));
+    parts.join(" ")
+}
+
+fn raw_word(word: &WordDesc) -> String {
+    word.raw.clone().unwrap_or_else(|| word.text.clone())
+}
+
+fn render_redirect(redir: &Redirect) -> String {
+    let op = match redir.instruction {
+        RedirectInstruction::OutputDirection => ">",
+        RedirectInstruction::InputDirection | RedirectInstruction::InputaDirection => "<",
+        RedirectInstruction::AppendingTo => ">>",
+        RedirectInstruction::ReadingUntil => "<<",
+        RedirectInstruction::ReadingString => "<<<",
+        RedirectInstruction::DuplicatingInput
+        | RedirectInstruction::DuplicatingInputWord
+        | RedirectInstruction::MoveInput
+        | RedirectInstruction::MoveInputWord => "<&",
+        RedirectInstruction::DuplicatingOutput
+        | RedirectInstruction::DuplicatingOutputWord
+        | RedirectInstruction::MoveOutput
+        | RedirectInstruction::MoveOutputWord => ">&",
+        RedirectInstruction::DeblankReadingUntil => "<<-",
+        RedirectInstruction::CloseThis => match redir.redirector {
+            Redirector::Fd(fd) if fd == 0 => "<&",
+            _ => ">&",
+        },
+        RedirectInstruction::ErrAndOut => "&>",
+        RedirectInstruction::InputOutput => "<>",
+        RedirectInstruction::OutputForce => ">|",
+        RedirectInstruction::AppendErrAndOut => "&>>",
+    };
+    let prefix = match &redir.redirector {
+        Redirector::Fd(fd) if *fd == default_redirect_fd_for_instruction(&redir.instruction) => {
+            String::new()
+        }
+        Redirector::Fd(fd) => fd.to_string(),
+        Redirector::Var(name) => format!("{{{name}}}"),
+    };
+    let target = match &redir.redirectee {
+        Redirectee::Fd(fd) if *fd < 0 => "-".to_string(),
+        Redirectee::Fd(fd) => fd.to_string(),
+        Redirectee::Word(word) => raw_word(word),
+    };
+    format!("{prefix}{op} {target}")
+}
+
+fn default_redirect_fd_for_instruction(instruction: &RedirectInstruction) -> i32 {
+    match instruction {
+        RedirectInstruction::InputDirection
+        | RedirectInstruction::InputaDirection
+        | RedirectInstruction::ReadingUntil
+        | RedirectInstruction::ReadingString
+        | RedirectInstruction::DuplicatingInput
+        | RedirectInstruction::DuplicatingInputWord
+        | RedirectInstruction::DeblankReadingUntil
+        | RedirectInstruction::InputOutput
+        | RedirectInstruction::MoveInput
+        | RedirectInstruction::MoveInputWord => 0,
+        _ => 1,
+    }
+}
+
+fn is_pipeline_command(command: &Command) -> bool {
+    matches!(
+        &command.data,
+        CommandData::Connection(conn) if matches!(conn.connector, CONN_PIPE | CONN_BAR_AND)
+    )
 }
 
 fn redirection_error_exits_for_command(command: &Command) -> bool {

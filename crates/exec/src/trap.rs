@@ -1,4 +1,4 @@
-use cherubsh_common::signals::{TrapAction, TrapKind};
+use cherubsh_common::signals::{SignalMaskGuard, TrapAction, TrapKind, NSIG};
 use cherubsh_common::Environment;
 use cherubsh_lexer::Lexer;
 use cherubsh_parser::{Command, CommandData, Parser};
@@ -57,7 +57,7 @@ pub(crate) fn run_exit_trap(ctx: &mut ExecContext<'_>) -> Option<i32> {
     ctx.env.trap_clear(TrapKind::Exit);
     let saved_status = ctx.last_status;
     let saved_pending = ctx.pending.take();
-    if run_trap_body(ctx, RUNNING_EXIT_TRAP, &body).is_none() {
+    if run_trap_body_with_line_offset(ctx, RUNNING_EXIT_TRAP, &body, false).is_none() {
         ctx.pending = saved_pending;
         return None;
     }
@@ -70,14 +70,66 @@ pub(crate) fn run_exit_trap(ctx: &mut ExecContext<'_>) -> Option<i32> {
     None
 }
 
+pub(crate) fn run_pending_traps(ctx: &mut ExecContext<'_>) {
+    if ctx.env.running_trap().is_some() {
+        return;
+    }
+    for sig in 1..NSIG {
+        let sig = sig as i32;
+        let count = ctx.env.pending_signal_take(sig);
+        if count == 0 {
+            continue;
+        }
+        handle_signal(ctx, sig, count);
+    }
+}
+
+fn handle_signal(ctx: &mut ExecContext<'_>, sig: i32, count: u32) {
+    if sig == libc::SIGCHLD {
+        let reaped = {
+            let _guard = SignalMaskGuard::block_sigchld();
+            match ctx.env.jobs_table_mut() {
+                Some(table) => table.reap_all(),
+                None => Vec::new(),
+            }
+        };
+        if !reaped.is_empty() {
+            if let Some(TrapAction::Command(body)) =
+                ctx.env.trap_action(TrapKind::Numeric(libc::SIGCHLD))
+            {
+                for _ in 0..reaped.len() {
+                    let _ = run_trap_body(ctx, sig, &body);
+                }
+            }
+        }
+        let _ = count;
+        return;
+    }
+
+    if let Some(TrapAction::Command(body)) = ctx.env.trap_action(TrapKind::Numeric(sig)) {
+        for _ in 0..count {
+            let _ = run_trap_body(ctx, sig, &body);
+        }
+    }
+}
+
 fn run_trap_body(ctx: &mut ExecContext<'_>, sig: i32, body: &str) -> Option<i32> {
+    run_trap_body_with_line_offset(ctx, sig, body, true)
+}
+
+fn run_trap_body_with_line_offset(
+    ctx: &mut ExecContext<'_>,
+    sig: i32,
+    body: &str,
+    offset_lines: bool,
+) -> Option<i32> {
     if body.is_empty() {
         return Some(0);
     }
     let saved_trap = ctx.env.running_trap();
     ctx.env.set_running_trap(Some(sig));
     let saved_status = ctx.last_status;
-    let ast = parse_trap_body(ctx.env, body);
+    let ast = parse_trap_body(ctx.env, body, offset_lines);
     let status = match ast {
         Some(ast) => ctx.execute_command(&ast.root, ExecMode::Parent),
         None => 2,
@@ -88,7 +140,11 @@ fn run_trap_body(ctx: &mut ExecContext<'_>, sig: i32, body: &str) -> Option<i32>
     Some(status)
 }
 
-fn parse_trap_body(env: &dyn Environment, source: &str) -> Option<cherubsh_parser::Ast> {
+fn parse_trap_body(
+    env: &dyn Environment,
+    source: &str,
+    offset_lines: bool,
+) -> Option<cherubsh_parser::Ast> {
     let mut lexer = Lexer::new(source);
     lexer.set_extglob_patterns(env.option("extglob"));
     lexer.set_posix_mode(env.option("posix"));
@@ -99,8 +155,10 @@ fn parse_trap_body(env: &dyn Environment, source: &str) -> Option<cherubsh_parse
     let mut parser = Parser::new(tokens, source);
     match parser.parse() {
         Ok(mut ast) => {
-            if let Some(line) = env.diagnostic_line() {
-                offset_command_lines(&mut ast.root, line.saturating_sub(1));
+            if offset_lines {
+                if let Some(line) = env.diagnostic_line() {
+                    offset_command_lines(&mut ast.root, line.saturating_sub(1));
+                }
             }
             Some(ast)
         }

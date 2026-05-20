@@ -18,13 +18,16 @@ impl Builtin for Caller {
         let Some(line) = env.get_array_indexed("BASH_LINENO", level as i64) else {
             return 1;
         };
-        let Some(source) = env.get_array_indexed("BASH_SOURCE", level as i64 + 1) else {
-            return 1;
-        };
         if ctx.args.is_empty() {
+            let source = env
+                .get_array_indexed("BASH_SOURCE", level as i64 + 1)
+                .unwrap_or_else(|| "NULL".to_string());
             println!("{line} {source}");
             return 0;
         }
+        let Some(source) = env.get_array_indexed("BASH_SOURCE", level as i64 + 1) else {
+            return 1;
+        };
         let Some(function) = env.get_array_indexed("FUNCNAME", level as i64 + 1) else {
             return 1;
         };

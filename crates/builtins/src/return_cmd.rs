@@ -1,4 +1,6 @@
-use crate::common::report_diagnostic;
+use std::io::Write;
+
+use crate::common::{diagnostic_label, report_diagnostic};
 use crate::{Builtin, BuiltinCtx, BuiltinFlags};
 
 pub struct Return;
@@ -16,18 +18,18 @@ impl Builtin for Return {
     }
     fn run(&self, ctx: &mut BuiltinCtx<'_>) -> i32 {
         if ctx.shell.function_depth() == 0 && ctx.shell.source_depth() == 0 {
-            report_diagnostic(
-                ctx.env_ref(),
-                "return",
-                "can only `return' from a function or sourced script",
+            let _ = writeln!(
+                std::io::stderr(),
+                "{}: can only `return' from a function or sourced script",
+                diagnostic_label(ctx.env_ref(), "return")
             );
             if ctx.env_ref().option("posix")
                 && !ctx.env_ref().option("interactive")
                 && !ctx.invoked_via_command
             {
-                ctx.shell.request_exit(1);
+                ctx.shell.request_exit(2);
             }
-            return 1;
+            return 2;
         }
         let status = match ctx.args.first() {
             Some(arg) => match arg.parse::<i64>() {

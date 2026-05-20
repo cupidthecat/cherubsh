@@ -1,6 +1,6 @@
 //! `trap` builtin.
 
-use crate::common::{ansi_c_quote, report_diagnostic};
+use crate::common::report_diagnostic;
 use crate::getopt::{GetOpt, OptParser};
 use crate::{Builtin, BuiltinCtx, BuiltinFlags};
 
@@ -107,7 +107,7 @@ impl Builtin for Trap {
                     }
                     if let Some(act) = ctx.env_ref().trap_get(sig) {
                         let display = trap_display_name(&canonical_signal_name(sig));
-                        println!("trap -- {} {}", ansi_c_quote(&act), display);
+                        println!("trap -- {} {}", trap_action_quote(&act), display);
                     }
                 }
             }
@@ -168,10 +168,23 @@ fn print_traps(ctx: &BuiltinCtx<'_>) {
     for entry in entries {
         println!(
             "trap -- {} {}",
-            ansi_c_quote(&entry.action),
+            trap_action_quote(&entry.action),
             trap_display_name(&entry.signal)
         );
     }
+}
+
+fn trap_action_quote(action: &str) -> String {
+    let mut out = String::from("'");
+    for ch in action.chars() {
+        if ch == '\'' {
+            out.push_str("'\\''");
+        } else {
+            out.push(ch);
+        }
+    }
+    out.push('\'');
+    out
 }
 
 fn parse_kind(name: &str) -> Option<cherubsh_common::signals::TrapKind> {

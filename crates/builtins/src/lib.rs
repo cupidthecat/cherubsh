@@ -134,6 +134,9 @@ pub trait ShellOps {
     fn function_get(&self, name: &str) -> Option<Command>;
     fn function_remove(&mut self, name: &str) -> bool;
     fn function_names(&self) -> Vec<String>;
+    fn function_source(&self, _name: &str) -> Option<(String, u32)> {
+        None
+    }
     fn function_set_trace(&mut self, _name: &str, _on: bool) {}
     fn function_is_trace(&self, _name: &str) -> bool {
         false
@@ -148,6 +151,7 @@ pub trait ShellOps {
     fn run_eval(&mut self, src: &str) -> i32 {
         self.run_source(src)
     }
+    fn run_pending_traps(&mut self) {}
 
     /// Execute an already-parsed command (used by `source` after parse).
     fn run_command(&mut self, cmd: &Command) -> i32;

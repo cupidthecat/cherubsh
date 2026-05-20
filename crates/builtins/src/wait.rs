@@ -239,6 +239,7 @@ fn wait_for_any_target(
     force: bool,
 ) -> (Option<i32>, Option<i32>) {
     let mut pids: Vec<i32> = targets.into_iter().flat_map(|t| t.pids).collect();
+    pids.reverse();
     while !pids.is_empty() {
         let mut index = 0;
         while index < pids.len() {

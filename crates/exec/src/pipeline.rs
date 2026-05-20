@@ -2,6 +2,7 @@ use std::os::unix::io::RawFd;
 
 use cherubsh_common::jobs::Process;
 use cherubsh_common::JobState;
+use cherubsh_common::TrapKind;
 use cherubsh_parser::{
     Command, CommandData, CONN_AMP, CONN_AND_AND, CONN_BAR_AND, CONN_NEWLINE, CONN_OR_OR,
     CONN_PIPE, CONN_SEMI,
@@ -36,6 +37,16 @@ pub(crate) fn execute<'a>(
     } else {
         None
     };
+    let trace_debug_in_parent = pipeline_debug_trap_in_scope(ctx);
+    if trace_debug_in_parent {
+        for command in &commands {
+            if ctx.env.running_trap().is_none() {
+                ctx.env
+                    .set_current_command(Some(crate::command_label(command)));
+            }
+            let _ = crate::trap::run_debug_trap(ctx);
+        }
+    }
 
     let mut pids: Vec<libc::pid_t> = Vec::with_capacity(total);
     let mut previous_read: Option<RawFd> = None;
@@ -84,7 +95,13 @@ pub(crate) fn execute<'a>(
             if matches!(command.data, CommandData::Subshell(_)) {
                 ctx.reuse_current_subshell_for_next_dispatch();
             }
-            let status = ctx.execute_child_command(command);
+            if trace_debug_in_parent {
+                ctx.suppress_debug_traps = true;
+            }
+            if matches!(command.data, CommandData::Simple(_)) {
+                ctx.suppress_err_traps = true;
+            }
+            let status = ctx.execute_command(command, ExecMode::Parent);
             let mut final_status = match ctx.pending.take() {
                 Some(crate::Unwind::Exit(n)) => n,
                 _ => status,
@@ -135,7 +152,12 @@ pub(crate) fn execute<'a>(
                 }
             }
         }
+        let saved_suppress_debug = ctx.suppress_debug_traps;
+        if trace_debug_in_parent {
+            ctx.suppress_debug_traps = true;
+        }
         let status = ctx.execute_command(&commands[total - 1], ExecMode::Parent);
+        ctx.suppress_debug_traps = saved_suppress_debug;
         if saved >= 0 {
             unsafe {
                 libc::dup2(saved, 0);
@@ -197,6 +219,13 @@ pub(crate) fn execute<'a>(
         *statuses.last().unwrap_or(&0)
     };
     final_status
+}
+
+fn pipeline_debug_trap_in_scope(ctx: &ExecContext<'_>) -> bool {
+    !ctx.suppress_debug_traps
+        && ((ctx.function_depth == 0 && ctx.source_depth == 0)
+            || ctx.debug_trap_scopes.last().copied().unwrap_or(false))
+        && ctx.env.trap_is_set(TrapKind::Debug)
 }
 
 pub(crate) fn spawn_background<'a>(ctx: &mut ExecContext<'a>, command: &Command) -> i32 {

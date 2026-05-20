@@ -1104,6 +1104,7 @@ pub enum AssignError {
     InvalidInteger(String),
     InvalidName(String),
     BadArraySubscript(String),
+    CircularNameReference(String),
 }
 
 impl AssignError {
@@ -1119,6 +1120,7 @@ impl AssignError {
             AssignError::BadArraySubscript(name) => {
                 eprintln!("cherubsh: {name}: bad array subscript")
             }
+            AssignError::CircularNameReference(_) => {}
         }
     }
 }
@@ -1243,11 +1245,15 @@ pub trait Environment {
     fn diagnostic_source_name(&self) -> Option<String> {
         None
     }
+    fn call_stack_source_name(&self) -> Option<String> {
+        self.diagnostic_source_name()
+    }
     fn diagnostic_line(&self) -> Option<u32> {
         None
     }
     fn push_diagnostic_line(&mut self, _line: u32) {}
     fn pop_diagnostic_line(&mut self) {}
+    fn set_current_command(&mut self, _command: Option<String>) {}
     fn arithmetic_expansion_errors_exit_shell(&self) -> bool {
         false
     }
@@ -1261,6 +1267,18 @@ pub trait Environment {
         false
     }
     fn set_option(&mut self, _name: &str, _on: bool) {}
+    fn prompt_nonprinting_markers(&self) -> bool {
+        false
+    }
+    fn prompt_command_number(&self) -> u64 {
+        0
+    }
+    fn logical_pwd(&self) -> Option<String> {
+        self.get("PWD").filter(|pwd| !pwd.is_empty())
+    }
+    fn set_logical_pwd(&mut self, value: String) {
+        self.set("PWD", value);
+    }
 
     /// $! - pid of last asynchronous command.
     fn last_async_pid(&self) -> Option<i32> {
@@ -1292,9 +1310,17 @@ pub trait Environment {
     }
     /// Bump subshell_level and refresh BASHPID - called in forked subshell.
     fn enter_subshell(&mut self) {}
+    /// Command/process substitution nesting depth for xtrace PS4 expansion.
+    fn command_substitution_depth(&self) -> u32 {
+        0
+    }
+    fn enter_command_substitution(&mut self) {}
 
     /// BASH_FUNCNAME / BASH_SOURCE / BASH_LINENO stacks.
     fn funcname_push(&mut self, _name: &str, _args: &[String]) {}
+    fn funcname_push_with_source(&mut self, name: &str, args: &[String], _source: &str) {
+        self.funcname_push(name, args);
+    }
     fn funcname_pop(&mut self) {}
     fn source_frame_push(&mut self, _source_name: &str) {}
     fn source_frame_pop(&mut self) {}
@@ -1674,6 +1700,8 @@ pub trait Environment {
         None
     }
     fn keymap_bind(&mut self, _name: &str, _seq: &str, _action: keymap::EditAction) {}
+    fn keymap_bind_macro(&mut self, _name: &str, _seq: &str, _text: &str) {}
+    fn keymap_bind_shell_command(&mut self, _name: &str, _seq: &str, _command: &str) {}
     fn keymap_unbind(&mut self, _name: &str, _seq: &str) -> bool {
         false
     }

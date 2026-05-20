@@ -27,6 +27,8 @@ impl<'a, 'b> ShellOps for ExecAdapter<'a, 'b> {
 
     fn function_define(&mut self, name: &str, body: Command) {
         self.ctx.functions.insert(name.to_string(), Arc::new(body));
+        let source = crate::function::definition_source(self.ctx.env);
+        self.ctx.function_sources.insert(name.to_string(), source);
     }
 
     fn function_get(&self, name: &str) -> Option<Command> {
@@ -38,11 +40,23 @@ impl<'a, 'b> ShellOps for ExecAdapter<'a, 'b> {
 
     fn function_remove(&mut self, name: &str) -> bool {
         self.ctx.function_traced.remove(name);
+        self.ctx.function_sources.remove(name);
         self.ctx.functions.remove(name).is_some()
     }
 
     fn function_names(&self) -> Vec<String> {
         self.ctx.functions.keys().cloned().collect()
+    }
+
+    fn function_source(&self, name: &str) -> Option<(String, u32)> {
+        let source = self.ctx.function_sources.get(name)?.clone();
+        let line = self
+            .ctx
+            .functions
+            .get(name)
+            .map(|body| body.line)
+            .unwrap_or(0);
+        Some((source, line.max(1)))
     }
 
     fn function_set_trace(&mut self, name: &str, on: bool) {
@@ -75,6 +89,10 @@ impl<'a, 'b> ShellOps for ExecAdapter<'a, 'b> {
         run_source_inner(self, src, true, None)
     }
 
+    fn run_pending_traps(&mut self) {
+        crate::trap::run_pending_traps(self.ctx);
+    }
+
     fn run_command(&mut self, cmd: &Command) -> i32 {
         self.ctx.execute_command(cmd, ExecMode::Parent)
     }
@@ -83,7 +101,10 @@ impl<'a, 'b> ShellOps for ExecAdapter<'a, 'b> {
         self.ctx.pending = Some(Unwind::Exit(status));
     }
     fn request_return(&mut self, status: i32) {
-        self.ctx.pending = Some(Unwind::Return(status));
+        self.ctx.pending = Some(Unwind::Return {
+            status,
+            trap_status: self.ctx.last_status,
+        });
     }
     fn request_break(&mut self, levels: u32) {
         self.ctx.pending = Some(Unwind::Break(levels));
@@ -103,7 +124,8 @@ impl<'a, 'b> ShellOps for ExecAdapter<'a, 'b> {
     }
 
     fn evaluate_arith(&mut self, expr: &str) -> Result<i64, String> {
-        let mut runner = ExecRunner::with_functions(&self.ctx.functions);
+        let mut runner =
+            ExecRunner::with_functions(&self.ctx.functions, &self.ctx.function_sources);
         if self.ctx.env.option("assoc_expand_once") {
             cherubsh_expander::arith::eval(
                 expr,
@@ -121,8 +143,10 @@ impl<'a, 'b> ShellOps for ExecAdapter<'a, 'b> {
             text: arg.to_string(),
             flags: W_ASSIGNMENT | if compound { W_COMPASSIGN } else { 0 },
             span: Span::dummy(),
+            raw: None,
         };
-        let mut runner = ExecRunner::with_functions(&self.ctx.functions);
+        let mut runner =
+            ExecRunner::with_functions(&self.ctx.functions, &self.ctx.function_sources);
         match expand_assignment_word(&word, self.ctx.env, &mut runner) {
             Ok(Some(assignment)) => apply_assignment(self.ctx.env, &assignment),
             Ok(None) => 1,
@@ -207,32 +231,43 @@ fn run_source_inner(
                     offset_command_lines(&mut ast.root, line.saturating_sub(1));
                 }
             }
-            let source_debug_scope = source_name.is_some() && adapter.ctx.env.option("functrace");
-            adapter.ctx.source_depth += 1;
+            let is_sourced_file = source_name.is_some();
+            let source_debug_scope = is_sourced_file && adapter.ctx.env.option("functrace");
+            if is_sourced_file {
+                adapter.ctx.source_depth += 1;
+            }
             if let Some(source_name) = source_name {
                 adapter.ctx.env.source_frame_push(source_name);
             }
-            if source_name.is_some() {
+            if is_sourced_file {
                 adapter.ctx.debug_trap_scopes.push(source_debug_scope);
             }
             let saved_abort_line_depth = adapter.ctx.abort_line_depth;
             adapter.ctx.abort_line_depth = 0;
             let status = adapter.ctx.execute_command(&ast.root, ExecMode::Parent);
-            if source_name.is_some() {
+            if is_sourced_file {
                 adapter.ctx.env.source_frame_pop();
                 adapter.ctx.debug_trap_scopes.pop();
+                adapter.ctx.source_depth -= 1;
             }
-            adapter.ctx.source_depth -= 1;
             let pending = adapter.ctx.pending.take();
             adapter.ctx.abort_line_depth = saved_abort_line_depth;
             match pending {
-                Some(Unwind::Return(n)) => n,
+                Some(Unwind::Return { status, .. }) if is_sourced_file => status,
+                Some(Unwind::Return {
+                    status,
+                    trap_status,
+                }) => {
+                    adapter.ctx.pending = Some(Unwind::Return {
+                        status,
+                        trap_status,
+                    });
+                    status
+                }
                 Some(Unwind::AbortLine(_)) => status,
                 other => {
                     adapter.ctx.pending = other;
-                    if source_name.is_some()
-                        && (adapter.ctx.function_depth == 0 || source_debug_scope)
-                    {
+                    if is_sourced_file && (adapter.ctx.function_depth == 0 || source_debug_scope) {
                         let saved_suppression = adapter.ctx.suppress_debug_traps;
                         if !source_debug_scope {
                             adapter.ctx.suppress_debug_traps = true;

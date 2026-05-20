@@ -457,7 +457,7 @@ fn expand_redirect_word(
     ctx: &mut ExecContext<'_>,
     expand_glob: bool,
 ) -> Result<String, ExecError> {
-    let mut runner = ExecRunner::with_functions(&ctx.functions);
+    let mut runner = ExecRunner::with_functions(&ctx.functions, &ctx.function_sources);
     let mut flags = ExpandFlags::SPLIT_FIELDS | ExpandFlags::QUOTE_REMOVAL | ExpandFlags::FOR_REDIR;
     if expand_glob {
         flags |= ExpandFlags::EXPAND_GLOB;
@@ -625,6 +625,14 @@ fn execute_plan<'a>(
                 g.save_fd(target)?;
             }
             dup2_close(fd, target)?;
+            let target_proc_path = format!("/dev/fd/{target}");
+            if path == target_proc_path {
+                for handle in &mut ctx.proc_subst {
+                    if handle.fd == target && handle.path == path {
+                        handle.fd = -1;
+                    }
+                }
+            }
             Ok(())
         }
         Plan::Dup {
@@ -848,6 +856,9 @@ fn fd_assign_error(name: &str, err: AssignError) -> ExecError {
         )),
         AssignError::InvalidInteger(value) => ExecError::new(format!(
             "{value}: invalid integer\n{name}: cannot assign fd to variable"
+        )),
+        AssignError::CircularNameReference(value) => ExecError::new(format!(
+            "{value}: circular name reference\n{name}: cannot assign fd to variable"
         )),
     }
 }

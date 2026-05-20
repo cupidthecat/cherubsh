@@ -4,11 +4,32 @@ use cherubsh_common::{Environment, VarKind};
 use cherubsh_expander::buf::{CTLESC, CTLNUL, CTLRAW};
 use cherubsh_expander::pattern::{fnmatch, GlobOpts};
 use cherubsh_expander::quote::{bytes_to_shell_string, shell_string_to_bytes};
-use cherubsh_expander::{arith, expand_case_pattern_bytes, ExpCtx, ExpandError, NullRunner};
+use cherubsh_expander::{
+    arith, expand_case_pattern_bytes, CommandRunner, ExpCtx, ExpandError, NullRunner,
+};
 use cherubsh_parser::{CondCommand, CondType, WordDesc};
 
 pub fn evaluate(cmd: &CondCommand, env: &mut dyn Environment) -> i32 {
-    match eval_inner(cmd, env) {
+    let mut runner = NullRunner::default();
+    evaluate_with_runner(cmd, env, &mut runner)
+}
+
+pub fn evaluate_with_runner(
+    cmd: &CondCommand,
+    env: &mut dyn Environment,
+    runner: &mut dyn CommandRunner,
+) -> i32 {
+    evaluate_with_runner_and_tracer(cmd, env, runner, None)
+}
+
+pub fn evaluate_with_runner_and_tracer(
+    cmd: &CondCommand,
+    env: &mut dyn Environment,
+    runner: &mut dyn CommandRunner,
+    tracer: Option<&mut dyn FnMut(String)>,
+) -> i32 {
+    let mut tracer = tracer;
+    match eval_inner(cmd, env, runner, &mut tracer) {
         Ok(true) => 0,
         Ok(false) => 1,
         Err(msg) => {
@@ -18,25 +39,30 @@ pub fn evaluate(cmd: &CondCommand, env: &mut dyn Environment) -> i32 {
     }
 }
 
-fn eval_inner(cmd: &CondCommand, env: &mut dyn Environment) -> Result<bool, String> {
+fn eval_inner(
+    cmd: &CondCommand,
+    env: &mut dyn Environment,
+    runner: &mut dyn CommandRunner,
+    tracer: &mut Option<&mut dyn FnMut(String)>,
+) -> Result<bool, String> {
     match cmd.cond_type {
         CondType::And => {
             let l = cmd.left.as_ref().ok_or("missing left operand")?;
             let r = cmd.right.as_ref().ok_or("missing right operand")?;
-            let lv = eval_inner(l, env)?;
+            let lv = eval_inner(l, env, runner, tracer)?;
             if !lv {
                 return Ok(false);
             }
-            eval_inner(r, env)
+            eval_inner(r, env, runner, tracer)
         }
         CondType::Or => {
             let l = cmd.left.as_ref().ok_or("missing left operand")?;
             let r = cmd.right.as_ref().ok_or("missing right operand")?;
-            let lv = eval_inner(l, env)?;
+            let lv = eval_inner(l, env, runner, tracer)?;
             if lv {
                 return Ok(true);
             }
-            eval_inner(r, env)
+            eval_inner(r, env, runner, tracer)
         }
         CondType::Unary => {
             let op = cmd
@@ -51,20 +77,25 @@ fn eval_inner(cmd: &CondCommand, env: &mut dyn Environment) -> Result<bool, Stri
                 .and_then(|c| c.term.as_ref())
                 .ok_or("missing operand")?;
             let term = term_word.text.as_str();
-            let val = expand_word(term, env);
+            let val = expand_word(term, env, runner);
             if op == "!" {
+                trace_cond_unary(tracer, "-n", &val);
                 let inner = !val.is_empty();
                 return Ok(!inner);
             }
+            trace_cond_unary(tracer, op, &val);
             if let Some(rest) = op.strip_prefix('-') {
                 if rest.len() == 1 {
                     let ch = rest.chars().next().unwrap();
                     match ch {
                         'v' => {
-                            return Ok(var_word_is_set(env, &term));
+                            return Ok(var_word_is_set(env, &term, runner));
                         }
                         'R' => {
                             return Ok(env.kind(&val) == VarKind::Nameref);
+                        }
+                        'o' => {
+                            return Ok(env.option(&val));
                         }
                         _ => {
                             return Ok(unary_test(ch, &val));
@@ -97,39 +128,46 @@ fn eval_inner(cmd: &CondCommand, env: &mut dyn Environment) -> Result<bool, Stri
             // arithmetic it's a number. Expand without word splitting either way.
             match op.as_str() {
                 "==" | "=" => {
-                    let lhs = expand_operand_word(&lhs_word, env)?;
-                    let rhs = expand_pattern_word(&rhs_word, env)?;
+                    let lhs = expand_operand_word(&lhs_word, env, runner)?;
+                    let rhs = expand_pattern_word(&rhs_word, env, runner)?;
+                    trace_cond_binary(tracer, &lhs, &op, &bytes_to_shell_string(&rhs));
                     let opts = conditional_pattern_opts(env);
                     Ok(fnmatch(&rhs, &shell_string_to_bytes(&lhs), opts))
                 }
                 "!=" => {
-                    let lhs = expand_operand_word(&lhs_word, env)?;
-                    let rhs = expand_pattern_word(&rhs_word, env)?;
+                    let lhs = expand_operand_word(&lhs_word, env, runner)?;
+                    let rhs = expand_pattern_word(&rhs_word, env, runner)?;
+                    trace_cond_binary(tracer, &lhs, &op, &bytes_to_shell_string(&rhs));
                     let opts = conditional_pattern_opts(env);
                     Ok(!fnmatch(&rhs, &shell_string_to_bytes(&lhs), opts))
                 }
                 "<" => {
-                    let lhs = expand_operand_word(&lhs_word, env)?;
-                    Ok(lhs < expand_operand_word(&rhs_word, env)?)
+                    let lhs = expand_operand_word(&lhs_word, env, runner)?;
+                    let rhs = expand_operand_word(&rhs_word, env, runner)?;
+                    trace_cond_binary(tracer, &lhs, &op, &rhs);
+                    Ok(lhs < rhs)
                 }
                 ">" => {
-                    let lhs = expand_operand_word(&lhs_word, env)?;
-                    Ok(lhs > expand_operand_word(&rhs_word, env)?)
+                    let lhs = expand_operand_word(&lhs_word, env, runner)?;
+                    let rhs = expand_operand_word(&rhs_word, env, runner)?;
+                    trace_cond_binary(tracer, &lhs, &op, &rhs);
+                    Ok(lhs > rhs)
                 }
                 "=~" => {
-                    let lhs = expand_operand_word(&lhs_word, env)?;
-                    let rhs = expand_regex_word(&rhs_word, env)?;
+                    let lhs = expand_operand_word(&lhs_word, env, runner)?;
+                    let rhs = expand_regex_word(&rhs_word, env, runner)?;
+                    trace_cond_binary(tracer, &lhs, &op, &rhs);
                     regex_match(&lhs, &rhs, env)
                 }
-                "-eq" => arithmetic_binary(&lhs_word.text, &rhs_word.text, env, |l, r| l == r),
-                "-ne" => arithmetic_binary(&lhs_word.text, &rhs_word.text, env, |l, r| l != r),
-                "-lt" => arithmetic_binary(&lhs_word.text, &rhs_word.text, env, |l, r| l < r),
-                "-le" => arithmetic_binary(&lhs_word.text, &rhs_word.text, env, |l, r| l <= r),
-                "-gt" => arithmetic_binary(&lhs_word.text, &rhs_word.text, env, |l, r| l > r),
-                "-ge" => arithmetic_binary(&lhs_word.text, &rhs_word.text, env, |l, r| l >= r),
+                "-eq" => arithmetic_binary(&lhs_word, &rhs_word, env, runner, |l, r| l == r),
+                "-ne" => arithmetic_binary(&lhs_word, &rhs_word, env, runner, |l, r| l != r),
+                "-lt" => arithmetic_binary(&lhs_word, &rhs_word, env, runner, |l, r| l < r),
+                "-le" => arithmetic_binary(&lhs_word, &rhs_word, env, runner, |l, r| l <= r),
+                "-gt" => arithmetic_binary(&lhs_word, &rhs_word, env, runner, |l, r| l > r),
+                "-ge" => arithmetic_binary(&lhs_word, &rhs_word, env, runner, |l, r| l >= r),
                 "-nt" | "-ot" | "-ef" => {
-                    let lhs = expand_operand_word(&lhs_word, env)?;
-                    let rhs = expand_operand_word(&rhs_word, env)?;
+                    let lhs = expand_operand_word(&lhs_word, env, runner)?;
+                    let rhs = expand_operand_word(&rhs_word, env, runner)?;
                     Ok(file_binary(&op, &lhs, &rhs))
                 }
                 _ => Err(format!("unknown binary operator `{op}'")),
@@ -138,7 +176,7 @@ fn eval_inner(cmd: &CondCommand, env: &mut dyn Environment) -> Result<bool, Stri
         CondType::Term => {
             if let Some(inner) = cmd.left.as_ref() {
                 if cmd.term.is_none() {
-                    return Ok(!eval_inner(inner, env)?);
+                    return Ok(!eval_inner(inner, env, runner, tracer)?);
                 }
             }
             let val = cmd
@@ -146,13 +184,26 @@ fn eval_inner(cmd: &CondCommand, env: &mut dyn Environment) -> Result<bool, Stri
                 .as_ref()
                 .map(|w| w.text.clone())
                 .unwrap_or_default();
-            let expanded = expand_word(&val, env);
+            let expanded = expand_word(&val, env, runner);
+            trace_cond_unary(tracer, "-n", &expanded);
             Ok(!expanded.is_empty())
         }
         CondType::Expr => {
             let inner = cmd.left.as_ref().ok_or("missing expression")?;
-            eval_inner(inner, env)
+            eval_inner(inner, env, runner, tracer)
         }
+    }
+}
+
+fn trace_cond_binary(tracer: &mut Option<&mut dyn FnMut(String)>, lhs: &str, op: &str, rhs: &str) {
+    if let Some(tracer) = tracer.as_deref_mut() {
+        tracer(format!("[[ {lhs} {op} {rhs} ]]"));
+    }
+}
+
+fn trace_cond_unary(tracer: &mut Option<&mut dyn FnMut(String)>, op: &str, value: &str) {
+    if let Some(tracer) = tracer.as_deref_mut() {
+        tracer(format!("[[ {op} {value} ]]"));
     }
 }
 
@@ -168,21 +219,32 @@ fn var_is_set(env: &mut dyn Environment, name: &str) -> bool {
         return array_element_is_set(env, base, subscript);
     }
     match env.kind(name) {
+        VarKind::Nameref => {
+            let Some(target) = env.resolve_nameref(name) else {
+                return false;
+            };
+            if target == name {
+                return env.get(name).is_some();
+            }
+            if array_reference(&target).is_some() {
+                return false;
+            }
+            var_is_set(env, &target)
+        }
         VarKind::Indexed => env.get_array_indexed(name, 0).is_some(),
         VarKind::Assoc => env.get_array_assoc(name, "0").is_some(),
-        VarKind::Unset => env.get(name).is_some(),
-        _ => true,
+        VarKind::Scalar | VarKind::Unset => env.get(name).is_some(),
     }
 }
 
-fn var_word_is_set(env: &mut dyn Environment, word: &str) -> bool {
+fn var_word_is_set(env: &mut dyn Environment, word: &str, runner: &mut dyn CommandRunner) -> bool {
     if let Some((base, subscript)) = array_reference(word) {
         return match env.kind(base) {
             VarKind::Assoc => {
                 if matches!(subscript, "@" | "*") {
                     env.get_array_assoc(base, subscript).is_some()
                 } else {
-                    let key = expand_word(subscript, env);
+                    let key = expand_word(subscript, env, runner);
                     env.get_array_assoc(base, &key).is_some()
                 }
             }
@@ -190,33 +252,52 @@ fn var_word_is_set(env: &mut dyn Environment, word: &str) -> bool {
                 if matches!(subscript, "@" | "*") {
                     env.array_len(base) > 0
                 } else {
-                    let expanded = expand_word(subscript, env);
-                    let mut runner = NullRunner::default();
+                    let expanded = expand_word(subscript, env, runner);
+                    let mut null_runner = NullRunner::default();
                     let Ok(index) =
-                        arith::eval_preexpanded(&expanded, &mut ExpCtx::new(env, &mut runner))
+                        arith::eval_preexpanded(&expanded, &mut ExpCtx::new(env, &mut null_runner))
                     else {
                         return false;
                     };
                     env.get_array_indexed(base, index).is_some()
                 }
             }
+            VarKind::Nameref => {
+                let Some(target) = env.resolve_nameref(base) else {
+                    return false;
+                };
+                if target == base || array_reference(&target).is_some() {
+                    return false;
+                }
+                array_element_is_set(env, &target, subscript)
+            }
             _ => {
-                let expanded = expand_word(word, env);
+                let expanded = expand_word(word, env, runner);
                 var_is_set(env, &expanded)
             }
         };
     }
-    let expanded = expand_word(word, env);
+    let expanded = expand_word(word, env, runner);
     var_is_set(env, &expanded)
 }
 
 fn array_element_is_set(env: &mut dyn Environment, base: &str, subscript: &str) -> bool {
     match env.kind(base) {
+        VarKind::Nameref => {
+            let Some(target) = env.resolve_nameref(base) else {
+                return false;
+            };
+            if target == base || array_reference(&target).is_some() {
+                return false;
+            }
+            array_element_is_set(env, &target, subscript)
+        }
         VarKind::Indexed => {
             if matches!(subscript, "@" | "*") {
                 return env.array_len(base) > 0;
             }
-            let expanded = expand_word(subscript, env);
+            let mut expand_runner = NullRunner::default();
+            let expanded = expand_word(subscript, env, &mut expand_runner);
             let mut runner = NullRunner::default();
             let Ok(index) = arith::eval_preexpanded(&expanded, &mut ExpCtx::new(env, &mut runner))
             else {
@@ -228,11 +309,13 @@ fn array_element_is_set(env: &mut dyn Environment, base: &str, subscript: &str) 
             if matches!(subscript, "@" | "*") {
                 return env.assoc_keys(base).is_some_and(|keys| !keys.is_empty());
             }
-            let key = expand_word(subscript, env);
+            let mut expand_runner = NullRunner::default();
+            let key = expand_word(subscript, env, &mut expand_runner);
             env.get_array_assoc(base, &key).is_some()
         }
         _ => {
-            let expanded = expand_word(subscript, env);
+            let mut expand_runner = NullRunner::default();
+            let expanded = expand_word(subscript, env, &mut expand_runner);
             let mut runner = NullRunner::default();
             let Ok(index) = arith::eval_preexpanded(&expanded, &mut ExpCtx::new(env, &mut runner))
             else {
@@ -259,18 +342,17 @@ fn array_reference(name: &str) -> Option<(&str, &str)> {
 fn conditional_pattern_opts(env: &mut dyn Environment) -> GlobOpts {
     GlobOpts {
         nocaseglob: env.option("nocasematch"),
-        extglob: env.option("extglob"),
+        extglob: true,
         globasciiranges: env.option("globasciiranges"),
     }
 }
 
-fn expand_word(s: &str, env: &mut dyn Environment) -> String {
+fn expand_word(s: &str, env: &mut dyn Environment, runner: &mut dyn CommandRunner) -> String {
     if let Some(name) = simple_parameter_word(s) {
         return env.get(name).unwrap_or_default();
     }
-    use cherubsh_expander::{expand_assignment_rhs, NullRunner};
-    let mut runner = NullRunner::default();
-    expand_assignment_rhs(s, env, &mut runner).unwrap_or_else(|_| s.to_string())
+    use cherubsh_expander::expand_assignment_rhs;
+    expand_assignment_rhs(s, env, runner).unwrap_or_else(|_| s.to_string())
 }
 
 fn simple_parameter_word(s: &str) -> Option<&str> {
@@ -291,23 +373,32 @@ fn simple_parameter_word(s: &str) -> Option<&str> {
         .then_some(name)
 }
 
-fn expand_operand_word(word: &WordDesc, env: &mut dyn Environment) -> Result<String, String> {
-    let mut runner = NullRunner::default();
-    let bytes = expand_case_pattern_bytes(word, env, &mut runner)
+fn expand_operand_word(
+    word: &WordDesc,
+    env: &mut dyn Environment,
+    runner: &mut dyn CommandRunner,
+) -> Result<String, String> {
+    let bytes = expand_case_pattern_bytes(word, env, runner)
         .map_err(|err| err.into_shell_error(None).message)?;
     Ok(bytes_to_shell_string(&dequote_expanded_bytes(&bytes)))
 }
 
-fn expand_pattern_word(word: &WordDesc, env: &mut dyn Environment) -> Result<Vec<u8>, String> {
-    let mut runner = NullRunner::default();
-    let bytes = expand_case_pattern_bytes(word, env, &mut runner)
+fn expand_pattern_word(
+    word: &WordDesc,
+    env: &mut dyn Environment,
+    runner: &mut dyn CommandRunner,
+) -> Result<Vec<u8>, String> {
+    let bytes = expand_case_pattern_bytes(word, env, runner)
         .map_err(|err| err.into_shell_error(None).message)?;
     Ok(strip_quoted_nulls(&bytes))
 }
 
-fn expand_regex_word(word: &WordDesc, env: &mut dyn Environment) -> Result<String, String> {
-    let mut runner = NullRunner::default();
-    let bytes = expand_case_pattern_bytes(word, env, &mut runner)
+fn expand_regex_word(
+    word: &WordDesc,
+    env: &mut dyn Environment,
+    runner: &mut dyn CommandRunner,
+) -> Result<String, String> {
+    let bytes = expand_case_pattern_bytes(word, env, runner)
         .map_err(|err| err.into_shell_error(None).message)?;
     Ok(regex_quote_marked_bytes(&bytes))
 }
@@ -447,22 +538,25 @@ fn push_regex_literal_byte(out: &mut Vec<u8>, b: u8, bracket: bool) {
 }
 
 fn arithmetic_binary<F>(
-    lhs: &str,
-    rhs: &str,
+    lhs: &WordDesc,
+    rhs: &WordDesc,
     env: &mut dyn Environment,
+    runner: &mut dyn CommandRunner,
     cmp: F,
 ) -> Result<bool, String>
 where
     F: FnOnce(i64, i64) -> bool,
 {
-    let lhs = match parse_arithmetic_value(lhs, env) {
+    let lhs_expr = lhs.text.as_str();
+    let lhs = match parse_arithmetic_value(lhs_expr, env, runner) {
         Ok(value) => value,
         Err(msg) => {
             report_cond_error(env, &msg);
             return Ok(false);
         }
     };
-    let rhs = match parse_arithmetic_value(rhs, env) {
+    let rhs_expr = rhs.text.as_str();
+    let rhs = match parse_arithmetic_value(rhs_expr, env, runner) {
         Ok(value) => value,
         Err(msg) => {
             report_cond_error(env, &msg);
@@ -472,21 +566,63 @@ where
     Ok(cmp(lhs, rhs))
 }
 
-fn parse_arithmetic_value(s: &str, env: &mut dyn Environment) -> Result<i64, String> {
+fn parse_arithmetic_value(
+    s: &str,
+    env: &mut dyn Environment,
+    runner: &mut dyn CommandRunner,
+) -> Result<i64, String> {
     let expr = s.trim();
     if expr.is_empty() {
         return Ok(0);
     }
-    let mut runner = NullRunner::default();
-    match cherubsh_expander::expand_for_arith(expr, env, &mut runner) {
+    let expr = quote_remove_whole_operand(expr);
+    match cherubsh_expander::expand_for_arith(&expr, env, runner) {
         Ok(value) => Ok(value),
         Err(ExpandError::Other(message))
             if message == "command substitution unavailable in this context" =>
         {
             Ok(0)
         }
-        Err(err) => Err(format_arithmetic_error(s, err)),
+        Err(err) => Err(format_arithmetic_error(&expr, err)),
     }
+}
+
+fn quote_remove_whole_operand(expr: &str) -> String {
+    let bytes = expr.as_bytes();
+    if bytes.len() >= 2 && bytes[0] == b'\'' {
+        if let Some(end) = bytes[1..].iter().position(|b| *b == b'\'') {
+            let close = end + 1;
+            if close + 1 == bytes.len() {
+                return expr[1..close].to_string();
+            }
+        }
+    }
+    if bytes.len() >= 2 && bytes[0] == b'"' {
+        let mut out = String::new();
+        let mut i = 1usize;
+        while i < bytes.len() {
+            match bytes[i] {
+                b'"' if i + 1 == bytes.len() => return out,
+                b'\\' if i + 1 < bytes.len() => {
+                    let next = bytes[i + 1];
+                    if matches!(next, b'"' | b'\\' | b'$' | b'`' | b'\n') {
+                        if next != b'\n' {
+                            out.push(next as char);
+                        }
+                        i += 2;
+                    } else {
+                        out.push('\\');
+                        i += 1;
+                    }
+                }
+                b => {
+                    out.push(b as char);
+                    i += 1;
+                }
+            }
+        }
+    }
+    expr.to_string()
 }
 
 fn format_arithmetic_error(expr: &str, err: ExpandError) -> String {

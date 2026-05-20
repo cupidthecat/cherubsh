@@ -198,49 +198,91 @@ impl Builtin for ReadBuiltin {
 
         let mut status: i32;
         let big5_hkscs = is_big5_hkscs_locale(ctx.env_ref());
+        let utf8_locale = locale_is_utf8(ctx.env_ref());
         if let Some(n) = nchars {
-            let mut tmp = vec![0u8; 1];
-            while read_limit_not_reached(&buf, n, ctx.env_ref()) {
-                match file.read(&mut tmp) {
-                    Ok(0) => break,
-                    Ok(_) => {
-                        if !nchars_exact && tmp[0] == delim {
-                            break;
+            if !nchars_exact && !raw {
+                let mut tmp = [0u8; 1];
+                while marked_chars(&marked_line).len() < n {
+                    match file.read(&mut tmp) {
+                        Ok(0) => break,
+                        Ok(_) => {
+                            if tmp[0] == delim {
+                                break;
+                            }
+                            if tmp[0] == b'\\' {
+                                let mut next = [0u8; 1];
+                                match file.read(&mut next) {
+                                    Ok(0) => break,
+                                    Ok(_) => {
+                                        if next[0] == delim {
+                                            continue;
+                                        }
+                                        marked_line.push(ESCAPED_CHAR);
+                                        push_char_bytes(
+                                            &mut marked_line,
+                                            &read_locale_char_bytes(
+                                                &mut file,
+                                                next[0],
+                                                utf8_locale,
+                                            ),
+                                        );
+                                    }
+                                    Err(_) => break,
+                                }
+                            } else {
+                                push_char_bytes(
+                                    &mut marked_line,
+                                    &read_locale_char_bytes(&mut file, tmp[0], utf8_locale),
+                                );
+                            }
                         }
-                        buf.push(tmp[0]);
+                        Err(_) => break,
                     }
-                    Err(_) => break,
                 }
-            }
-            status = if buf.is_empty() { 1 } else { 0 };
-            marked_line = if raw {
-                String::from_utf8_lossy(&buf).to_string()
+                status = if marked_line.is_empty() { 1 } else { 0 };
             } else {
-                process_backslashes_marked(&String::from_utf8_lossy(&buf))
-            };
+                let mut tmp = vec![0u8; 1];
+                while read_limit_not_reached(&buf, n, ctx.env_ref()) {
+                    match file.read(&mut tmp) {
+                        Ok(0) => break,
+                        Ok(_) => {
+                            if !nchars_exact && tmp[0] == delim {
+                                break;
+                            }
+                            buf.push(tmp[0]);
+                        }
+                        Err(_) => break,
+                    }
+                }
+                status = if buf.is_empty() { 1 } else { 0 };
+                marked_line = if raw {
+                    String::from_utf8_lossy(&buf).to_string()
+                } else {
+                    process_backslashes_marked(&String::from_utf8_lossy(&buf))
+                };
+            }
         } else {
             // Delimited.
             let had_initial = !marked_line.is_empty();
-            let mut read_any = false;
+            let mut hit_delim = false;
             let mut tmp = [0u8; 1];
             loop {
                 match file.read(&mut tmp) {
                     Ok(0) => break,
                     Ok(_) => {
-                        read_any = true;
                         if tmp[0] == delim {
+                            hit_delim = true;
                             break;
                         }
                         if !raw && tmp[0] == b'\\' {
                             let mut next = [0u8; 1];
                             match file.read(&mut next) {
                                 Ok(0) => {
-                                    marked_line.push('\\');
                                     break;
                                 }
                                 Ok(_) => {
-                                    read_any = true;
                                     if next[0] == delim {
+                                        hit_delim = true;
                                         continue;
                                     }
                                     marked_line.push(ESCAPED_CHAR);
@@ -256,12 +298,10 @@ impl Builtin for ReadBuiltin {
                             match file.read(&mut next) {
                                 Ok(0) => push_byte_char(&mut marked_line, tmp[0]),
                                 Ok(_) if next[0] == 0x5c => {
-                                    read_any = true;
                                     push_byte_char(&mut marked_line, tmp[0]);
                                     push_byte_char(&mut marked_line, next[0]);
                                 }
                                 Ok(_) => {
-                                    read_any = true;
                                     push_byte_char(&mut marked_line, tmp[0]);
                                     push_byte_char(&mut marked_line, next[0]);
                                 }
@@ -274,7 +314,7 @@ impl Builtin for ReadBuiltin {
                     Err(_) => break,
                 }
             }
-            status = if read_any || had_initial { 0 } else { 1 };
+            status = if hit_delim || had_initial { 0 } else { 1 };
         }
 
         if let Some(t) = termios_saved {
@@ -294,6 +334,10 @@ impl Builtin for ReadBuiltin {
                     &format!("`{arr}': not a valid identifier"),
                 );
                 return 1;
+            }
+            if nchars_exact {
+                ctx.env().set_array(&arr, vec![dequote_marked(&line)]);
+                return status;
             }
             let ifs = ctx.env_ref().ifs_raw();
             let fields: Vec<String> = split_ifs_marked(&line, &ifs);
@@ -380,6 +424,36 @@ fn locale_is_utf8(env: &dyn Environment) -> bool {
 
 fn push_byte_char(out: &mut String, byte: u8) {
     out.push_str(&bytes_to_shell_string(&[byte]));
+}
+
+fn push_char_bytes(out: &mut String, bytes: &[u8]) {
+    out.push_str(&bytes_to_shell_string(bytes));
+}
+
+fn read_locale_char_bytes(file: &mut std::fs::File, first: u8, utf8_locale: bool) -> Vec<u8> {
+    let mut bytes = vec![first];
+    if !utf8_locale {
+        return bytes;
+    }
+    let width = utf8_sequence_width(first);
+    let mut tmp = [0u8; 1];
+    while bytes.len() < width {
+        match file.read(&mut tmp) {
+            Ok(0) | Err(_) => break,
+            Ok(_) => bytes.push(tmp[0]),
+        }
+    }
+    bytes
+}
+
+fn utf8_sequence_width(first: u8) -> usize {
+    match first {
+        0x00..=0x7f => 1,
+        0xc2..=0xdf => 2,
+        0xe0..=0xef => 3,
+        0xf0..=0xf4 => 4,
+        _ => 1,
+    }
 }
 
 fn process_backslashes_marked(s: &str) -> String {

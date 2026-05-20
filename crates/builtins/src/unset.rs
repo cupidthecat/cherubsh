@@ -119,6 +119,19 @@ impl Builtin for Unset {
             }
             if !is_valid_name(name) {
                 if kind == Kind::Default || kind == Kind::Func {
+                    if ctx.shell.function_get(name).is_some() {
+                        if ctx.env_ref().function_is_readonly(name) {
+                            report_diagnostic(
+                                ctx.env_ref(),
+                                "unset",
+                                &format!("{name}: cannot unset: readonly function"),
+                            );
+                            status = 1;
+                            continue;
+                        }
+                        ctx.shell.function_remove(name);
+                        std::env::remove_var(format!("BASH_FUNC_{name}%%"));
+                    }
                     continue;
                 }
                 report_diagnostic(

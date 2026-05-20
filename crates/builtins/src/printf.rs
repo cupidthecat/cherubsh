@@ -560,11 +560,13 @@ fn parse_integer_arg(
         if let Some(c) = rest.chars().next() {
             return c as i64;
         }
+        return 0;
     }
     if let Some(rest) = t.strip_prefix("\"") {
         if let Some(c) = rest.chars().next() {
             return c as i64;
         }
+        return 0;
     }
     let (negative, digits) = if let Some(rest) = t.strip_prefix('-') {
         (true, rest)
@@ -594,12 +596,23 @@ fn parse_float_arg(s: &str, present: bool, env: Option<&dyn Environment>, status
     if !present || s.is_empty() {
         return 0.0;
     }
-    if s.starts_with('\'') || s.starts_with('"') {
-        return parse_integer_arg(s, present, env, status) as f64;
+    let trimmed = s.trim();
+    if let Some(rest) = trimmed
+        .strip_prefix('\'')
+        .or_else(|| trimmed.strip_prefix('"'))
+    {
+        return rest
+            .chars()
+            .next()
+            .map(|ch| ch as u32 as f64)
+            .unwrap_or(0.0);
     }
-    match s.trim().parse::<f64>() {
+    match trimmed.parse::<f64>() {
         Ok(value) => value,
-        Err(_) => invalid_number(s, env, status) as f64,
+        Err(_) => {
+            invalid_number(s, env, status);
+            0.0
+        }
     }
 }
 

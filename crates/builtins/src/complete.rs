@@ -1,6 +1,11 @@
 //! `complete` / `compgen` / `compopt` builtins.
 
+use std::os::unix::fs::PermissionsExt;
+use std::path::PathBuf;
+
 use cherubsh_common::completion::{CompAction, CompOpts, CompSlot, CompSpec};
+use cherubsh_common::{Environment, VarAttrs, VarKind, W_QUOTED};
+use cherubsh_expander::pattern::{fnmatch, GlobOpts};
 
 use crate::common::report_diagnostic;
 use crate::{Builtin, BuiltinCtx};
@@ -33,7 +38,7 @@ fn short_to_action(c: char) -> Option<CompAction> {
     })
 }
 
-fn parse_complete_flags(args: &[String]) -> Result<(ParsedFlags, Vec<String>), String> {
+fn parse_complete_flags(args: &[String]) -> Result<(ParsedFlags, Vec<String>, usize), String> {
     let mut flags = ParsedFlags::default();
     let mut i = 0;
     while i < args.len() {
@@ -58,55 +63,42 @@ fn parse_complete_flags(args: &[String]) -> Result<(ParsedFlags, Vec<String>), S
                     'I' => flags.initial = true,
                     'E' => flags.empty = true,
                     'A' => {
-                        i += 1;
-                        let v = args.get(i).cloned().ok_or("missing arg to -A")?;
+                        let v = option_arg(args, &chars, &mut i, j, 'A')?;
                         let action =
                             CompAction::parse(&v).ok_or(format!("invalid action: {}", v))?;
                         flags.spec.actions.push(action);
                         break;
                     }
                     'F' => {
-                        i += 1;
-                        flags.spec.function =
-                            Some(args.get(i).cloned().ok_or("missing arg to -F")?);
+                        flags.spec.function = Some(option_arg(args, &chars, &mut i, j, 'F')?);
                         break;
                     }
                     'C' => {
-                        i += 1;
-                        flags.spec.command = Some(args.get(i).cloned().ok_or("missing arg to -C")?);
+                        flags.spec.command = Some(option_arg(args, &chars, &mut i, j, 'C')?);
                         break;
                     }
                     'G' => {
-                        i += 1;
-                        flags.spec.glob_pattern =
-                            Some(args.get(i).cloned().ok_or("missing arg to -G")?);
+                        flags.spec.glob_pattern = Some(option_arg(args, &chars, &mut i, j, 'G')?);
                         break;
                     }
                     'W' => {
-                        i += 1;
-                        flags.spec.wordlist =
-                            Some(args.get(i).cloned().ok_or("missing arg to -W")?);
+                        flags.spec.wordlist = Some(option_arg(args, &chars, &mut i, j, 'W')?);
                         break;
                     }
                     'X' => {
-                        i += 1;
-                        flags.spec.filterpat =
-                            Some(args.get(i).cloned().ok_or("missing arg to -X")?);
+                        flags.spec.filterpat = Some(option_arg(args, &chars, &mut i, j, 'X')?);
                         break;
                     }
                     'P' => {
-                        i += 1;
-                        flags.spec.prefix = Some(args.get(i).cloned().ok_or("missing arg to -P")?);
+                        flags.spec.prefix = Some(option_arg(args, &chars, &mut i, j, 'P')?);
                         break;
                     }
                     'S' => {
-                        i += 1;
-                        flags.spec.suffix = Some(args.get(i).cloned().ok_or("missing arg to -S")?);
+                        flags.spec.suffix = Some(option_arg(args, &chars, &mut i, j, 'S')?);
                         break;
                     }
                     'o' => {
-                        i += 1;
-                        let name = args.get(i).cloned().ok_or("missing arg to -o")?;
+                        let name = option_arg(args, &chars, &mut i, j, 'o')?;
                         let bit = CompOpts::parse(&name).ok_or(format!("invalid -o: {}", name))?;
                         flags.spec.options |= bit;
                         break;
@@ -126,7 +118,23 @@ fn parse_complete_flags(args: &[String]) -> Result<(ParsedFlags, Vec<String>), S
             break;
         }
     }
-    Ok((flags, args[i..].to_vec()))
+    Ok((flags, args[i..].to_vec(), i))
+}
+
+fn option_arg(
+    args: &[String],
+    chars: &[char],
+    i: &mut usize,
+    j: usize,
+    opt: char,
+) -> Result<String, String> {
+    if j + 1 < chars.len() {
+        return Ok(chars[j + 1..].iter().collect());
+    }
+    *i += 1;
+    args.get(*i)
+        .cloned()
+        .ok_or_else(|| format!("missing arg to -{opt}"))
 }
 
 pub struct Complete;
@@ -140,7 +148,7 @@ impl Builtin for Complete {
         "complete [-abcdefgjksuv] [-pr] [-o option] [-A action] [-G globpat] [-W wordlist] [-F function] [-C command] [-X filterpat] [-P prefix] [-S suffix] name [name ...]"
     }
     fn run(&self, ctx: &mut BuiltinCtx<'_>) -> i32 {
-        let (flags, names) = match parse_complete_flags(ctx.args) {
+        let (flags, names, _) = match parse_complete_flags(ctx.args) {
             Ok(x) => x,
             Err(e) => {
                 eprintln!("cherubsh: complete: {e}");
@@ -170,6 +178,17 @@ impl Builtin for Complete {
             return status;
         }
         if flags.remove {
+            if flags.default || flags.initial || flags.empty {
+                let slots = [
+                    (flags.default, CompSlot::Default),
+                    (flags.initial, CompSlot::Initial),
+                    (flags.empty, CompSlot::Empty),
+                ];
+                for (_, slot) in slots.into_iter().filter(|(enabled, _)| *enabled) {
+                    ctx.env().compspec_remove(slot, None);
+                }
+                return 0;
+            }
             if names.is_empty() {
                 let specs = ctx.env_ref().compspec_iter();
                 for (slot, key, _) in specs {
@@ -177,9 +196,10 @@ impl Builtin for Complete {
                 }
                 return 0;
             }
+            let had_any_specs = !ctx.env_ref().compspec_iter().is_empty();
             let mut status = 0;
             for n in &names {
-                if !ctx.env().compspec_remove(CompSlot::Command, Some(n)) {
+                if !ctx.env().compspec_remove(CompSlot::Command, Some(n)) && had_any_specs {
                     report_diagnostic(
                         ctx.env_ref(),
                         "complete",
@@ -244,7 +264,7 @@ impl Builtin for Compgen {
         "compgen [-abcdefgjksuv] [-o option] [-A action] [-G globpat] [-W wordlist] [-F function] [-C command] [-X filterpat] [-P prefix] [-S suffix] [word]"
     }
     fn run(&self, ctx: &mut BuiltinCtx<'_>) -> i32 {
-        let (flags, rest) = match parse_complete_flags(ctx.args) {
+        let (flags, rest, rest_start) = match parse_complete_flags(ctx.args) {
             Ok(x) => x,
             Err(e) => {
                 eprintln!("cherubsh: compgen: {e}");
@@ -252,7 +272,11 @@ impl Builtin for Compgen {
             }
         };
         let word = rest.first().cloned().unwrap_or_default();
-        let matches = compgen_eval(&flags.spec, &word);
+        let word_quoted = ctx
+            .arg_flags
+            .get(rest_start)
+            .is_some_and(|flags| flags & W_QUOTED != 0);
+        let matches = compgen_eval(ctx, &flags.spec, &word, word_quoted);
         if matches.is_empty() {
             return 1;
         }
@@ -263,23 +287,35 @@ impl Builtin for Compgen {
     }
 }
 
-fn compgen_eval(spec: &CompSpec, word: &str) -> Vec<String> {
+fn compgen_eval(
+    ctx: &mut BuiltinCtx<'_>,
+    spec: &CompSpec,
+    word: &str,
+    word_quoted: bool,
+) -> Vec<String> {
     let mut out = Vec::new();
     if let Some(words) = &spec.wordlist {
-        for w in words.split_whitespace() {
+        for w in expand_wordlist(ctx.env(), words).split_whitespace() {
             if w.starts_with(word) {
                 out.push(w.to_string());
             }
         }
     }
+    let home = ctx.env_ref().get("HOME");
     for action in &spec.actions {
-        out.extend(action_compgen(*action, word));
+        out.extend(action_compgen(
+            ctx,
+            *action,
+            word,
+            word_quoted,
+            home.as_deref(),
+        ));
     }
     if let Some(pat) = &spec.glob_pattern {
         out.extend(glob_compgen(pat, word));
     }
     if let Some(filter) = &spec.filterpat {
-        out.retain(|m| !filter_matches(filter, m));
+        out.retain(|m| !filter_matches(filter, word, m, ctx.env_ref().option("extglob")));
     }
     if let Some(prefix) = &spec.prefix {
         for m in out.iter_mut() {
@@ -291,17 +327,104 @@ fn compgen_eval(spec: &CompSpec, word: &str) -> Vec<String> {
             *m = format!("{m}{suffix}");
         }
     }
-    if !spec.options.contains(CompOpts::NOSORT) {
-        out.sort();
-        out.dedup();
+    if out.is_empty() && spec.options.contains(CompOpts::DIRNAMES) {
+        out.extend(list_entries(word, true, word_quoted, home.as_deref()));
+    }
+    if out.is_empty() && spec.options.contains(CompOpts::DEFAULT) {
+        out.extend(list_entries(word, false, word_quoted, home.as_deref()));
+    }
+    if spec.options.contains(CompOpts::PLUSDIRS) {
+        out.extend(list_entries(word, true, word_quoted, home.as_deref()));
+    }
+    if let Some(func) = &spec.function {
+        run_completion_function(ctx, func, word);
+        out.extend(ctx.env_ref().get_array("COMPREPLY").unwrap_or_default());
     }
     out
 }
 
-fn action_compgen(action: CompAction, prefix: &str) -> Vec<String> {
+fn expand_wordlist(env: &mut dyn Environment, words: &str) -> String {
+    let mut runner = cherubsh_expander::NullRunner::default();
+    cherubsh_expander::expand_string_to_string(words, env, &mut runner)
+        .unwrap_or_else(|_| words.to_string())
+}
+
+fn run_completion_function(ctx: &mut BuiltinCtx<'_>, func: &str, word: &str) {
+    let env = ctx.env();
+    env.set("COMP_LINE", word.to_string());
+    env.set("COMP_POINT", word.len().to_string());
+    env.set("COMP_TYPE", "0".to_string());
+    env.set("COMP_KEY", "0".to_string());
+    env.set("COMP_CWORD", "0".to_string());
+    env.set_array("COMP_WORDS", vec![word.to_string()]);
+    env.set_array("COMPREPLY", Vec::new());
+    let _ = ctx.shell.run_source(&shell_quote(func));
+}
+
+fn shell_quote(s: &str) -> String {
+    let mut out = String::from("'");
+    for ch in s.chars() {
+        if ch == '\'' {
+            out.push_str("'\\''");
+        } else {
+            out.push(ch);
+        }
+    }
+    out.push('\'');
+    out
+}
+
+fn action_compgen(
+    ctx: &BuiltinCtx<'_>,
+    action: CompAction,
+    prefix: &str,
+    quoted: bool,
+    home: Option<&str>,
+) -> Vec<String> {
     use CompAction::*;
     match action {
-        File | Directory => list_entries(prefix, matches!(action, Directory)),
+        File | Directory => list_entries(prefix, matches!(action, Directory), quoted, home),
+        Alias => ctx
+            .env_ref()
+            .alias_iter()
+            .into_iter()
+            .map(|(name, _)| name)
+            .filter(|name| name.starts_with(prefix))
+            .collect(),
+        Binding => static_names(BINDING_NAMES.iter().copied(), prefix),
+        Builtin | Enabled => crate::iter_builtins()
+            .map(|builtin| builtin.name().to_string())
+            .filter(|name| name.starts_with(prefix))
+            .filter(|name| ctx.env_ref().builtin_enabled(name))
+            .collect(),
+        Disabled => crate::iter_builtins()
+            .map(|builtin| builtin.name().to_string())
+            .filter(|name| name.starts_with(prefix))
+            .filter(|name| !ctx.env_ref().builtin_enabled(name))
+            .collect(),
+        Command => command_names(ctx, prefix),
+        Function => ctx
+            .shell
+            .function_names()
+            .into_iter()
+            .filter(|name| name.starts_with(prefix))
+            .collect(),
+        Variable | Export => ctx
+            .env_ref()
+            .iter_vars()
+            .into_iter()
+            .filter(|snap| snap.name.starts_with(prefix))
+            .filter(|snap| matches!(action, Variable) || snap.attrs.contains(VarAttrs::EXPORT))
+            .map(|snap| snap.name)
+            .collect(),
+        ArrayVar => ctx
+            .env_ref()
+            .iter_vars()
+            .into_iter()
+            .filter(|snap| snap.name.starts_with(prefix))
+            .filter(|snap| matches!(snap.kind, VarKind::Indexed | VarKind::Assoc))
+            .map(|snap| snap.name)
+            .collect(),
         Keyword => static_names(SHELL_KEYWORDS.iter().copied(), prefix),
         SetOpt => static_names(crate::options::SET_OPTIONS.iter().map(|o| o.long), prefix),
         ShOpt => static_names(
@@ -312,6 +435,25 @@ fn action_compgen(action: CompAction, prefix: &str) -> Vec<String> {
                          // runtime engine in crates/shell/src/completion.rs
                          // is the production path.
     }
+}
+
+fn command_names(ctx: &BuiltinCtx<'_>, prefix: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    out.extend(
+        crate::iter_builtins()
+            .map(|builtin| builtin.name().to_string())
+            .filter(|name| name.starts_with(prefix))
+            .filter(|name| ctx.env_ref().builtin_enabled(name)),
+    );
+    out.extend(static_names(SHELL_KEYWORDS.iter().copied(), prefix));
+    out.extend(
+        ctx.shell
+            .function_names()
+            .into_iter()
+            .filter(|name| name.starts_with(prefix)),
+    );
+    out.extend(path_executables(ctx.env_ref(), prefix));
+    out
 }
 
 fn static_names<I>(names: I, prefix: &str) -> Vec<String>
@@ -330,14 +472,91 @@ static SHELL_KEYWORDS: &[&str] = &[
     "done", "in", "function", "time", "{", "}", "!", "[[", "]]", "coproc",
 ];
 
-fn list_entries(prefix: &str, dirs_only: bool) -> Vec<String> {
-    let (dir, file) = if let Some(idx) = prefix.rfind('/') {
+static BINDING_NAMES: &[&str] = &[
+    "beginning-of-line",
+    "end-of-line",
+    "forward-char",
+    "backward-char",
+    "forward-word",
+    "backward-word",
+    "delete-char",
+    "backward-delete-char",
+    "self-insert",
+    "tab-insert",
+    "transpose-chars",
+    "transpose-words",
+    "upcase-word",
+    "downcase-word",
+    "capitalize-word",
+    "kill-line",
+    "backward-kill-line",
+    "kill-word",
+    "backward-kill-word",
+    "unix-word-rubout",
+    "unix-line-discard",
+    "yank",
+    "yank-pop",
+    "previous-history",
+    "next-history",
+    "operate-and-get-next",
+    "beginning-of-history",
+    "end-of-history",
+    "reverse-search-history",
+    "forward-search-history",
+    "accept-line",
+    "complete",
+    "possible-completions",
+    "menu-complete",
+    "menu-complete-backward",
+    "undo",
+    "revert-line",
+    "clear-screen",
+    "abort",
+    "vi-movement-mode",
+    "vi-insertion-mode",
+    "vi-append-mode",
+    "vi-append-eol",
+];
+
+fn path_executables(env: &dyn Environment, prefix: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let path = env.get("PATH").unwrap_or_default();
+    for dir in path.split(':') {
+        if dir.is_empty() {
+            continue;
+        }
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            if !name.starts_with(prefix) {
+                continue;
+            }
+            let Ok(meta) = std::fs::metadata(entry.path()) else {
+                continue;
+            };
+            if meta.is_file() && meta.permissions().mode() & 0o111 != 0 {
+                out.push(name);
+            }
+        }
+    }
+    out
+}
+
+fn list_entries(prefix: &str, dirs_only: bool, quoted: bool, home: Option<&str>) -> Vec<String> {
+    let expanded_prefix = expand_tilde_prefix(prefix, quoted, home);
+    let listing_prefix = expanded_prefix
+        .as_ref()
+        .map(|expanded| expanded.listing.as_str())
+        .unwrap_or(prefix);
+    let (dir, file) = if let Some(idx) = listing_prefix.rfind('/') {
         (
-            std::path::PathBuf::from(&prefix[..=idx]),
-            prefix[idx + 1..].to_string(),
+            PathBuf::from(&listing_prefix[..=idx]),
+            listing_prefix[idx + 1..].to_string(),
         )
     } else {
-        (std::path::PathBuf::from("."), prefix.to_string())
+        (PathBuf::from("."), listing_prefix.to_string())
     };
     let Ok(entries) = std::fs::read_dir(&dir) else {
         return Vec::new();
@@ -354,46 +573,83 @@ fn list_entries(prefix: &str, dirs_only: bool) -> Vec<String> {
                 continue;
             }
         }
-        out.push(name);
+        let rendered = if let Some(expanded) = &expanded_prefix {
+            format!("{}{}", expanded.render_dir, name)
+        } else if dir.as_os_str() == "." && !listing_prefix.starts_with("./") {
+            name
+        } else {
+            format!("{}{}", dir.display(), name)
+        };
+        out.push(rendered);
     }
     out
 }
 
 fn glob_compgen(pat: &str, prefix: &str) -> Vec<String> {
-    list_entries(pat, false)
+    list_entries(pat, false, false, None)
         .into_iter()
         .filter(|m| m.starts_with(prefix))
         .collect()
 }
 
-fn filter_matches(pat: &str, s: &str) -> bool {
-    if let Some(rest) = pat.strip_prefix('!') {
-        !simple_glob(rest, s)
+struct ExpandedPrefix {
+    listing: String,
+    render_dir: String,
+}
+
+fn expand_tilde_prefix(prefix: &str, quoted: bool, home: Option<&str>) -> Option<ExpandedPrefix> {
+    if quoted && prefix.starts_with("~/") {
+        let home = home?;
+        let suffix = &prefix[1..];
+        return Some(ExpandedPrefix {
+            listing: format!("{home}{suffix}"),
+            render_dir: "~/".to_string(),
+        });
+    }
+    None
+}
+
+fn filter_matches(pat: &str, word: &str, s: &str, extglob: bool) -> bool {
+    let pat = replace_filter_ampersand(pat, word);
+    if pat.starts_with("!(") {
+        pattern_match(&pat, s, extglob)
+    } else if let Some(rest) = pat.strip_prefix('!') {
+        !pattern_match(rest, s, extglob)
     } else {
-        simple_glob(pat, s)
+        pattern_match(&pat, s, extglob)
     }
 }
 
-fn simple_glob(pat: &str, s: &str) -> bool {
-    fn helper(p: &[u8], s: &[u8]) -> bool {
-        if p.is_empty() {
-            return s.is_empty();
-        }
-        match p[0] {
-            b'*' => {
-                if helper(&p[1..], s) {
-                    return true;
-                }
-                if !s.is_empty() && helper(p, &s[1..]) {
-                    return true;
-                }
-                false
-            }
-            b'?' => !s.is_empty() && helper(&p[1..], &s[1..]),
-            c => !s.is_empty() && s[0] == c && helper(&p[1..], &s[1..]),
+fn replace_filter_ampersand(pat: &str, word: &str) -> String {
+    let mut out = String::new();
+    let mut escaped = false;
+    for ch in pat.chars() {
+        if escaped {
+            out.push(ch);
+            escaped = false;
+        } else if ch == '\\' {
+            escaped = true;
+        } else if ch == '&' {
+            out.push_str(word);
+        } else {
+            out.push(ch);
         }
     }
-    helper(pat.as_bytes(), s.as_bytes())
+    if escaped {
+        out.push('\\');
+    }
+    out
+}
+
+fn pattern_match(pat: &str, s: &str, extglob: bool) -> bool {
+    fnmatch(
+        pat.as_bytes(),
+        s.as_bytes(),
+        GlobOpts {
+            extglob,
+            ..GlobOpts::default()
+        },
+    )
 }
 
 pub struct Compopt;

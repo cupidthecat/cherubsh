@@ -1,4 +1,4 @@
-use cherubsh_parser::{Command, FunctionDef, Redirect};
+use cherubsh_parser::{Command, CommandData, FunctionDef, Redirect};
 use std::sync::Arc;
 
 use crate::redirect::{self};
@@ -8,6 +8,11 @@ struct PrefixAssignmentSnapshot {
     key: String,
     value: Option<String>,
     exported: bool,
+}
+
+pub(crate) fn definition_source(env: &dyn cherubsh_common::Environment) -> String {
+    env.call_stack_source_name()
+        .unwrap_or_else(|| "main".to_string())
 }
 
 pub(crate) fn define<'a>(ctx: &mut ExecContext<'a>, def: &FunctionDef) -> i32 {
@@ -40,19 +45,28 @@ pub(crate) fn define<'a>(ctx: &mut ExecContext<'a>, def: &FunctionDef) -> i32 {
         }
         return 1;
     }
-    let body = if def.command.line == 0 {
+    let relativize_lines = ctx.env.option("interactive") && def.line > 0;
+    let body = if def.command.line == 0 || relativize_lines {
         let mut body = def.command.as_ref().clone();
-        body.line = match (def.line, ctx.env.diagnostic_line()) {
-            (offset_from_end, Some(current_line)) if offset_from_end > 0 => current_line
-                .saturating_sub(offset_from_end.saturating_sub(2))
-                .max(1),
-            _ => def.line.max(ctx.env.diagnostic_line().unwrap_or(0)),
-        };
+        if def.command.line == 0 {
+            body.line = match (def.line, ctx.env.diagnostic_line()) {
+                (offset_from_end, Some(current_line)) if offset_from_end > 0 => current_line
+                    .saturating_sub(offset_from_end.saturating_sub(2))
+                    .max(1),
+                _ => def.line.max(ctx.env.diagnostic_line().unwrap_or(0)),
+            };
+        }
+        if relativize_lines {
+            let delta = body.line.saturating_sub(1);
+            relativize_command_lines(&mut body, delta);
+        }
         Arc::new(body)
     } else {
         Arc::clone(&def.command)
     };
+    let source = definition_source(ctx.env);
     ctx.functions.insert(def.name.text.clone(), body);
+    ctx.function_sources.insert(def.name.text.clone(), source);
     0
 }
 
@@ -99,7 +113,14 @@ pub(crate) fn call<'a>(
         }
     }
 
-    ctx.env.funcname_push(name, &args);
+    let function_source = ctx
+        .function_sources
+        .get(name)
+        .cloned()
+        .or_else(|| ctx.env.call_stack_source_name())
+        .unwrap_or_else(|| "main".to_string());
+    ctx.env
+        .funcname_push_with_source(name, &args, &function_source);
     ctx.function_depth += 1;
     ctx.env.push_local_scope();
     ctx.function_prefix_assignment_stack.push(prefix_names);
@@ -140,8 +161,15 @@ pub(crate) fn call<'a>(
             }
         }
     });
+    let mut return_trap_status = None;
     let status = match ctx.pending.take() {
-        Some(Unwind::Return(n)) => n,
+        Some(Unwind::Return {
+            status,
+            trap_status,
+        }) => {
+            return_trap_status = Some(trap_status);
+            status
+        }
         other => {
             ctx.pending = other;
             status
@@ -149,7 +177,15 @@ pub(crate) fn call<'a>(
     };
 
     if mode == ExecMode::Parent && debug_scope {
+        let saved_status = ctx.last_status;
+        let saved_env_status = ctx.env.last_status();
+        if let Some(trap_status) = return_trap_status {
+            ctx.last_status = trap_status;
+            ctx.env.set_last_status(trap_status);
+        }
         crate::trap::run_return_trap(ctx);
+        ctx.last_status = saved_status;
+        ctx.env.set_last_status(saved_env_status);
     }
     if mode == ExecMode::Parent && matches!(ctx.pending, Some(Unwind::Exit(_))) {
         if let Some(status) = crate::trap::run_exit_trap(ctx) {
@@ -205,6 +241,70 @@ pub(crate) fn call<'a>(
 
     ctx.env.pop_function_positionals(saved_positionals);
     status
+}
+
+fn relativize_command_lines(command: &mut Command, delta: u32) {
+    adjust_line(&mut command.line, delta);
+    match &mut command.data {
+        CommandData::For(c) => {
+            adjust_line(&mut c.line, delta);
+            relativize_command_lines(&mut c.action, delta);
+        }
+        CommandData::Case(c) => {
+            adjust_line(&mut c.line, delta);
+            for clause in &mut c.clauses {
+                if let Some(action) = &mut clause.action {
+                    relativize_command_lines(action, delta);
+                }
+            }
+        }
+        CommandData::While(c) => {
+            relativize_command_lines(&mut c.test, delta);
+            relativize_command_lines(&mut c.action, delta);
+        }
+        CommandData::Until(c) => {
+            relativize_command_lines(&mut c.test, delta);
+            relativize_command_lines(&mut c.action, delta);
+        }
+        CommandData::If(c) => {
+            relativize_command_lines(&mut c.test, delta);
+            relativize_command_lines(&mut c.true_case, delta);
+            if let Some(false_case) = &mut c.false_case {
+                relativize_command_lines(false_case, delta);
+            }
+        }
+        CommandData::Connection(c) => {
+            relativize_command_lines(&mut c.first, delta);
+            relativize_command_lines(&mut c.second, delta);
+        }
+        CommandData::FunctionDef(c) => {
+            adjust_line(&mut c.line, delta);
+            relativize_command_lines(Arc::make_mut(&mut c.command), delta);
+        }
+        CommandData::Group(c) => {
+            relativize_command_lines(&mut c.command, delta);
+        }
+        CommandData::Select(c) => {
+            adjust_line(&mut c.line, delta);
+            relativize_command_lines(&mut c.action, delta);
+        }
+        CommandData::ArithFor(c) => {
+            relativize_command_lines(&mut c.action, delta);
+        }
+        CommandData::Subshell(c) => {
+            relativize_command_lines(&mut c.command, delta);
+        }
+        CommandData::Coproc(c) => {
+            relativize_command_lines(&mut c.command, delta);
+        }
+        CommandData::Simple(_) | CommandData::Arith(_) | CommandData::Cond(_) => {}
+    }
+}
+
+fn adjust_line(line: &mut u32, delta: u32) {
+    if *line > 0 {
+        *line = (*line).saturating_sub(delta).max(1);
+    }
 }
 
 fn apply_assignments(ctx: &mut ExecContext<'_>, assignments: &[(String, String)]) {
