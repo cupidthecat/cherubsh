@@ -35,7 +35,26 @@ fi
 
 cd "${BASH_SRC}"
 
-if [[ -x ./bash ]] && ./bash --version 2>/dev/null | head -n1 | grep -q 'version 5\.2\.21'; then
+oracle_version_ok() {
+    [[ -x ./bash ]] && ./bash --version 2>/dev/null | head -n1 | grep -q 'version 5\.2\.21'
+}
+
+oracle_float_printf_ok() {
+    [[ "$(./bash --norc --noprofile -c 'printf "%f\n" 1' 2>/dev/null)" == "1.000000" ]]
+}
+
+patch_oracle_source() {
+    local printf_def="${BASH_SRC}/builtins/printf.def"
+    if [[ -f "${printf_def}" ]] && grep -q 'mklong (start, "L", 1)' "${printf_def}"; then
+        echo ">> patching bash-${BASH_VERSION} oracle printf float format..."
+        perl -0pi -e 's/f = mklong \(start, "L", 1\);/f = mklong (start, FLOATMAX_CONV, sizeof (FLOATMAX_CONV) - 1);/' "${printf_def}"
+        rm -f "${BASH_SRC}/builtins/printf.o"
+    fi
+}
+
+patch_oracle_source
+
+if oracle_version_ok && oracle_float_printf_ok; then
     echo "OK: ${BASH_SRC}/bash (already built, 5.2.21)"
     exit 0
 fi
