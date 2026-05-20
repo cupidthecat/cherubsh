@@ -6,7 +6,7 @@ use std::cell::Cell;
 
 use crate::ctx::{ExpCtx, MAX_ARITH_NESTING};
 use crate::error::ExpandError;
-use cherubsh_common::{AssignError, Environment, VarKind};
+use cherubsh_common::{AssignError, Environment, VarAttrs, VarKind};
 
 thread_local! {
     static VALUE_RECURSION_DEPTH: Cell<u32> = const { Cell::new(0) };
@@ -1024,6 +1024,13 @@ fn parse_postfix(lex: &mut Lexer<'_>, ctx: &mut ExpCtx, active: bool) -> Result<
 }
 
 fn resolve_lvalue(name: &str, ctx: &mut ExpCtx) -> Result<LValue, ExpandError> {
+    if array_ref_parts(name).is_none() && ctx.env.attrs(name).contains(VarAttrs::NAMEREF) {
+        if let Some(target) = ctx.env.resolve_nameref(name) {
+            if target != name {
+                return resolve_lvalue(&target, ctx);
+            }
+        }
+    }
     if let Some((base, subscript)) = array_ref_parts(name) {
         if ctx.env.kind(base) == VarKind::Assoc {
             Ok(LValue::Assoc {
@@ -1046,6 +1053,8 @@ fn load_lvalue_value(lvalue: &LValue, ctx: &mut ExpCtx) -> Result<i64, ExpandErr
         LValue::Scalar(name) => {
             if let Some(v) = ctx.env.get_cow(name) {
                 finish_loaded_value(prepare_loaded_value(v), ctx, 0)
+            } else if ctx.eval_unbound_error {
+                Err(ExpandError::UnboundVariable(name.clone()))
             } else {
                 Ok(0)
             }
@@ -1056,9 +1065,13 @@ fn load_lvalue_value(lvalue: &LValue, ctx: &mut ExpCtx) -> Result<i64, ExpandErr
             } else if *index == 0 {
                 if let Some(v) = ctx.env.get_cow(name) {
                     finish_loaded_value(prepare_loaded_value(v), ctx, 0)
+                } else if ctx.eval_unbound_error {
+                    Err(ExpandError::UnboundVariable(format!("{name}[{index}]")))
                 } else {
                     Ok(0)
                 }
+            } else if ctx.eval_unbound_error {
+                Err(ExpandError::UnboundVariable(format!("{name}[{index}]")))
             } else {
                 Ok(0)
             }
@@ -1066,6 +1079,8 @@ fn load_lvalue_value(lvalue: &LValue, ctx: &mut ExpCtx) -> Result<i64, ExpandErr
         LValue::Assoc { name, key } => {
             if let Some(v) = ctx.env.get_array_assoc_cow(name, key) {
                 finish_loaded_value(prepare_loaded_value(v), ctx, 0)
+            } else if ctx.eval_unbound_error {
+                Err(ExpandError::UnboundVariable(format!("{name}[{key}]")))
             } else {
                 Ok(0)
             }
@@ -1117,6 +1132,9 @@ fn store_scalar_ident_value(
                 ExpandError::ArithSyntax(format!("`{name}': not a valid identifier"))
             }
             AssignError::BadArraySubscript(name) => ExpandError::InvalidArraySubscript(name),
+            AssignError::CircularNameReference(name) => {
+                ExpandError::ArithSyntax(format!("{name}: circular name reference"))
+            }
         })
 }
 
@@ -1126,12 +1144,17 @@ fn array_ref_parts(name: &str) -> Option<(&str, &str)> {
         return None;
     }
     let base = &name[..bracket];
-    let subscript = &name[bracket + 1..name.len() - 1];
-    if base.is_empty() {
-        None
-    } else {
-        Some((base, subscript))
+    if !is_arith_identifier(base) {
+        return None;
     }
+    let subscript = &name[bracket + 1..name.len() - 1];
+    Some((base, subscript))
+}
+
+fn is_arith_identifier(value: &str) -> bool {
+    let mut chars = value.chars();
+    matches!(chars.next(), Some(c) if c == '_' || c.is_ascii_alphabetic())
+        && chars.all(|c| c == '_' || c.is_ascii_alphanumeric())
 }
 
 fn unescape_assoc_subscript(subscript: &str) -> String {
@@ -1243,6 +1266,9 @@ fn load_ident_value(name: &str, ctx: &mut ExpCtx) -> Result<i64, ExpandError> {
     if let Some(v) = ctx.env.get_cow(name) {
         return finish_loaded_value(prepare_loaded_value(v), ctx, 0);
     }
+    if ctx.eval_unbound_error {
+        return Err(ExpandError::UnboundVariable(name.to_string()));
+    }
     Ok(0)
 }
 
@@ -1295,6 +1321,10 @@ fn parse_value_recursive(s: &str, ctx: &mut ExpCtx, depth: u32) -> Result<i64, E
     if let Ok(n) = parse_number(trimmed) {
         return Ok(n);
     }
+    if array_ref_parts(trimmed).is_some() {
+        let lvalue = resolve_lvalue(trimmed, ctx)?;
+        return load_lvalue_value(&lvalue, ctx);
+    }
     // If it looks like another identifier, follow.
     if trimmed
         .chars()
@@ -1306,6 +1336,9 @@ fn parse_value_recursive(s: &str, ctx: &mut ExpCtx, depth: u32) -> Result<i64, E
             .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '[' || c == ']')
     {
         if let Some(v) = ctx.env.get_cow(trimmed) {
+            if v.as_ref().trim() == trimmed {
+                return Err(ExpandError::ArithRecursion);
+            }
             if v.as_ref() != s {
                 return finish_loaded_value(prepare_loaded_value(v), ctx, depth + 1);
             }
@@ -1379,6 +1412,16 @@ mod tests {
             self.arrays
                 .get(name)
                 .and_then(|arr| arr.get(&index).cloned())
+        }
+
+        fn kind(&self, name: &str) -> VarKind {
+            if self.arrays.contains_key(name) {
+                VarKind::Indexed
+            } else if self.vars.contains_key(name) {
+                VarKind::Scalar
+            } else {
+                VarKind::Unset
+            }
         }
     }
 
@@ -1508,6 +1551,28 @@ mod tests {
         assert_eq!(e.get_array_indexed("array", 0), Some("1".into()));
         assert_eq!(ev("++array[1 + 1]", &mut e), 1);
         assert_eq!(e.get_array_indexed("array", 2), Some("1".into()));
+    }
+
+    #[test]
+    fn recursive_array_zero_expression_can_mutate_array() {
+        let mut e = E::default();
+        e.vars.insert("n".into(), "0".into());
+        e.set_array_indexed("a", 0, "(a[n]=++n)<7&&a[0]".into());
+
+        assert_eq!(ev("a[0]", &mut e), 0);
+        assert_eq!(e.get("n"), Some("7".into()));
+        for index in 1..=7 {
+            assert_eq!(e.get_array_indexed("a", index), Some(index.to_string()));
+        }
+    }
+
+    #[test]
+    fn recursive_array_reference_expands_unset_dollar_subscript_to_zero() {
+        let mut e = E::default();
+        e.vars.insert("d".into(), "1-+1".into());
+        e.vars.insert("x".into(), "b[$d]".into());
+
+        assert_eq!(ev("x", &mut e), 0);
     }
 
     #[test]

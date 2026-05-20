@@ -118,13 +118,27 @@ pub fn expand_assignment_rhs(
         return Ok(value);
     }
     if let Some(name) = simple_parameter_word(s) {
-        return Ok(env.get(name).unwrap_or_default());
+        if !env.attrs(name).contains(cherubsh_common::VarAttrs::NAMEREF) {
+            return env.get(name).map(Ok).unwrap_or_else(|| {
+                if env.option("nounset") {
+                    let display = if name.bytes().all(|b| b.is_ascii_digit()) {
+                        format!("${name}")
+                    } else {
+                        name.to_string()
+                    };
+                    Err(ExpandError::UnboundVariable(display))
+                } else {
+                    Ok(String::new())
+                }
+            });
+        }
     }
     let mut ctx = ExpCtx::new(env, runner);
     let wd = PWordDesc {
         text: s.to_string(),
         flags: cherubsh_common::W_ASSIGNRHS | cherubsh_common::W_NOSPLIT,
         span: Span::dummy(),
+        raw: None,
     };
     let prev_assign = ctx.assign_in_progress;
     ctx.assign_in_progress = true;
@@ -191,7 +205,8 @@ pub fn expand_for_arith(
 }
 
 pub(crate) fn eval_arith_expression_impl(expr: &str, ctx: &mut ExpCtx) -> Result<i64, ExpandError> {
-    let inner = if arith_needs_preexpansion(expr) {
+    let needs_preexpansion = arith_needs_preexpansion(expr);
+    let inner = if needs_preexpansion {
         Cow::Owned(expand_arith_preserving_assoc_subscripts(expr, ctx)?)
     } else {
         Cow::Borrowed(expr)
@@ -202,7 +217,11 @@ pub(crate) fn eval_arith_expression_impl(expr: &str, ctx: &mut ExpCtx) -> Result
     if let Some(err) = invalid_index_variable_subscript_error(&inner, ctx.env) {
         return Err(err);
     }
-    arith::eval_preexpanded(&inner, ctx)
+    if needs_preexpansion {
+        arith::eval_preexpanded(&inner, ctx)
+    } else {
+        arith::eval(&inner, ctx)
+    }
 }
 
 fn arith_needs_preexpansion(expr: &str) -> bool {
@@ -489,20 +508,6 @@ pub(crate) fn expand_word_string(
     Ok(exp.buf)
 }
 
-pub(crate) fn expand_heredoc_word_string(
-    s: &str,
-    ctx: &mut ExpCtx,
-) -> Result<buf::ExpandBuf, ExpandError> {
-    use cherubsh_common::W_NOSPLIT;
-    let wd = Wd::from_bytes_with_flags(
-        s.as_bytes().to_vec(),
-        W_NOSPLIT | INTERNAL_QUOTED_CONTEXT | INTERNAL_HEREDOC_CONTEXT,
-        Span::dummy(),
-    );
-    let exp = internal::expand_word_internal(&wd, ctx, true)?;
-    Ok(exp.buf)
-}
-
 /// Run a string through stages 3 + 6 (internal + dequote). Returns a clean
 /// `String`. Used by param.rs for arithmetic offset/length expressions and
 /// other contexts that need a single literal value.
@@ -541,6 +546,7 @@ pub fn expand_word(word: &Word, env: &mut dyn Environment) -> Vec<Word> {
         text: word.value.clone(),
         flags: 0,
         span,
+        raw: None,
     };
     let result = expand_word_list(&[wd], env, &mut runner, ExpandFlags::QUOTE_REMOVAL);
     match result {

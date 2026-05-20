@@ -45,6 +45,7 @@ pub struct WordDesc {
     pub text: String,
     pub flags: u32,
     pub span: Span,
+    pub raw: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -327,6 +328,14 @@ impl Parser {
 
     fn peek_span(&self) -> Option<&Span> {
         self.peek().map(|token| &token.span)
+    }
+
+    fn raw_for_span(&self, span: Span) -> Option<String> {
+        if span.end <= self.input.len() && span.start <= span.end {
+            Some(self.input[span.start..span.end].to_string())
+        } else {
+            None
+        }
     }
 
     fn bump(&mut self) -> Option<Token> {
@@ -775,6 +784,7 @@ impl Parser {
             text: name_text,
             flags: 0,
             span: name_token.span,
+            raw: self.raw_for_span(name_token.span),
         };
 
         let map_list = if self.is_word("in") {
@@ -1064,6 +1074,7 @@ impl Parser {
                 text,
                 flags: 0,
                 span: token.span,
+                raw: self.raw_for_span(token.span),
             }
         };
 
@@ -1216,6 +1227,7 @@ impl Parser {
             text: expr_text,
             flags: 0,
             span: self.peek_span().cloned().unwrap_or(Span::new(0, 0, 0)),
+            raw: None,
         };
         Ok(Command {
             data: CommandData::Arith(ArithCommand { expression: expr }),
@@ -1249,7 +1261,9 @@ impl Parser {
     fn parse_cond_command(&mut self) -> Result<Command, ParseError> {
         self.expect_kind(TokenKind::DblLBracket, "expected '[['")?;
         self.state |= PST_CONDCMD | PST_CONDEXPR;
+        self.skip_newlines();
         let tree = self.cond_expr()?;
+        self.skip_newlines();
         self.state &= !(PST_CONDCMD | PST_CONDEXPR);
         self.expect_kind(TokenKind::DblRBracket, "expected ']]'")?;
         Ok(Command {
@@ -1261,9 +1275,12 @@ impl Parser {
     }
 
     fn cond_expr(&mut self) -> Result<CondCommand, ParseError> {
+        self.skip_newlines();
         let mut left = self.cond_and()?;
+        self.skip_newlines();
         while self.peek_kind() == Some(TokenKind::OrOr) {
             self.bump();
+            self.skip_newlines();
             let right = self.cond_and()?;
             left = CondCommand {
                 cond_type: CondType::Or,
@@ -1272,14 +1289,18 @@ impl Parser {
                 right: Some(Box::new(right)),
                 term: None,
             };
+            self.skip_newlines();
         }
         Ok(left)
     }
 
     fn cond_and(&mut self) -> Result<CondCommand, ParseError> {
+        self.skip_newlines();
         let mut left = self.cond_term()?;
+        self.skip_newlines();
         while self.peek_kind() == Some(TokenKind::AndAnd) {
             self.bump();
+            self.skip_newlines();
             let right = self.cond_term()?;
             left = CondCommand {
                 cond_type: CondType::And,
@@ -1288,14 +1309,17 @@ impl Parser {
                 right: Some(Box::new(right)),
                 term: None,
             };
+            self.skip_newlines();
         }
         Ok(left)
     }
 
     fn cond_term(&mut self) -> Result<CondCommand, ParseError> {
+        self.skip_newlines();
         // ! prefix
-        if self.is_word("!") {
+        if self.peek_kind() == Some(TokenKind::Bang) || self.is_word("!") {
             self.bump();
+            self.skip_newlines();
             let inner = self.cond_term()?;
             return Ok(CondCommand {
                 cond_type: CondType::Term,
@@ -1308,7 +1332,9 @@ impl Parser {
         // ( cond_expr )
         if self.peek_kind() == Some(TokenKind::LParen) {
             self.bump();
+            self.skip_newlines();
             let inner = self.cond_expr()?;
+            self.skip_newlines();
             self.expect_kind(TokenKind::RParen, "expected ')' in [[ ]]")?;
             return Ok(CondCommand {
                 cond_type: CondType::Expr,
@@ -1320,6 +1346,7 @@ impl Parser {
         }
 
         let lhs = self.cond_word()?;
+        self.skip_newlines();
         // Unary op `-X lhs`
         if is_unary_test_op(&lhs.text) {
             let rhs = self.cond_word()?;
@@ -1333,11 +1360,13 @@ impl Parser {
         }
 
         // If terminator next, synthesize "-n lhs".
+        self.skip_newlines();
         if self.cond_at_terminator() {
             let op = WordDesc {
                 text: "-n".to_string(),
                 flags: 0,
                 span: lhs.span,
+                raw: Some("-n".to_string()),
             };
             return Ok(CondCommand {
                 cond_type: CondType::Unary,
@@ -1350,6 +1379,7 @@ impl Parser {
 
         // Binary: lhs op rhs.
         let op = self.cond_word()?;
+        self.skip_newlines();
         if !is_binary_test_op(&op.text) {
             return Err(ParseError {
                 message: format!("unknown conditional operator '{}'", op.text),
@@ -1372,6 +1402,7 @@ impl Parser {
 
     fn cond_word(&mut self) -> Result<WordDesc, ParseError> {
         // Inside [[ ]], accept any non-terminator token as a word.
+        self.skip_newlines();
         let token = self.bump().ok_or(ParseError {
             message: "expected word in [[ ]]".to_string(),
             span: self.peek_span().cloned(),
@@ -1383,6 +1414,7 @@ impl Parser {
             TokenValue::None => match token.kind {
                 TokenKind::Less => "<".to_string(),
                 TokenKind::Greater => ">".to_string(),
+                TokenKind::Bang => "!".to_string(),
                 TokenKind::AndAnd => "&&".to_string(),
                 TokenKind::OrOr => "||".to_string(),
                 _ => String::new(),
@@ -1392,15 +1424,18 @@ impl Parser {
             text,
             flags,
             span: token.span,
+            raw: self.raw_for_span(token.span),
         })
     }
 
     fn cond_rhs_word(&mut self) -> Result<WordDesc, ParseError> {
+        self.skip_newlines();
         let (word, _) = self.collect_pattern_word(PatternCollectContext::Cond)?;
         Ok(word)
     }
 
     fn cond_regex_rhs_word(&mut self) -> Result<WordDesc, ParseError> {
+        self.skip_newlines();
         let (word, _) = self.collect_pattern_word(PatternCollectContext::CondRegex)?;
         Ok(word)
     }
@@ -1443,6 +1478,7 @@ impl Parser {
                 text: parts[0].clone(),
                 flags: 0,
                 span: Span::new(0, 0, 0),
+                raw: Some(parts[0].clone()),
             })
         };
         let test = if parts[1].is_empty() {
@@ -1452,6 +1488,7 @@ impl Parser {
                 text: parts[1].clone(),
                 flags: 0,
                 span: Span::new(0, 0, 0),
+                raw: Some(parts[1].clone()),
             })
         };
         let step = if parts[2].is_empty() {
@@ -1461,6 +1498,7 @@ impl Parser {
                 text: parts[2].clone(),
                 flags: 0,
                 span: Span::new(0, 0, 0),
+                raw: Some(parts[2].clone()),
             })
         };
 
@@ -1576,7 +1614,12 @@ impl Parser {
                     if !prefix_assignment && command_name.is_none() {
                         command_name = Some(text.clone());
                     }
-                    words.push(WordDesc { text, flags, span });
+                    words.push(WordDesc {
+                        text,
+                        flags,
+                        span,
+                        raw: self.raw_for_span(span),
+                    });
                 }
                 Some(TokenKind::Number) => {
                     if self.number_is_adjacent_redirection_operator() {
@@ -1594,6 +1637,7 @@ impl Parser {
                             text,
                             flags: 0,
                             span: token.span,
+                            raw: self.raw_for_span(token.span),
                         });
                     }
                 }
@@ -1674,6 +1718,7 @@ impl Parser {
             text,
             flags,
             span: token.span,
+            raw: self.raw_for_span(token.span),
         })
     }
 
@@ -1766,7 +1811,15 @@ impl Parser {
             });
         }
 
-        Ok((WordDesc { text, flags, span }, consumed_case_close))
+        Ok((
+            WordDesc {
+                text,
+                flags,
+                span,
+                raw: self.raw_for_span(span),
+            },
+            consumed_case_close,
+        ))
     }
 
     fn parse_word_list_until_command_body(&mut self) -> Option<Vec<WordDesc>> {
@@ -2216,6 +2269,7 @@ impl Parser {
             text: target_text.clone(),
             flags: target_token.word_flags,
             span: target_token.span,
+            raw: self.raw_for_span(target_token.span),
         };
 
         let (here_doc_eof, here_doc_body) = match instruction {
@@ -2443,12 +2497,16 @@ fn pattern_word_stops_before(
         PatternCollectContext::Case => is_case_pattern_separator(kind),
         PatternCollectContext::Cond => matches!(
             kind,
-            TokenKind::DblRBracket | TokenKind::AndAnd | TokenKind::OrOr | TokenKind::RParen
+            TokenKind::DblRBracket
+                | TokenKind::AndAnd
+                | TokenKind::OrOr
+                | TokenKind::RParen
+                | TokenKind::Newline
         ),
         PatternCollectContext::CondRegex => {
             matches!(
                 kind,
-                TokenKind::DblRBracket | TokenKind::AndAnd | TokenKind::OrOr
+                TokenKind::DblRBracket | TokenKind::AndAnd | TokenKind::OrOr | TokenKind::Newline
             )
         }
     }
@@ -2499,7 +2557,7 @@ fn split_arith_for_clauses(text: &str) -> (Vec<String>, usize) {
             ';' if paren_depth == 0 => {
                 separators += 1;
                 if parts.len() < 2 {
-                    parts.push(text[start..idx].trim().to_string());
+                    parts.push(arith_for_clause_text(&text[start..idx]));
                     start = idx + ch.len_utf8();
                 }
             }
@@ -2507,8 +2565,16 @@ fn split_arith_for_clauses(text: &str) -> (Vec<String>, usize) {
         }
     }
 
-    parts.push(text[start..].trim().to_string());
+    parts.push(arith_for_clause_text(&text[start..]));
     (parts, separators)
+}
+
+fn arith_for_clause_text(text: &str) -> String {
+    if text.trim().is_empty() {
+        String::new()
+    } else {
+        text.trim_start().to_string()
+    }
 }
 
 fn token_value_to_string(value: &TokenValue) -> String {

@@ -2,6 +2,8 @@
 
 use cherubsh_common::{Environment, VarAttrs};
 
+const NAMEREF_MAX_DEPTH: usize = 8;
+
 /// Follow the nameref chain starting at `name`. Returns the final variable
 /// name, or `name` itself if it isn't a nameref. Returns `None` if a cycle is
 /// detected.
@@ -14,7 +16,7 @@ pub fn resolve(env: &dyn Environment, name: &str) -> Option<String> {
     let mut cur = name.to_string();
     let mut seen = std::collections::HashSet::new();
     seen.insert(cur.clone());
-    for _ in 0..32 {
+    for _ in 0..NAMEREF_MAX_DEPTH {
         let next = match env.resolve_nameref(&cur) {
             Some(n) => n,
             None => return None,

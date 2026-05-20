@@ -6,6 +6,9 @@
 //! when it sees a `$` byte.
 
 use std::borrow::Cow;
+use std::ffi::CStr;
+use std::path::Path;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use cherubsh_common::{AssignError, Environment, ProcSubstDir, VarAttrs, VarKind};
 
@@ -893,6 +896,9 @@ fn compute_length(name: &[u8], ctx: &mut ExpCtx) -> Result<usize, ExpandError> {
         let close = nm.rfind(']').unwrap_or(nm.len());
         let subscript = &nm[bracket + 1..close];
         if subscript == "@" || subscript == "*" {
+            if target != base && target.contains('[') {
+                return Ok(0);
+            }
             return Ok(match kind {
                 VarKind::Assoc => ctx.env.assoc_len(&target),
                 VarKind::Indexed => ctx.env.array_len(&target),
@@ -1716,6 +1722,9 @@ fn expand_assign_error(err: AssignError) -> ExpandError {
         AssignError::InvalidInteger(value) => {
             ExpandError::Other(format!("{value}: invalid integer"))
         }
+        AssignError::CircularNameReference(name) => {
+            ExpandError::Other(format!("{name}: circular name reference"))
+        }
     }
 }
 
@@ -1737,10 +1746,19 @@ fn expand_default_word_inner(
     quoted: bool,
 ) -> Result<ExpandBuf, ExpandError> {
     if ctx.heredoc_context {
-        crate::expand_heredoc_word_string(word, ctx)
-    } else {
-        crate::expand_word_string(word, ctx, quoted)
+        let mut wd = crate::Wd::from_bytes_with_flags(
+            word.as_bytes().to_vec(),
+            cherubsh_common::W_NOSPLIT | crate::INTERNAL_HEREDOC_CONTEXT,
+            cherubsh_common::Span::dummy(),
+        );
+        if quoted {
+            wd.flags |= cherubsh_common::W_QUOTED
+                | crate::INTERNAL_QUOTED_CONTEXT
+                | crate::INTERNAL_PARAM_WORD_CONTEXT;
+        }
+        return crate::internal::expand_word_internal(&wd, ctx, quoted).map(|exp| exp.buf);
     }
+    crate::expand_word_string(word, ctx, quoted)
 }
 
 fn expand_assignment_default_word(
@@ -1967,6 +1985,12 @@ fn parameter_is_set(ctx: &mut ExpCtx, name: &str) -> bool {
         return ctx.env.get_array_indexed(&target, idx).is_some();
     }
     let target = nameref::resolve(ctx.env, name).unwrap_or_else(|| name.to_string());
+    if target != name && target.contains('[') {
+        return matches!(
+            read_element_value_if_set(ctx, &target),
+            Ok(ElementLookup::Set(_))
+        );
+    }
     match ctx.env.kind(&target) {
         VarKind::Assoc => ctx.env.get_array_assoc(&target, "0").is_some(),
         VarKind::Indexed => ctx.env.get_array_indexed(&target, 0).is_some(),
@@ -1990,6 +2014,12 @@ fn parameter_has_transform_value(ctx: &mut ExpCtx, name: &str) -> bool {
     }
     let base = array_all_ref(name).map(|(base, _)| base).unwrap_or(name);
     let target = nameref::resolve(ctx.env, base).unwrap_or_else(|| base.to_string());
+    if target != base && target.contains('[') {
+        return matches!(
+            read_element_value_if_set(ctx, &target),
+            Ok(ElementLookup::Set(_))
+        );
+    }
     match ctx.env.kind(&target) {
         VarKind::Assoc => ctx.env.assoc_len(&target) > 0,
         VarKind::Indexed => ctx.env.array_len(&target) > 0,
@@ -2141,7 +2171,7 @@ fn handle_substring(
         );
         return Ok(());
     }
-    let value = read_scalar(ctx, name, true)?;
+    let value = read_scalar(ctx, name, false)?;
     push_scalar_substring(ctx.env, out, &value, off_val, len_val, quoted);
     Ok(())
 }
@@ -2273,7 +2303,8 @@ fn handle_remove(
     quoted: bool,
     out: &mut ExpandBuf,
 ) -> Result<(), ExpandError> {
-    let opts = pattern_match_opts(ctx);
+    let mut opts = pattern_match_opts(ctx);
+    opts.nocaseglob = false;
     if !quoted {
         if let Some(pattern) = raw_literal_pattern(pat_raw, opts) {
             if let Some(value) = read_plain_scalar_cow(ctx, name)? {
@@ -2691,7 +2722,8 @@ fn handle_casemod(
         Some(expand_pattern(pat_raw, ctx)?)
     };
     let value = read_value(ctx, name, quoted)?;
-    let opts = pattern_match_opts(ctx);
+    let mut opts = pattern_match_opts(ctx);
+    opts.nocaseglob = false;
     let result = transform_value(&value, |s| {
         pat_casemod_with_opts(s, pat_opt.as_deref(), mode, opts)
     });
@@ -2745,9 +2777,9 @@ fn handle_transform(
                 let result = match kind {
                     b'Q' => transform_string_value(&value, shell_quote_shell_string),
                     b'E' => transform_value(&value, quote::ansi_c_decode),
-                    b'P' => transform_value(&value, |s| {
-                        prompt_expand(&String::from_utf8_lossy(s), ctx).into_bytes()
-                    }),
+                    b'P' => transform_value_result(&value, |s| {
+                        prompt_expand(&String::from_utf8_lossy(s), ctx).map(str_to_bytes)
+                    })?,
                     _ => unreachable!(),
                 };
                 push_value_buf(
@@ -2777,7 +2809,9 @@ fn handle_transform(
     }
     if kind == b'a' {
         let attr_name = array_all_ref(name).map(|(base, _)| base).unwrap_or(name);
-        let bytes = attribute_letters(ctx.env.attrs(attr_name)).into_bytes();
+        let attr_name =
+            nameref::resolve(ctx.env, attr_name).unwrap_or_else(|| attr_name.to_string());
+        let bytes = attribute_letters(ctx.env.attrs(&attr_name)).into_bytes();
         push_value(out, &bytes, quoted);
         return Ok(());
     }
@@ -2814,19 +2848,29 @@ fn handle_transform(
                     ctx.split_fields,
                 );
             } else {
-                let mut bytes = Vec::new();
+                let trailing_space = ctx.env.kind(&target) == VarKind::Assoc;
+                let mut chunks = Vec::new();
                 for (key, value) in pairs {
-                    bytes.extend_from_slice(key_value_transform_key_quote(&key).as_bytes());
-                    bytes.push(b' ');
-                    bytes.extend_from_slice(double_quote(&value).as_bytes());
-                    bytes.push(b' ');
+                    chunks.push(format!(
+                        "{} {}",
+                        key_value_transform_key_quote(&key),
+                        double_quote(&value)
+                    ));
                 }
-                push_value(out, &bytes, quoted);
+                let mut rendered = chunks.join(" ");
+                if trailing_space && !rendered.is_empty() {
+                    rendered.push(' ');
+                }
+                push_value(out, rendered.as_bytes(), quoted);
             }
             return Ok(());
         }
     }
     if matches!(kind, b'K' | b'k') {
+        let target = nameref::resolve(ctx.env, name).unwrap_or_else(|| name.to_string());
+        if ctx.env.kind(&target) == VarKind::Assoc {
+            return Ok(());
+        }
         let value = read_value(ctx, name, quoted)?;
         let result = transform_value(&value, quote::shell_quote);
         push_value_buf(
@@ -2845,9 +2889,9 @@ fn handle_transform(
         let result = match kind {
             b'Q' => transform_string_value(&value, shell_quote_shell_string),
             b'E' => transform_value(&value, quote::ansi_c_decode),
-            b'P' => transform_value(&value, |s| {
-                prompt_expand(&String::from_utf8_lossy(s), ctx).into_bytes()
-            }),
+            b'P' => transform_value_result(&value, |s| {
+                prompt_expand(&String::from_utf8_lossy(s), ctx).map(str_to_bytes)
+            })?,
             _ => unreachable!(),
         };
         push_value_buf(
@@ -2906,6 +2950,22 @@ fn handle_transform_declare(
 }
 
 fn format_scalar_declaration(ctx: &mut ExpCtx, name: &str) -> String {
+    if name.contains('[') {
+        if let Ok(ElementLookup::Set(ValueRepr::Scalar(value))) =
+            read_element_value_if_set(ctx, name)
+        {
+            let base = name.split_once('[').map(|(base, _)| base).unwrap_or(name);
+            let target = nameref::resolve(ctx.env, base).unwrap_or_else(|| base.to_string());
+            let flags = attribute_letters(ctx.env.attrs(&target));
+            let quoted = shell_quote_shell_string(&value);
+            return if flags.is_empty() {
+                format!("{target}={quoted}")
+            } else {
+                format!("declare -{flags} {target}={quoted}")
+            };
+        }
+        return String::new();
+    }
     let target = nameref::resolve(ctx.env, name).unwrap_or_else(|| name.to_string());
     let attrs = ctx.env.attrs(&target);
     let value = ctx.env.get(&target);
@@ -3052,79 +3112,299 @@ fn key_value_transform_key_quote(value: &str) -> String {
     }
 }
 
-fn prompt_expand(value: &str, ctx: &mut ExpCtx) -> String {
+const PROMPT_ESCAPED_DOLLAR: char = '\u{e000}';
+const PROMPT_LITERAL_BACKSLASH: char = '\u{e001}';
+const RL_PROMPT_START_IGNORE: char = '\x01';
+const RL_PROMPT_END_IGNORE: char = '\x02';
+
+fn prompt_expand(value: &str, ctx: &mut ExpCtx) -> Result<String, ExpandError> {
     let bytes = value.as_bytes();
     let mut out = String::with_capacity(value.len());
     let mut i = 0;
     while i < bytes.len() {
-        if bytes[i] != b'\\' || i + 1 >= bytes.len() {
+        if bytes[i] != b'\\' {
             out.push(bytes[i] as char);
             i += 1;
             continue;
         }
+        if i + 1 >= bytes.len() {
+            out.push(PROMPT_LITERAL_BACKSLASH);
+            i += 1;
+            continue;
+        }
         match bytes[i + 1] {
-            b'[' | b']' => i += 2,
+            b'0'..=b'7' => {
+                let mut n = 0u32;
+                let mut digits = 0;
+                let mut j = i + 1;
+                while digits < 3 && j < bytes.len() && (b'0'..=b'7').contains(&bytes[j]) {
+                    n = n * 8 + (bytes[j] - b'0') as u32;
+                    j += 1;
+                    digits += 1;
+                }
+                if n <= 0xff {
+                    out.push(n as u8 as char);
+                }
+                i = j;
+            }
+            b'[' => {
+                if ctx.env.prompt_nonprinting_markers() {
+                    out.push(RL_PROMPT_START_IGNORE);
+                }
+                i += 2;
+            }
+            b']' => {
+                if ctx.env.prompt_nonprinting_markers() {
+                    out.push(RL_PROMPT_END_IGNORE);
+                }
+                i += 2;
+            }
+            b'a' => {
+                out.push('\x07');
+                i += 2;
+            }
+            b'e' | b'E' => {
+                out.push('\x1b');
+                i += 2;
+            }
+            b'r' => {
+                out.push('\r');
+                i += 2;
+            }
+            b't' => {
+                out.push_str(&strftime_now("%H:%M:%S"));
+                i += 2;
+            }
+            b'T' => {
+                out.push_str(&strftime_now("%I:%M:%S"));
+                i += 2;
+            }
+            b'@' => {
+                out.push_str(&strftime_now("%I:%M %p"));
+                i += 2;
+            }
+            b'A' => {
+                out.push_str(&strftime_now("%H:%M"));
+                i += 2;
+            }
+            b'd' => {
+                out.push_str(&strftime_now("%a %b %d"));
+                i += 2;
+            }
+            b'D' => {
+                if i + 2 < bytes.len() && bytes[i + 2] == b'{' {
+                    let start = i + 3;
+                    let end = (start..bytes.len())
+                        .find(|&j| bytes[j] == b'}')
+                        .unwrap_or(bytes.len());
+                    let fmt = std::str::from_utf8(&bytes[start..end]).unwrap_or("%X");
+                    out.push_str(&strftime_now(if fmt.is_empty() { "%X" } else { fmt }));
+                    i = if end < bytes.len() { end + 1 } else { end };
+                } else {
+                    out.push(PROMPT_LITERAL_BACKSLASH);
+                    out.push('D');
+                    i += 2;
+                }
+            }
+            b'h' => {
+                let host = current_host_name(ctx.env);
+                out.push_str(host.split('.').next().unwrap_or(&host));
+                i += 2;
+            }
+            b'H' => {
+                out.push_str(&current_host_name(ctx.env));
+                i += 2;
+            }
+            b's' => {
+                let shell = ctx
+                    .env
+                    .positional(0)
+                    .or_else(|| ctx.env.get("BASH_ARGV0"))
+                    .unwrap_or_else(|| "cherubsh".to_string());
+                out.push_str(&base_name(&shell));
+                i += 2;
+            }
+            b'u' => {
+                out.push_str(&current_user_name());
+                i += 2;
+            }
+            b'w' => {
+                out.push_str(&render_pwd(ctx.env, false));
+                i += 2;
+            }
+            b'W' => {
+                out.push_str(&render_pwd(ctx.env, true));
+                i += 2;
+            }
             b'v' => {
-                out.push_str("5.2");
+                out.push_str(&bash_version(ctx.env, false));
+                i += 2;
+            }
+            b'V' => {
+                out.push_str(&bash_version(ctx.env, true));
                 i += 2;
             }
             b'$' => {
-                out.push('$');
+                out.push(PROMPT_ESCAPED_DOLLAR);
                 i += 2;
             }
             b'\\' => {
-                out.push('\\');
+                out.push(PROMPT_LITERAL_BACKSLASH);
                 i += 2;
             }
             b'n' => {
                 out.push('\n');
                 i += 2;
             }
+            b'#' => {
+                out.push_str(&ctx.env.prompt_command_number().to_string());
+                i += 2;
+            }
+            b'!' => {
+                out.push_str(&ctx.env.get("HISTCMD").unwrap_or_default());
+                i += 2;
+            }
             other => {
-                out.push('\\');
+                out.push(PROMPT_LITERAL_BACKSLASH);
                 out.push(other as char);
                 i += 2;
             }
         }
     }
-    expand_prompt_vars(&out, ctx)
+    if ctx.env.option("promptvars") {
+        let expanded = crate::expand_string_to_string_impl(&out, ctx)?;
+        Ok(restore_escaped_prompt_dollars(&expanded))
+    } else {
+        Ok(restore_escaped_prompt_dollars(&out))
+    }
 }
 
-fn expand_prompt_vars(raw: &str, ctx: &mut ExpCtx) -> String {
-    let bytes = raw.as_bytes();
-    let mut out = String::with_capacity(raw.len());
-    let mut i = 0;
-    while i < bytes.len() {
-        if bytes[i] != b'$' || i + 1 >= bytes.len() {
-            out.push(bytes[i] as char);
-            i += 1;
-            continue;
+fn str_to_bytes(value: String) -> Vec<u8> {
+    value.into_bytes()
+}
+
+fn restore_escaped_prompt_dollars(value: &str) -> String {
+    value
+        .chars()
+        .map(|ch| match ch {
+            PROMPT_ESCAPED_DOLLAR => '$',
+            PROMPT_LITERAL_BACKSLASH => '\\',
+            other => other,
+        })
+        .collect()
+}
+
+fn base_name(path: &str) -> String {
+    Path::new(path)
+        .file_name()
+        .and_then(|s| s.to_str())
+        .map(str::to_string)
+        .unwrap_or_else(|| path.to_string())
+}
+
+fn current_user_name() -> String {
+    if let Some(name) = std::env::var_os("USER") {
+        if let Some(s) = name.to_str() {
+            return s.to_string();
         }
-        if bytes[i + 1] == b'{' {
-            if let Some(end) = bytes[i + 2..].iter().position(|b| *b == b'}') {
-                let name = std::str::from_utf8(&bytes[i + 2..i + 2 + end]).unwrap_or("");
-                if let Some(value) = ctx.env.get(name) {
-                    out.push_str(&value);
-                }
-                i += end + 3;
-                continue;
-            }
-        } else if bytes[i + 1].is_ascii_alphabetic() || bytes[i + 1] == b'_' {
-            let mut j = i + 1;
-            while j < bytes.len() && (bytes[j].is_ascii_alphanumeric() || bytes[j] == b'_') {
-                j += 1;
-            }
-            let name = std::str::from_utf8(&bytes[i + 1..j]).unwrap_or("");
-            if let Some(value) = ctx.env.get(name) {
-                out.push_str(&value);
-            }
-            i = j;
-            continue;
-        }
-        out.push('$');
-        i += 1;
     }
-    out
+    unsafe {
+        let pw = libc::getpwuid(libc::getuid());
+        if !pw.is_null() {
+            let cstr = CStr::from_ptr((*pw).pw_name);
+            if let Ok(s) = cstr.to_str() {
+                return s.to_string();
+            }
+        }
+    }
+    String::new()
+}
+
+fn current_host_name(env: &dyn Environment) -> String {
+    if let Some(host) = env.get("HOSTNAME").filter(|s| !s.is_empty()) {
+        return host;
+    }
+    let mut buf = [0u8; 256];
+    let result = unsafe { libc::gethostname(buf.as_mut_ptr() as *mut libc::c_char, buf.len()) };
+    if result != 0 {
+        return String::new();
+    }
+    let len = buf.iter().position(|b| *b == 0).unwrap_or(buf.len());
+    String::from_utf8_lossy(&buf[..len]).into_owned()
+}
+
+fn render_pwd(env: &dyn Environment, basename_only: bool) -> String {
+    let pwd = env
+        .get("PWD")
+        .or_else(|| {
+            std::env::current_dir()
+                .ok()
+                .map(|p| p.display().to_string())
+        })
+        .unwrap_or_else(|| ".".to_string());
+    if basename_only {
+        if pwd == "/" {
+            return "/".to_string();
+        }
+        if env.get("HOME").as_deref() == Some(pwd.as_str()) {
+            return "~".to_string();
+        }
+        return base_name(&pwd);
+    }
+    let home = env.get("HOME").unwrap_or_default();
+    if !home.is_empty() && pwd.starts_with(&home) {
+        let mut tilde = String::from("~");
+        tilde.push_str(&pwd[home.len()..]);
+        return tilde;
+    }
+    pwd
+}
+
+fn bash_version(env: &dyn Environment, release: bool) -> String {
+    let raw = env
+        .get("BASH_VERSION")
+        .unwrap_or_else(|| "5.2.21".to_string());
+    let numeric = raw
+        .split(|c: char| !(c.is_ascii_digit() || c == '.'))
+        .find(|s| !s.is_empty())
+        .unwrap_or("5.2.21");
+    let mut parts = numeric.split('.');
+    let major = parts.next().unwrap_or("5");
+    let minor = parts.next().unwrap_or("2");
+    let patch = parts.next().unwrap_or("21");
+    if release {
+        format!("{major}.{minor}.{patch}")
+    } else {
+        format!("{major}.{minor}")
+    }
+}
+
+fn strftime_now(fmt: &str) -> String {
+    let secs = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs() as libc::time_t)
+        .unwrap_or(0);
+    unsafe {
+        let tm = libc::localtime(&secs as *const libc::time_t);
+        if tm.is_null() {
+            return String::new();
+        }
+        let c_fmt = match std::ffi::CString::new(fmt) {
+            Ok(value) => value,
+            Err(_) => return String::new(),
+        };
+        let mut buf = [0u8; 256];
+        let written = libc::strftime(
+            buf.as_mut_ptr() as *mut libc::c_char,
+            buf.len(),
+            c_fmt.as_ptr(),
+            tm,
+        );
+        if written == 0 {
+            return String::new();
+        }
+        String::from_utf8_lossy(&buf[..written]).into_owned()
+    }
 }
 
 fn attribute_letters(attrs: VarAttrs) -> String {
@@ -3184,7 +3464,6 @@ fn escape_double(s: &str) -> String {
 /// Read a variable as a scalar (joins arrays via IFS[0]). `length_mode` is
 /// true when `${#var}` semantics apply.
 fn read_scalar(ctx: &mut ExpCtx, name: &str, length_mode: bool) -> Result<String, ExpandError> {
-    let _ = length_mode;
     // Special parameters
     if name == "!" && ctx.eval_unbound_error && ctx.env.last_async_pid().is_none() {
         return Err(ExpandError::UnboundVariable("!".into()));
@@ -3256,7 +3535,14 @@ fn read_scalar(ctx: &mut ExpCtx, name: &str, length_mode: bool) -> Result<String
         None => name.to_string(),
     };
     if target != name && target.contains('[') {
-        return read_scalar(ctx, &target, length_mode);
+        if length_mode {
+            return Ok(String::new());
+        }
+        let saved = ctx.eval_unbound_error;
+        ctx.eval_unbound_error = false;
+        let result = read_scalar(ctx, &target, length_mode);
+        ctx.eval_unbound_error = saved;
+        return result;
     }
     let kind = ctx.env.kind(&target);
     match kind {
@@ -3578,6 +3864,31 @@ fn transform_value(v: &ValueRepr, mut f: impl FnMut(&[u8]) -> Vec<u8>) -> ValueR
                 elems: new,
                 star: *star,
             }
+        }
+    }
+}
+
+fn transform_value_result(
+    v: &ValueRepr,
+    mut f: impl FnMut(&[u8]) -> Result<Vec<u8>, ExpandError>,
+) -> Result<ValueRepr, ExpandError> {
+    match v {
+        ValueRepr::Scalar(s) => {
+            let bytes = f(&crate::quote::shell_string_to_bytes(s))?;
+            Ok(ValueRepr::Scalar(crate::quote::bytes_to_shell_string(
+                &bytes,
+            )))
+        }
+        ValueRepr::Array { elems, star } => {
+            let mut new = Vec::with_capacity(elems.len());
+            for s in elems {
+                let bytes = f(&crate::quote::shell_string_to_bytes(s))?;
+                new.push(crate::quote::bytes_to_shell_string(&bytes));
+            }
+            Ok(ValueRepr::Array {
+                elems: new,
+                star: *star,
+            })
         }
     }
 }
@@ -4980,6 +5291,7 @@ mod tests {
                 text: text.to_string(),
                 flags,
                 span: Span::dummy(),
+                raw: None,
             }],
             env,
             &mut runner,
@@ -5002,6 +5314,7 @@ mod tests {
                 text: text.to_string(),
                 flags,
                 span: Span::dummy(),
+                raw: None,
             }],
             env,
             &mut runner,
@@ -5381,6 +5694,7 @@ mod tests {
                 text: "$9".to_string(),
                 flags: W_HASDOLLAR,
                 span: Span::dummy(),
+                raw: None,
             }],
             &mut env,
             &mut NullRunner::default(),
@@ -5394,6 +5708,7 @@ mod tests {
                 text: "${9}".to_string(),
                 flags: W_HASDOLLAR,
                 span: Span::dummy(),
+                raw: None,
             }],
             &mut env,
             &mut NullRunner::default(),
@@ -5456,6 +5771,7 @@ mod tests {
                 text: r#"${#:}"#.to_string(),
                 flags: W_HASDOLLAR,
                 span: Span::dummy(),
+                raw: None,
             }],
             &mut env,
             &mut NullRunner::default(),
@@ -5467,6 +5783,7 @@ mod tests {
                 text: r#"${#1xyz}"#.to_string(),
                 flags: W_HASDOLLAR,
                 span: Span::dummy(),
+                raw: None,
             }],
             &mut env,
             &mut NullRunner::default(),
@@ -5492,11 +5809,13 @@ mod tests {
                     text: "+".to_string(),
                     flags: 0,
                     span: Span::dummy(),
+                    raw: None,
                 },
                 WordDesc {
                     text: r#""$@""#.to_string(),
                     flags: W_HASDOLLAR,
                     span: Span::dummy(),
+                    raw: None,
                 },
             ],
             &mut env,
@@ -5586,6 +5905,7 @@ mod tests {
                 text: r#"${6=arg6}"#.to_string(),
                 flags: W_HASDOLLAR,
                 span: Span::dummy(),
+                raw: None,
             }],
             &mut env,
             &mut runner,
@@ -5634,6 +5954,7 @@ mod tests {
                 text: r#"${!1*}"#.to_string(),
                 flags: W_HASDOLLAR,
                 span: Span::dummy(),
+                raw: None,
             }],
             &mut env,
             &mut runner,

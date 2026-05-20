@@ -127,28 +127,25 @@ pub fn ansi_c_decode_for_locale(src: &[u8], locale: Option<&str>) -> Vec<u8> {
             b'c' => {
                 if i + 2 < src.len() {
                     let mut j = i + 2;
-                    let c = if src[j] == b'\\' && j + 1 < src.len() {
+                    let c = if src[j] == b'\\' {
                         j += 1;
-                        src[j]
+                        if j < src.len() && src[j] == b'\\' {
+                            j += 1;
+                        }
+                        b'\\'
                     } else {
-                        src[j]
+                        let c = src[j];
+                        j += 1;
+                        c
                     };
                     let v = match c {
-                        b'@' => 0u8,
-                        b'a'..=b'z' => c - b'a' + 1,
-                        b'A'..=b'Z' => c - b'A' + 1,
-                        b'[' => 0x1b,
-                        b'\\' => 0x1c,
-                        b']' => 0x1d,
-                        b'^' => 0x1e,
-                        b'_' => 0x1f,
                         b'?' => 0x7f,
-                        other => other,
+                        other => other & 0x1f,
                     };
                     if !push_ansi_byte(&mut out, v as u32) {
                         break;
                     }
-                    i = j + 1;
+                    i = j;
                 } else {
                     out.push(b'\\');
                     out.push(b'c');
@@ -329,6 +326,9 @@ pub fn scan_ansi_c_quoted(src: &[u8], start: usize) -> (Vec<u8>, usize) {
 /// single quotes for printable strings, including embedded single quotes and
 /// backslashes, and uses `$'...'` when control bytes need escape syntax.
 pub fn shell_quote(src: &[u8]) -> Vec<u8> {
+    if src == b"'" {
+        return br"\'".to_vec();
+    }
     let needs_dollar = src.iter().any(|&b| b < 0x20 || b == 0x7f);
     if !needs_dollar {
         let mut out = Vec::with_capacity(src.len() + 2);

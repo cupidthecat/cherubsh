@@ -17,7 +17,10 @@ pub fn try_expand(prefix: &[u8], env: &dyn Environment) -> Option<Vec<u8>> {
         return None;
     }
     if rest.is_empty() {
-        return env.get("HOME").map(|h| h.into_bytes());
+        return env
+            .get("HOME")
+            .map(|h| h.into_bytes())
+            .or_else(current_user_home);
     }
     if rest == b"+" {
         return env.get("PWD").map(|p| p.into_bytes());
@@ -56,6 +59,20 @@ fn collect_dirstack(env: &dyn Environment) -> Vec<String> {
         return vec![p];
     }
     Vec::new()
+}
+
+fn current_user_home() -> Option<Vec<u8>> {
+    unsafe {
+        let pw = libc::getpwuid(libc::getuid());
+        if pw.is_null() {
+            return None;
+        }
+        let dir = (*pw).pw_dir;
+        if dir.is_null() {
+            return None;
+        }
+        Some(CStr::from_ptr(dir).to_bytes().to_vec())
+    }
 }
 
 fn lookup_user(name_bytes: &[u8]) -> Option<Vec<u8>> {

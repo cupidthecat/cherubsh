@@ -1,17 +1,14 @@
 //! Raw-mode keyboard input → `KeyEvent`.
 
-use std::io::{self, Read};
+use std::io;
 
 use crate::key::KeyEvent;
 
 /// Read one key event. Blocks until a complete sequence arrives.
 pub fn read_key() -> io::Result<Option<KeyEvent>> {
-    let mut stdin = io::stdin();
-    let mut buf = [0u8; 1];
-    if stdin.read(&mut buf)? == 0 {
+    let Some(b) = read_stdin_byte()? else {
         return Ok(None);
-    }
-    let b = buf[0];
+    };
     match b {
         0x1b => read_escape_sequence(),
         0x7f | 0x08 => Ok(Some(KeyEvent::Backspace)),
@@ -35,11 +32,10 @@ pub fn read_key() -> io::Result<Option<KeyEvent>> {
             };
             let mut bytes = vec![b];
             for _ in 0..count {
-                let mut more = [0u8; 1];
-                if stdin.read(&mut more)? == 0 {
+                let Some(more) = read_stdin_byte()? else {
                     break;
-                }
-                bytes.push(more[0]);
+                };
+                bytes.push(more);
             }
             match std::str::from_utf8(&bytes) {
                 Ok(s) => {
@@ -54,9 +50,7 @@ pub fn read_key() -> io::Result<Option<KeyEvent>> {
 }
 
 fn read_escape_sequence() -> io::Result<Option<KeyEvent>> {
-    let mut stdin = io::stdin();
     // Try to read next byte with short timeout via `poll`.
-    let mut second = [0u8; 1];
     // Use poll(2) for non-blocking-with-timeout
     let mut pfd = libc::pollfd {
         fd: 0,
@@ -67,16 +61,15 @@ fn read_escape_sequence() -> io::Result<Option<KeyEvent>> {
     if rc <= 0 {
         return Ok(Some(KeyEvent::Esc));
     }
-    if stdin.read(&mut second)? == 0 {
+    let Some(second) = read_stdin_byte()? else {
         return Ok(Some(KeyEvent::Esc));
-    }
-    match second[0] {
+    };
+    match second {
         b'[' => {
-            let mut third = [0u8; 1];
-            if stdin.read(&mut third)? == 0 {
+            let Some(third) = read_stdin_byte()? else {
                 return Ok(Some(KeyEvent::Esc));
-            }
-            match third[0] {
+            };
+            match third {
                 b'A' => Ok(Some(KeyEvent::Up)),
                 b'B' => Ok(Some(KeyEvent::Down)),
                 b'C' => Ok(Some(KeyEvent::Right)),
@@ -86,14 +79,13 @@ fn read_escape_sequence() -> io::Result<Option<KeyEvent>> {
                 c if c.is_ascii_digit() => {
                     let mut digits = vec![c];
                     loop {
-                        let mut nx = [0u8; 1];
-                        if stdin.read(&mut nx)? == 0 {
+                        let Some(nx) = read_stdin_byte()? else {
+                            break;
+                        };
+                        if nx == b'~' {
                             break;
                         }
-                        if nx[0] == b'~' {
-                            break;
-                        }
-                        digits.push(nx[0]);
+                        digits.push(nx);
                     }
                     let raw = String::from_utf8_lossy(&digits).to_string();
                     Ok(Some(match raw.as_str() {
@@ -108,11 +100,10 @@ fn read_escape_sequence() -> io::Result<Option<KeyEvent>> {
             }
         }
         b'O' => {
-            let mut third = [0u8; 1];
-            if stdin.read(&mut third)? == 0 {
+            let Some(third) = read_stdin_byte()? else {
                 return Ok(Some(KeyEvent::Esc));
-            }
-            match third[0] {
+            };
+            match third {
                 b'H' => Ok(Some(KeyEvent::Home)),
                 b'F' => Ok(Some(KeyEvent::End)),
                 c @ b'P'..=b'S' => Ok(Some(KeyEvent::Function(c - b'P' + 1))),
@@ -121,5 +112,23 @@ fn read_escape_sequence() -> io::Result<Option<KeyEvent>> {
         }
         c if c.is_ascii() => Ok(Some(KeyEvent::Meta(c as char))),
         _ => Ok(Some(KeyEvent::Esc)),
+    }
+}
+
+fn read_stdin_byte() -> io::Result<Option<u8>> {
+    let mut byte = [0u8; 1];
+    loop {
+        let n = unsafe { libc::read(libc::STDIN_FILENO, byte.as_mut_ptr().cast(), 1) };
+        if n == 0 {
+            return Ok(None);
+        }
+        if n < 0 {
+            let err = io::Error::last_os_error();
+            if err.raw_os_error() == Some(libc::EINTR) {
+                continue;
+            }
+            return Err(err);
+        }
+        return Ok(Some(byte[0]));
     }
 }

@@ -308,9 +308,7 @@ fn expand_sequence(body: &[u8]) -> Option<Vec<Vec<u8>>> {
             Some(part) => parse_seq_num(part)?.0,
             None => 1,
         };
-        if raw_step == 0 {
-            return None;
-        }
+        let raw_step = if raw_step == 0 { 1 } else { raw_step };
         let abs_step = raw_step.unsigned_abs() as i64;
         let going_up = start.0 <= end.0;
         let width = compute_width(start_part, end_part, start.1, end.1);
@@ -365,9 +363,7 @@ fn expand_sequence(body: &[u8]) -> Option<Vec<Vec<u8>>> {
             Some(part) => parse_seq_num(part)?.0,
             None => 1,
         };
-        if raw_step == 0 {
-            return None;
-        }
+        let raw_step = if raw_step == 0 { 1 } else { raw_step };
         let mut out = Vec::new();
         let mut cur = s as i32;
         let going_up = s <= e;
@@ -503,6 +499,22 @@ mod tests {
         assert_eq!(
             s(&brace_expand(b"{-1..-10..2}")),
             vec!["-1", "-3", "-5", "-7", "-9"]
+        );
+    }
+
+    #[test]
+    fn seq_zero_step_uses_default_step() {
+        assert_eq!(
+            s(&brace_expand(b"{10..2..0}")),
+            vec!["10", "9", "8", "7", "6", "5", "4", "3", "2"]
+        );
+        assert_eq!(
+            s(&brace_expand(b"{2..9..0}")),
+            vec!["2", "3", "4", "5", "6", "7", "8", "9"]
+        );
+        assert_eq!(
+            s(&brace_expand(b"{a..f..0}")),
+            vec!["a", "b", "c", "d", "e", "f"]
         );
     }
 

@@ -24,6 +24,7 @@ pub fn to_parser(wd: Wd) -> PWordDesc {
         text: bytes_to_shell_string(cleaned.buf.as_bytes()),
         flags: cleaned.flags,
         span: cleaned.span,
+        raw: None,
     }
 }
 

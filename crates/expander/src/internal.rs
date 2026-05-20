@@ -54,8 +54,14 @@ fn run(wd: &Wd, ctx: &mut ExpCtx, no_tilde: bool) -> Result<Wd, ExpandError> {
         if b == b'\\' {
             if i + 1 < bytes.len() {
                 let nx = bytes[i + 1];
+                let in_heredoc_context = wd.flags & crate::INTERNAL_HEREDOC_CONTEXT != 0;
+                let in_param_word_context = wd.flags & crate::INTERNAL_PARAM_WORD_CONTEXT != 0;
                 if wd.flags & crate::INTERNAL_QUOTED_CONTEXT != 0
-                    && !matches!(nx, b'"' | b'\\' | b'$' | b'`' | b'\n')
+                    && if in_heredoc_context && !in_param_word_context {
+                        !matches!(nx, b'\\' | b'$' | b'`' | b'\n')
+                    } else {
+                        !matches!(nx, b'"' | b'\\' | b'$' | b'`' | b'\n')
+                    }
                 {
                     out.buf.push_quoted(b'\\');
                     out.buf.push_quoted(nx);
@@ -106,6 +112,14 @@ fn run(wd: &Wd, ctx: &mut ExpCtx, no_tilde: bool) -> Result<Wd, ExpandError> {
             continue;
         }
         if b == b'"' {
+            if wd.flags & crate::INTERNAL_HEREDOC_CONTEXT != 0
+                && wd.flags & crate::INTERNAL_PARAM_WORD_CONTEXT == 0
+            {
+                out.buf.push_quoted(b);
+                i += 1;
+                had_unquoted = true;
+                continue;
+            }
             had_quotes = true;
             i += 1;
             scan_double_quoted_into_mode(
@@ -122,7 +136,8 @@ fn run(wd: &Wd, ctx: &mut ExpCtx, no_tilde: bool) -> Result<Wd, ExpandError> {
             had_unquoted = true;
             let in_heredoc_context = wd.flags & crate::INTERNAL_HEREDOC_CONTEXT != 0;
             let in_quoted_context = wd.flags & crate::INTERNAL_QUOTED_CONTEXT != 0;
-            if in_quoted_context
+            if !in_heredoc_context
+                && in_quoted_context
                 && wd.flags & crate::INTERNAL_PARAM_WORD_CONTEXT != 0
                 && param::dollar_quote_expand(&bytes, &mut new_i, ctx, &mut out.buf)?
             {

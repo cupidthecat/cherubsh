@@ -34,7 +34,7 @@ impl GlobFlags {
     pub fn from_env(env: &dyn Environment) -> Self {
         let nocaseglob = env.option("nocaseglob");
         let extglob = env.option("extglob");
-        let dotglob = env.option("dotglob");
+        let mut dotglob = env.option("dotglob");
         let nullglob = env.option("nullglob");
         let failglob = env.option("failglob");
         let globstar = env.option("globstar");
@@ -46,6 +46,9 @@ impl GlobFlags {
                     globignore.push(piece.to_vec());
                 }
             }
+        }
+        if !globignore.is_empty() {
+            dotglob = true;
         }
         Self {
             opts: GlobOpts {

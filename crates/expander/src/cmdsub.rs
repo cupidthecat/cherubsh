@@ -46,21 +46,19 @@ pub fn command_substitute(
     } else {
         false
     };
-    if !backquote {
-        match try_input_file_substitution(&src, ctx, quoted) {
-            Ok(Some(buf)) => {
-                if pushed_line {
-                    ctx.env.pop_diagnostic_line();
-                }
-                return Ok(buf);
+    match try_input_file_substitution(&src, ctx, quoted) {
+        Ok(Some(buf)) => {
+            if pushed_line {
+                ctx.env.pop_diagnostic_line();
             }
-            Ok(None) => {}
-            Err(err) => {
-                if pushed_line {
-                    ctx.env.pop_diagnostic_line();
-                }
-                return Err(err);
+            return Ok(buf);
+        }
+        Ok(None) => {}
+        Err(err) => {
+            if pushed_line {
+                ctx.env.pop_diagnostic_line();
             }
+            return Err(err);
         }
     }
     let result = if backquote {
@@ -81,6 +79,7 @@ pub fn command_substitute(
 }
 
 fn bytes_to_subst_buf(bytes: Vec<u8>, quoted: bool) -> ExpandBuf {
+    let bytes = bytes.into_iter().filter(|b| *b != 0).collect::<Vec<_>>();
     let mut buf = ExpandBuf::with_capacity(bytes.len());
     if quoted && bytes.is_empty() {
         buf.push_quoted_param_null();
@@ -118,6 +117,7 @@ fn try_input_file_substitution(
             text: word.to_string(),
             flags,
             span: Span::dummy(),
+            raw: None,
         }],
         ctx.env,
         ctx.runner,

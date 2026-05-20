@@ -381,8 +381,7 @@ fn class_matches(items: &[ClassItem], b: u8, opts: GlobOpts) -> bool {
             }
             ClassItem::Range(lo, hi) => {
                 let (l, h) = (fold(lo), fold(hi));
-                let (lo2, hi2) = if l <= h { (l, h) } else { (h, l) };
-                if target >= lo2 && target <= hi2 {
+                if l <= h && target >= l && target <= h {
                     return true;
                 }
             }

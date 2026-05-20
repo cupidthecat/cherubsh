@@ -80,6 +80,7 @@ impl Wd {
             text,
             flags: self.flags,
             span: self.span,
+            raw: None,
         }
     }
 

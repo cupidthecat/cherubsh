@@ -855,6 +855,7 @@ fn lex_words(body: &str) -> Vec<WordDesc> {
             text,
             flags,
             span: Span::dummy(),
+            raw: None,
         });
     }
     words
@@ -1146,6 +1147,7 @@ fn dummy_word(text: String) -> WordDesc {
         text,
         flags: 0,
         span: Span::dummy(),
+        raw: None,
     }
 }
 
