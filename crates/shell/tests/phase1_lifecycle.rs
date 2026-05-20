@@ -79,6 +79,41 @@ fn run_both(spec: &Spec<'_>) -> (Output, Output) {
     (run_shell(bash, spec), run_shell(cherub(), spec))
 }
 
+fn run_cherub_with_args(args: &[&str], stdin: Option<&str>) -> Output {
+    let mut command = Command::new(cherub());
+    command.args(args);
+    command.env_clear();
+    command.env("PATH", "/usr/bin:/bin");
+    command.env("HOME", "/tmp");
+    command.env("LANG", "C");
+    if stdin.is_some() {
+        command.stdin(Stdio::piped());
+    } else {
+        command.stdin(Stdio::null());
+    }
+    command.stdout(Stdio::piped()).stderr(Stdio::piped());
+
+    let mut child = command.spawn().expect("spawn cherub");
+    if let Some(input) = stdin {
+        child
+            .stdin
+            .take()
+            .expect("stdin pipe")
+            .write_all(input.as_bytes())
+            .expect("write stdin");
+    }
+    let output = child.wait_with_output().expect("wait cherub");
+    let status = output.status.code().unwrap_or_else(|| {
+        use std::os::unix::process::ExitStatusExt;
+        128 + output.status.signal().unwrap_or(0)
+    });
+    Output {
+        status,
+        stdout: String::from_utf8_lossy(&output.stdout).to_string(),
+        stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+    }
+}
+
 fn temp_file(name: &str, content: &str) -> PathBuf {
     let nonce = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -113,6 +148,55 @@ fn noexec_dash_c_reports_syntax_failure() {
     assert_eq!(cherub.status, bash.status);
     assert_eq!(cherub.stdout, bash.stdout);
     assert!(!cherub.stderr.is_empty());
+}
+
+#[test]
+fn bash_versinfo_is_indexed_array_for_startup_hooks() {
+    let spec = Spec {
+        args: vec![
+            "-c",
+            r#"printf '%s\n' "${BASH_VERSINFO[0]} ${BASH_VERSINFO[1]} ${BASH_VERSINFO[2]} ${BASH_VERSINFO[3]} ${BASH_VERSINFO[4]}" "${#BASH_VERSINFO[@]}"; (( BASH_VERSINFO[0] >= 3 && BASH_VERSINFO[1] >= 1 )); echo status=$?"#,
+        ],
+        ..Spec::default()
+    };
+    let (bash, cherub) = run_both(&spec);
+    assert_eq!(bash.status, 0);
+    assert_eq!(cherub.status, bash.status);
+    assert_eq!(cherub.stdout, bash.stdout);
+    assert_eq!(cherub.stderr, bash.stderr);
+}
+
+#[test]
+fn interactive_rc_functions_survive_for_dash_c() {
+    let rc = temp_file(
+        "rc-function",
+        r#"
+from_rc() { echo from-rc; }
+"#,
+    );
+    let rc_arg = rc.display().to_string();
+    let cherub = run_cherub_with_args(&["--rcfile", &rc_arg, "-i", "-c", "from_rc"], None);
+    let _ = fs::remove_file(rc);
+    assert_eq!(cherub.status, 0);
+    assert_eq!(cherub.stdout, "from-rc\n");
+    assert!(!cherub.stderr.contains("from_rc: command not found"));
+}
+
+#[test]
+fn prompt_command_uses_startup_functions() {
+    let rc = temp_file(
+        "prompt-command-function",
+        r#"
+pc_from_rc() { echo prompt-hit; PROMPT_COMMAND=; }
+PROMPT_COMMAND=pc_from_rc
+"#,
+    );
+    let rc_arg = rc.display().to_string();
+    let cherub = run_cherub_with_args(&["--rcfile", &rc_arg, "-i"], Some("exit\n"));
+    let _ = fs::remove_file(rc);
+    assert_eq!(cherub.status, 0);
+    assert!(cherub.stdout.contains("prompt-hit"));
+    assert!(!cherub.stderr.contains("pc_from_rc: command not found"));
 }
 
 #[test]

@@ -191,7 +191,7 @@ pub fn decode_with_clock(state: &ShellState, raw: &str, clock: &dyn Clock) -> St
                 i += 2;
             }
             b'd' => {
-                out.push_str(&strftime_now(clock, "%a %b %e"));
+                out.push_str(&strftime_now(clock, "%a %b %d"));
                 i += 2;
             }
             b't' => {

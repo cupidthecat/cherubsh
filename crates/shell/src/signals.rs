@@ -148,8 +148,8 @@ pub fn install_default_handlers(interactive: bool) {
         install_baseline(libc::SIGINT, None);
     }
     install_baseline(libc::SIGALRM, Some((generic_counter_handler, flags)));
-    install_baseline(libc::SIGUSR1, Some((generic_counter_handler, flags)));
-    install_baseline(libc::SIGUSR2, Some((generic_counter_handler, flags)));
+    install_baseline(libc::SIGUSR1, None);
+    install_baseline(libc::SIGUSR2, None);
 }
 
 fn install_baseline(

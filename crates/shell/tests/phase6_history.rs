@@ -45,6 +45,21 @@ fn history_c_clears() {
 }
 
 #[test]
+fn interactive_dash_c_does_not_record_command_history() {
+    let out = run_cherub(&RunSpec {
+        args: vec!["-i", "-c", "history"],
+        env: vec![("HISTFILE", "/dev/null")],
+        ..RunSpec::default()
+    })
+    .expect("run cherub");
+    assert!(
+        out.stdout.trim().is_empty(),
+        "expected no history for interactive -c, got: {:?}",
+        out.stdout
+    );
+}
+
+#[test]
 fn noninteractive_history_option_loads_histfile_and_records_commands() {
     assert_parity_strict(&RunSpec {
         script: Some(

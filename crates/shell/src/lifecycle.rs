@@ -1,3 +1,5 @@
+use std::ffi::CStr;
+
 use cherubsh_common::{Environment, VarAttrs};
 
 use crate::options::{
@@ -8,6 +10,9 @@ use crate::state::{ShellState, StartupMode, VariableEntry};
 
 /// bash-5.2.21 config-top.h: DEFAULT_PATH_VALUE.
 const DEFAULT_PATH_VALUE: &str = "/usr/local/bin:/usr/local/sbin:/usr/bin:/usr/sbin:/bin:/sbin:.";
+const BASH_LOADABLES_PATH_VALUE: &str =
+    "/usr/local/lib/bash:/usr/lib/bash:/opt/local/lib/bash:/usr/pkg/lib/bash:/opt/pkg/lib/bash:.";
+const COMP_WORDBREAKS_VALUE: &str = " \t\n\"'@><=;|&(:";
 
 /// init_interactive: shell.c:1845-1857.
 pub fn init_interactive(state: &mut ShellState) {
@@ -55,20 +60,36 @@ pub fn shell_initialize(state: &mut ShellState) {
     bind(
         state,
         "BASH_VERSION",
-        format!("{SHELL_VERSION}-release(cherubsh)"),
+        format!("{SHELL_VERSION}({BUILD_VERSION})-release"),
     );
     bind_bash_versinfo(state);
     bind(state, "BASH", shell_executable_path());
     bind(
         state,
         "SHELL",
-        state
-            .get("SHELL")
-            .unwrap_or_else(|| String::from("/bin/cherubsh")),
+        state.get("SHELL").unwrap_or_else(default_login_shell),
     );
-    bind(state, "PWD", cwd);
-    bind(state, "PPID", ppid.to_string());
+    bind(
+        state,
+        "BASH_LOADABLES_PATH",
+        String::from(BASH_LOADABLES_PATH_VALUE),
+    );
+    bind_readonly(state, "BASHOPTS", bashopts_value(state));
+    bind(
+        state,
+        "COMP_WORDBREAKS",
+        String::from(COMP_WORDBREAKS_VALUE),
+    );
+    bind(state, "HOSTNAME", hostname());
+    bind(state, "HOSTTYPE", hosttype());
+    bind(state, "MACHTYPE", String::from(MACHTYPE));
+    bind(state, "OSTYPE", ostype());
+    bind(state, "PWD", cwd.clone());
+    state.logical_pwd_value = Some(cwd);
+    state.export("PWD");
+    bind_readonly_integer(state, "PPID", ppid.to_string());
     bind(state, "BASHPID", pid.to_string());
+    state.set_attr("BASHPID", VarAttrs::INTEGER, true);
     bind_readonly_integer(state, "UID", unsafe { libc::getuid() }.to_string());
     bind_readonly_integer(state, "EUID", unsafe { libc::geteuid() }.to_string());
 
@@ -78,6 +99,7 @@ pub fn shell_initialize(state: &mut ShellState) {
         .unwrap_or(0)
         + 1;
     bind(state, "SHLVL", shlvl.to_string());
+    state.export("SHLVL");
 
     if state.get("IFS").is_none() {
         bind(state, "IFS", String::from(" \t\n"));
@@ -88,6 +110,7 @@ pub fn shell_initialize(state: &mut ShellState) {
     if state.get("OPTIND").is_none() {
         bind(state, "OPTIND", String::from("1"));
     }
+    state.set_attr("OPTIND", VarAttrs::INTEGER, true);
     if state.get("OPTERR").is_none() {
         bind(state, "OPTERR", String::from("1"));
     }
@@ -100,18 +123,17 @@ pub fn shell_initialize(state: &mut ShellState) {
     if state.get("PS4").is_none() {
         bind(state, "PS4", String::from("+ "));
     }
+    if state.get("TERM").is_none() {
+        bind(state, "TERM", String::from("dumb"));
+    }
+    bind_exported_unset(state, "OLDPWD");
+    std::env::remove_var("OLDPWD");
     state.set_array("GROUPS", current_groups());
 
     state.shell_initialized = true;
 }
 
 fn shell_executable_path() -> String {
-    if let Some(arg0) = std::env::args_os().next() {
-        let path = std::path::PathBuf::from(&arg0);
-        if path.components().count() > 1 {
-            return path.display().to_string();
-        }
-    }
     std::env::current_exe()
         .map(|p| p.display().to_string())
         .unwrap_or_else(|_| String::from("cherubsh"))
@@ -125,6 +147,19 @@ fn bind(state: &mut ShellState, name: &str, value: String) {
     }
 }
 
+fn bind_readonly(state: &mut ShellState, name: &str, value: String) {
+    state.variables.insert(
+        name.to_string(),
+        VariableEntry {
+            value,
+            has_value: true,
+            exported: false,
+            readonly: true,
+            attrs: VarAttrs::READONLY,
+        },
+    );
+}
+
 fn bind_readonly_integer(state: &mut ShellState, name: &str, value: String) {
     state.variables.insert(
         name.to_string(),
@@ -134,6 +169,19 @@ fn bind_readonly_integer(state: &mut ShellState, name: &str, value: String) {
             exported: false,
             readonly: true,
             attrs: VarAttrs::READONLY | VarAttrs::INTEGER,
+        },
+    );
+}
+
+fn bind_exported_unset(state: &mut ShellState, name: &str) {
+    state.variables.insert(
+        name.to_string(),
+        VariableEntry {
+            value: String::new(),
+            has_value: false,
+            exported: true,
+            readonly: false,
+            attrs: VarAttrs::EXPORT,
         },
     );
 }
@@ -170,4 +218,63 @@ fn current_groups() -> Vec<String> {
         }
     }
     groups
+}
+
+fn default_login_shell() -> String {
+    let uid = unsafe { libc::getuid() };
+    let passwd = unsafe { libc::getpwuid(uid) };
+    if passwd.is_null() {
+        return String::from("/bin/sh");
+    }
+    let shell = unsafe { (*passwd).pw_shell };
+    if shell.is_null() {
+        return String::from("/bin/sh");
+    }
+    unsafe { CStr::from_ptr(shell) }
+        .to_string_lossy()
+        .into_owned()
+}
+
+fn hostname() -> String {
+    let mut buf = [0 as libc::c_char; 256];
+    let rc = unsafe { libc::gethostname(buf.as_mut_ptr(), buf.len()) };
+    if rc != 0 {
+        return String::new();
+    }
+    buf[buf.len() - 1] = 0;
+    unsafe { CStr::from_ptr(buf.as_ptr()) }
+        .to_string_lossy()
+        .into_owned()
+}
+
+fn hosttype() -> String {
+    match std::env::consts::ARCH {
+        "x86_64" => String::from("x86_64"),
+        "aarch64" => String::from("aarch64"),
+        arch => arch.to_string(),
+    }
+}
+
+fn ostype() -> String {
+    match std::env::consts::OS {
+        "linux" => String::from("linux-gnu"),
+        "macos" => String::from("darwin"),
+        "freebsd" => String::from("freebsd"),
+        "netbsd" => String::from("netbsd"),
+        "openbsd" => String::from("openbsd"),
+        "dragonfly" => String::from("dragonfly"),
+        "solaris" => String::from("solaris"),
+        "windows" => String::from("msys"),
+        os => os.to_string(),
+    }
+}
+
+fn bashopts_value(state: &ShellState) -> String {
+    let mut names = cherubsh_builtins::shopt_table::SHOPT_OPTIONS
+        .iter()
+        .filter(|opt| state.option(opt.name))
+        .map(|opt| opt.name)
+        .collect::<Vec<_>>();
+    names.sort_unstable();
+    names.join(":")
 }

@@ -29,21 +29,36 @@ use crate::signals::{install_default_handlers, install_early_sigint};
 use crate::startup::run_startup_files;
 use crate::state::{ShellState, StartupMode};
 
+const SHELL_STACK_SIZE: usize = 32 * 1024 * 1024;
+
 fn main() {
     install_early_sigint();
     let big5_hkscs_locale = current_locale_is_big5_hkscs();
     let argv = std::env::args_os()
         .map(|arg| argv_bytes_to_shell_string(arg.as_bytes(), big5_hkscs_locale))
         .collect::<Vec<_>>();
-    let exit_code = match run(argv) {
+    let exit_code = std::thread::Builder::new()
+        .name("cherubsh-main".to_string())
+        .stack_size(SHELL_STACK_SIZE)
+        .spawn(move || run_shell(argv))
+        .and_then(|handle| {
+            handle
+                .join()
+                .map_err(|_| std::io::Error::other("shell thread panicked"))
+        })
+        .unwrap_or(2);
+    // Cannot call exit_shell here because we don't own state; use _exit directly.
+    unsafe { libc::_exit(exit_code) };
+}
+
+fn run_shell(argv: Vec<String>) -> i32 {
+    match run(argv) {
         Ok(code) => code,
         Err(error) => {
             error.report();
             error.code
         }
-    };
-    // Cannot call exit_shell here because we don't own state; use _exit directly.
-    unsafe { libc::_exit(exit_code) };
+    }
 }
 
 fn argv_bytes_to_shell_string(bytes: &[u8], big5_hkscs_locale: bool) -> String {
@@ -247,8 +262,20 @@ fn run(argv: Vec<String>) -> Result<i32, ShellError> {
         state.shell_name = argv[arg_index].clone();
         bind_args(&argv, arg_index + 1, 1, &mut state);
     } else {
-        bind_args(&argv, arg_index, 1, &mut state);
+        let mut positionals = Vec::with_capacity(argv.len().saturating_sub(arg_index) + 1);
+        positionals.push(zero.clone());
+        positionals.extend(argv.iter().skip(arg_index).cloned());
+        state.dollar_vars = positionals;
     }
+    state.set(
+        "_",
+        state
+            .dollar_vars
+            .first()
+            .cloned()
+            .unwrap_or_else(|| zero.clone()),
+    );
+    state.set_attr("_", cherubsh_common::VarAttrs::EXPORT, false);
 
     let mut exec_state = ExecState::default();
     exec_state.import_exported_functions(&state);
@@ -288,11 +315,12 @@ fn run(argv: Vec<String>) -> Result<i32, ShellError> {
             span: None,
         })?;
     } else {
+        state.read_from_stdin = true;
         state.input = BashInput::stdin();
     }
 
     let status = reader_loop_with_exec_state(&mut state, &mut exec_state);
-    exit_shell(&mut state, status);
+    exit_shell(&mut state, &mut exec_state, status);
 }
 
 #[cfg(test)]

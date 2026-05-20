@@ -2,7 +2,7 @@
 //!
 //! Each fixture is a string of bash source. The test asserts that
 //! `bash -n` and `cherubsh --parse-only` agree on whether the input is
-//! syntactically valid. 
+//! syntactically valid.
 
 use cherubsh_test_harness::assert_parser_accepts_like_bash;
 

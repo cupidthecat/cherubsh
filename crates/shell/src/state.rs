@@ -17,6 +17,8 @@ use cherubsh_lineedit::LineEditor;
 
 use crate::input::BashInput;
 
+const NAMEREF_MAX_DEPTH: usize = 8;
+
 /// Default rc file path: bash's DEFAULT_BASHRC is "~/.bashrc".
 fn default_bashrc() -> PathBuf {
     if let Some(home) = std::env::var_os("HOME") {
@@ -59,6 +61,19 @@ fn bash_random_from_seed(seed: u32) -> (u32, i32) {
     let next_seed = bash_intrand32(seed);
     let mixed = ((next_seed >> 16) ^ (next_seed & 65_535)) & 32_767;
     (next_seed, mixed as i32)
+}
+
+fn bash_srandom_from_seed(seed: u32) -> (u32, u32) {
+    let first = bash_intrand32(seed);
+    let second = bash_intrand32(first ^ 0xa5a5_5a5a);
+    (second, first ^ second.rotate_left(11))
+}
+
+fn initial_srandom_seed(pid: i32) -> u32 {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default();
+    now.subsec_nanos() ^ (now.as_secs() as u32) ^ (pid as u32).rotate_left(16) ^ 0x9e37_79b9
 }
 
 fn bash_hash(value: &str) -> u32 {
@@ -368,6 +383,7 @@ pub struct ShellState {
     pub pretty_print_mode: bool,
     pub verbose_flag: bool,
     pub command_execution_string: Option<String>,
+    pub current_command_string: Option<String>,
     pub shell_script_filename: Option<PathBuf>,
     pub shell_name: String,
     pub bashrc_file: PathBuf,
@@ -388,6 +404,7 @@ pub struct ShellState {
     pub bash_argv0_dynamic: bool,
     pub random_seed: Cell<u32>,
     pub last_random_value: Cell<i32>,
+    pub srandom_seed: Cell<u32>,
     pub startup_state: StartupMode,
     pub running_setuid: bool,
     pub shell_initialized: bool,
@@ -395,6 +412,7 @@ pub struct ShellState {
     pub input_stack: Vec<BashInput>,
     pub input_line_count_stack: Vec<u32>,
     pub variables: HashMap<String, VariableEntry>,
+    pub logical_pwd_value: Option<String>,
     pub sourced_env: u32,
     pub allexport: bool,
     pub errexit: bool,
@@ -417,11 +435,13 @@ pub struct ShellState {
     pub last_async_pid: Option<i32>,
     pub pending_coproc_cleanups: Vec<(String, Option<String>)>,
     pub subshell_level: u32,
+    pub command_substitution_depth: u32,
     pub bashpid_cache: Option<i32>,
     pub shell_pid_value: Option<i32>,
     pub funcname_stack: Vec<String>,
     pub funcname_source_stack: Vec<String>,
     pub funcname_lineno_stack: Vec<u32>,
+    pub funcname_source_frame_stack: Vec<bool>,
     pub bash_argc_stack: Vec<usize>,
     pub bash_argv_stack: Vec<String>,
     pub indexed_arrays: HashMap<String, IndexedArray>,
@@ -496,6 +516,7 @@ impl Default for ShellState {
             pretty_print_mode: false,
             verbose_flag: false,
             command_execution_string: None,
+            current_command_string: None,
             shell_script_filename: None,
             shell_name: String::from("cherubsh"),
             bashrc_file: default_bashrc(),
@@ -516,6 +537,7 @@ impl Default for ShellState {
             bash_argv0_dynamic: true,
             random_seed: Cell::new(1),
             last_random_value: Cell::new(0),
+            srandom_seed: Cell::new(initial_srandom_seed(shell_pid)),
             startup_state: StartupMode::Script,
             running_setuid: false,
             shell_initialized: false,
@@ -523,6 +545,7 @@ impl Default for ShellState {
             input_stack: Vec::new(),
             input_line_count_stack: Vec::new(),
             variables: HashMap::default(),
+            logical_pwd_value: None,
             sourced_env: 0,
             allexport: false,
             errexit: false,
@@ -545,11 +568,13 @@ impl Default for ShellState {
             last_async_pid: None,
             pending_coproc_cleanups: Vec::new(),
             subshell_level: 0,
+            command_substitution_depth: 0,
             bashpid_cache: None,
             shell_pid_value: Some(shell_pid),
             funcname_stack: Vec::new(),
             funcname_source_stack: Vec::new(),
             funcname_lineno_stack: Vec::new(),
+            funcname_source_frame_stack: Vec::new(),
             bash_argc_stack: Vec::new(),
             bash_argv_stack: Vec::new(),
             indexed_arrays: HashMap::default(),
@@ -608,6 +633,61 @@ fn default_keymap(name: &str) -> Option<Keymap> {
 }
 
 impl ShellState {
+    fn special_scalar_attrs(name: &str) -> Option<VarAttrs> {
+        match name {
+            "HISTCMD" | "RANDOM" | "SRANDOM" => Some(VarAttrs::INTEGER),
+            "SHELLOPTS" => Some(VarAttrs::READONLY),
+            _ if Self::is_special_scalar_name(name) => Some(VarAttrs::empty()),
+            _ => None,
+        }
+    }
+
+    fn is_special_scalar_name(name: &str) -> bool {
+        matches!(
+            name,
+            "BASH_ARGV0"
+                | "BASH_COMMAND"
+                | "BASH_SUBSHELL"
+                | "EPOCHREALTIME"
+                | "EPOCHSECONDS"
+                | "HISTCMD"
+                | "LINENO"
+                | "RANDOM"
+                | "SECONDS"
+                | "SHELLOPTS"
+                | "SRANDOM"
+        )
+    }
+
+    fn special_scalar_value_for_snapshot(&self, name: &str) -> Option<String> {
+        self.get_cow(name).map(Cow::into_owned)
+    }
+
+    fn iter_special_scalar_names(&self) -> Vec<&'static str> {
+        let mut names = vec![
+            "BASH_COMMAND",
+            "BASH_SUBSHELL",
+            "HISTCMD",
+            "LINENO",
+            "RANDOM",
+            "SHELLOPTS",
+            "SRANDOM",
+        ];
+        if self.bash_argv0_dynamic {
+            names.push("BASH_ARGV0");
+        }
+        if self.seconds_dynamic {
+            names.push("SECONDS");
+        }
+        if self.epochseconds_dynamic {
+            names.push("EPOCHSECONDS");
+        }
+        if self.epochrealtime_dynamic {
+            names.push("EPOCHREALTIME");
+        }
+        names
+    }
+
     fn saved_scalar_value(saved: &SavedVar) -> Option<String> {
         if let Some(indexed) = saved.indexed.as_ref() {
             return indexed.get(0).map(str::to_string);
@@ -642,6 +722,17 @@ impl ShellState {
             eprintln!("{source}: line {line}: warning: {name}: removing nameref attribute");
         } else {
             eprintln!("cherubsh: warning: {name}: removing nameref attribute");
+        }
+    }
+
+    fn report_invalid_xtracefd(&self, value: &str) {
+        if let (Some(source), Some(line)) = (self.diagnostic_source_name(), self.diagnostic_line())
+        {
+            eprintln!(
+                "{source}: line {line}: BASH_XTRACEFD: {value}: invalid value for trace file descriptor"
+            );
+        } else {
+            eprintln!("BASH_XTRACEFD: {value}: invalid value for trace file descriptor");
         }
     }
 
@@ -911,7 +1002,9 @@ impl ShellState {
         self.histfile = path.clone();
         if load_file {
             if let Some(p) = path {
-                let _ = self.history_table.load_from(&p);
+                if self.history_table.load_from(&p).is_err() {
+                    self.histfile = None;
+                }
             }
         }
     }
@@ -966,13 +1059,20 @@ impl ShellState {
         if self.startup_state == StartupMode::DashC {
             return None;
         }
-        let name = self.input.name();
-        (!name.is_empty()).then(|| name.to_string())
+        match &self.input {
+            BashInput::Stream { name, .. } if !name.is_empty() => Some(name.clone()),
+            _ => None,
+        }
     }
 
     fn main_source_name(&self) -> String {
         self.script_source_name()
             .unwrap_or_else(|| "main".to_string())
+    }
+
+    fn include_synthetic_main_frame(&self) -> bool {
+        (self.functrace || self.errtrace || self.option("extdebug"))
+            && self.script_source_name().is_some()
     }
 
     fn current_source_name(&self) -> String {
@@ -993,6 +1093,16 @@ impl ShellState {
     }
 
     fn funcname_values(&self) -> Vec<(i64, String)> {
+        if self.funcname_stack.is_empty() {
+            return Vec::new();
+        }
+        if self
+            .funcname_source_frame_stack
+            .iter()
+            .all(|is_source_frame| *is_source_frame)
+        {
+            return Vec::new();
+        }
         let mut values = self
             .funcname_stack
             .iter()
@@ -1000,8 +1110,8 @@ impl ShellState {
             .enumerate()
             .map(|(i, value)| (i as i64, value.clone()))
             .collect::<Vec<_>>();
-        if !self.funcname_stack.is_empty() {
-            values.push((self.funcname_stack.len() as i64, "main".to_string()));
+        if self.include_synthetic_main_frame() {
+            values.push((values.len() as i64, "main".to_string()));
         }
         values
     }
@@ -1020,7 +1130,9 @@ impl ShellState {
             .enumerate()
             .map(|(i, value)| (i as i64, value.clone()))
             .collect::<Vec<_>>();
-        values.push((values.len() as i64, self.main_source_name()));
+        if self.include_synthetic_main_frame() {
+            values.push((values.len() as i64, self.main_source_name()));
+        }
         values
     }
 
@@ -1038,17 +1150,24 @@ impl ShellState {
             .enumerate()
             .map(|(i, value)| (i as i64, value.to_string()))
             .collect::<Vec<_>>();
-        values.push((values.len() as i64, "0".to_string()));
+        if self.include_synthetic_main_frame() {
+            values.push((values.len() as i64, "0".to_string()));
+        }
         values
     }
 
     fn bash_argc_values(&self) -> Vec<(i64, String)> {
-        self.bash_argc_stack
+        let mut values = self
+            .bash_argc_stack
             .iter()
             .rev()
             .enumerate()
             .map(|(i, value)| (i as i64, value.to_string()))
-            .collect()
+            .collect::<Vec<_>>();
+        if self.option("extdebug") {
+            values.push((values.len() as i64, "0".to_string()));
+        }
+        values
     }
 
     fn bash_argv_values(&self) -> Vec<(i64, String)> {
@@ -1225,7 +1344,7 @@ impl Environment for ShellState {
                     .map(|value| Cow::Borrowed(value.as_str()));
             }
             "BASH_COMMAND" => {
-                if let Some(command) = self.command_execution_string.as_ref() {
+                if let Some(command) = self.current_command_string.as_ref() {
                     return Some(Cow::Borrowed(command.trim_end_matches('\n')));
                 }
             }
@@ -1241,6 +1360,14 @@ impl Environment for ShellState {
                     })
                     .unwrap_or(0);
                 return Some(Cow::Owned(line.to_string()));
+            }
+            "HISTCMD" => {
+                let value = if self.interactive_shell || self.option("history") {
+                    self.history_table.base() + self.history_table.len()
+                } else {
+                    0
+                };
+                return Some(Cow::Owned(value.to_string()));
             }
             "SECONDS" if self.seconds_dynamic => {
                 let elapsed = self.seconds_start.elapsed().as_secs() as i64;
@@ -1263,6 +1390,11 @@ impl Environment for ShellState {
                     return Some(Cow::Owned(value.to_string()));
                 }
             },
+            "SRANDOM" => {
+                let (next_seed, value) = bash_srandom_from_seed(self.srandom_seed.get());
+                self.srandom_seed.set(next_seed);
+                return Some(Cow::Owned(value.to_string()));
+            }
             _ => {}
         }
         if let Some(entry) = self.variables.get(name) {
@@ -1274,6 +1406,15 @@ impl Environment for ShellState {
                     .global_saved_snapshot(name)
                     .and_then(Self::saved_scalar_value)
                     .map(Cow::Owned);
+            }
+            if entry.attrs.contains(VarAttrs::NAMEREF)
+                && self
+                    .nameref_targets
+                    .get(name)
+                    .is_some_and(|target| target == name)
+            {
+                self.report_circular_name_reference(name);
+                return None;
             }
             return entry.has_value.then(|| Cow::Borrowed(entry.value.as_str()));
         }
@@ -1322,6 +1463,12 @@ impl Environment for ShellState {
             "SHELLOPTS" => return Err(AssignError::ReadOnly(name.to_string())),
             _ => {}
         }
+        if name == "BASH_XTRACEFD" && !value.is_empty() && !xtrace_fd_value_is_valid(&value) {
+            self.report_invalid_xtracefd(&value);
+            self.variables.remove(name);
+            std::env::remove_var(name);
+            return Ok(());
+        }
         if self.restricted && matches!(name, "PATH" | "SHELL") {
             return Err(AssignError::ReadOnly(name.to_string()));
         }
@@ -1345,7 +1492,7 @@ impl Environment for ShellState {
                 }
                 let Some(target) = self.resolve_nameref(name) else {
                     self.report_circular_name_reference(name);
-                    return Ok(());
+                    return Err(AssignError::CircularNameReference(name.to_string()));
                 };
                 if target != name {
                     return self.assign_nameref_target(name, &target, value);
@@ -1457,7 +1604,11 @@ impl Environment for ShellState {
             .last()
             .is_some_and(|scope| scope.contains_key(name));
         if !current_scope_has_name {
-            if let Some(scope_idx) = self.global_scope_index(name) {
+            if let Some(scope_idx) = self
+                .local_scopes
+                .iter()
+                .rposition(|scope| scope.contains_key(name))
+            {
                 if let Some(saved) = self.local_scopes[scope_idx].remove(name) {
                     self.restore_var_snapshot(name, saved);
                     self.sync_export_env(name);
@@ -1583,7 +1734,10 @@ impl Environment for ShellState {
             return Some(source.clone());
         }
         if self.startup_state == StartupMode::DashC {
-            return Some(self.shell_name.clone());
+            return self.dollar_vars.first().cloned();
+        }
+        if matches!(self.input, BashInput::Stdin { .. }) {
+            return self.dollar_vars.first().cloned();
         }
         let name = self.input.name();
         if name.is_empty() {
@@ -1591,6 +1745,13 @@ impl Environment for ShellState {
         } else {
             Some(name.to_string())
         }
+    }
+
+    fn call_stack_source_name(&self) -> Option<String> {
+        if let Some(source) = self.funcname_source_stack.last() {
+            return Some(source.clone());
+        }
+        Some(self.main_source_name())
     }
 
     fn diagnostic_line(&self) -> Option<u32> {
@@ -1606,6 +1767,10 @@ impl Environment for ShellState {
 
     fn pop_diagnostic_line(&mut self) {
         self.diagnostic_line_stack.pop();
+    }
+
+    fn set_current_command(&mut self, command: Option<String>) {
+        self.current_command_string = command;
     }
 
     fn arithmetic_expansion_errors_exit_shell(&self) -> bool {
@@ -1651,10 +1816,19 @@ impl Environment for ShellState {
             "restricted" | "r" => self.restricted,
             "posix" => self.posixly_correct,
             "interactive" | "i" => self.interactive,
+            "login_shell" => self.login_shell != 0,
             _ => self.shopt_options.get(name).copied().unwrap_or_else(|| {
                 default_shopt_value(name, self.interactive, self.posixly_correct)
             }),
         }
+    }
+
+    fn prompt_nonprinting_markers(&self) -> bool {
+        self.interactive_shell && !self.no_line_editing
+    }
+
+    fn prompt_command_number(&self) -> u64 {
+        self.current_command_number.saturating_sub(1)
     }
 
     fn set_option(&mut self, name: &str, on: bool) {
@@ -1713,9 +1887,31 @@ impl Environment for ShellState {
                     self.configure_history_from_vars(true, false);
                 }
             }
+            "emacs" => {
+                self.shopt_options.insert("emacs".to_string(), on);
+                if on {
+                    self.shopt_options.insert("vi".to_string(), false);
+                    self.keymap_set_active("emacs");
+                }
+            }
+            "vi" => {
+                self.shopt_options.insert("vi".to_string(), on);
+                if on {
+                    self.shopt_options.insert("emacs".to_string(), false);
+                    self.keymap_set_active("vi-insert");
+                }
+            }
+            "nolog" => {
+                self.shopt_options.insert("nolog".to_string(), on);
+            }
             "expand_aliases" => {
                 self.aliases_enabled = on;
                 self.shopt_options.insert(name.to_string(), on);
+            }
+            "extdebug" => {
+                self.shopt_options.insert(name.to_string(), on);
+                self.errtrace = on;
+                self.functrace = on;
             }
             "restricted" | "r" => self.restricted = on,
             "posix" => {
@@ -1800,10 +1996,24 @@ impl Environment for ShellState {
         self.last_async_pid = None;
     }
 
+    fn command_substitution_depth(&self) -> u32 {
+        self.command_substitution_depth
+    }
+
+    fn enter_command_substitution(&mut self) {
+        self.command_substitution_depth = self.command_substitution_depth.saturating_add(1);
+    }
+
     fn funcname_push(&mut self, name: &str, args: &[String]) {
+        let source = self.current_source_name();
+        self.funcname_push_with_source(name, args, &source);
+    }
+
+    fn funcname_push_with_source(&mut self, name: &str, args: &[String], source: &str) {
         self.funcname_stack.push(name.to_string());
-        self.funcname_source_stack.push(self.current_source_name());
+        self.funcname_source_stack.push(source.to_string());
         self.funcname_lineno_stack.push(self.current_call_line());
+        self.funcname_source_frame_stack.push(false);
         self.bash_argc_stack.push(args.len());
         let mut values = args.iter().rev().cloned().collect::<Vec<_>>();
         values.append(&mut self.bash_argv_stack);
@@ -1814,6 +2024,7 @@ impl Environment for ShellState {
         self.funcname_stack.pop();
         self.funcname_source_stack.pop();
         self.funcname_lineno_stack.pop();
+        self.funcname_source_frame_stack.pop();
         if let Some(argc) = self.bash_argc_stack.pop() {
             let end = argc.min(self.bash_argv_stack.len());
             self.bash_argv_stack.drain(0..end);
@@ -1824,6 +2035,7 @@ impl Environment for ShellState {
         self.funcname_stack.push("source".to_string());
         self.funcname_source_stack.push(source_name.to_string());
         self.funcname_lineno_stack.push(self.current_call_line());
+        self.funcname_source_frame_stack.push(true);
         self.bash_argc_stack.push(0);
     }
 
@@ -1831,6 +2043,7 @@ impl Environment for ShellState {
         self.funcname_stack.pop();
         self.funcname_source_stack.pop();
         self.funcname_lineno_stack.pop();
+        self.funcname_source_frame_stack.pop();
         self.bash_argc_stack.pop();
     }
 
@@ -1961,17 +2174,11 @@ impl Environment for ShellState {
             if index < 0 {
                 return None;
             }
-            let index = index as usize;
-            if index < self.funcname_stack.len() {
-                return self
-                    .funcname_stack
-                    .get(self.funcname_stack.len() - 1 - index)
-                    .cloned();
-            }
-            if index == self.funcname_stack.len() && !self.funcname_stack.is_empty() {
-                return Some("main".to_string());
-            }
-            return None;
+            return self
+                .funcname_values()
+                .into_iter()
+                .find(|(idx, _)| *idx == index)
+                .map(|(_, value)| value);
         }
         if matches!(
             name,
@@ -2003,17 +2210,7 @@ impl Environment for ShellState {
             if index < 0 {
                 return None;
             }
-            let index = index as usize;
-            if index < self.funcname_stack.len() {
-                return self
-                    .funcname_stack
-                    .get(self.funcname_stack.len() - 1 - index)
-                    .map(|value| Cow::Borrowed(value.as_str()));
-            }
-            if index == self.funcname_stack.len() && !self.funcname_stack.is_empty() {
-                return Some(Cow::Borrowed("main"));
-            }
-            return None;
+            return self.get_array_indexed(name, index).map(Cow::Owned);
         }
         if matches!(
             name,
@@ -2263,7 +2460,7 @@ impl Environment for ShellState {
         ) {
             return VarKind::Indexed;
         }
-        if name == "SHELLOPTS" {
+        if self.iter_special_scalar_names().contains(&name) {
             return VarKind::Scalar;
         }
         let attrs = self.attrs(name);
@@ -2298,8 +2495,8 @@ impl Environment for ShellState {
         if matches!(name, "BASH_ALIASES" | "BASH_CMDS") {
             return VarAttrs::ASSOC;
         }
-        if name == "SHELLOPTS" {
-            return VarAttrs::READONLY;
+        if let Some(attrs) = Self::special_scalar_attrs(name) {
+            return attrs;
         }
         self.variables
             .get(name)
@@ -2466,9 +2663,19 @@ impl Environment for ShellState {
 
     fn resolve_nameref(&self, name: &str) -> Option<String> {
         let mut cur = name.to_string();
-        for _ in 0..32 {
+        let mut seen = HashSet::default();
+        seen.insert(cur.clone());
+        for _ in 0..NAMEREF_MAX_DEPTH {
             match self.nameref_targets.get(&cur) {
-                Some(target) if target != &cur => cur = target.clone(),
+                Some(target) if target != &cur => {
+                    if !seen.insert(target.clone()) {
+                        return None;
+                    }
+                    cur = target.clone();
+                    if !self.nameref_targets.contains_key(&cur) {
+                        return Some(cur);
+                    }
+                }
                 _ => return Some(cur),
             }
         }
@@ -2814,6 +3021,9 @@ impl Environment for ShellState {
         ] {
             keys.insert(name.to_string());
         }
+        for name in self.iter_special_scalar_names() {
+            keys.insert(name.to_string());
+        }
         let mut out = Vec::with_capacity(keys.len());
         for name in keys {
             let special_indexed = self.special_iter_indexed_array(&name);
@@ -2824,11 +3034,15 @@ impl Environment for ShellState {
             };
             let attrs = if special_indexed.is_some() {
                 VarAttrs::ARRAY
+            } else if let Some(attrs) = Self::special_scalar_attrs(&name) {
+                attrs
             } else {
                 self.attrs(&name)
             };
             let scalar = if special_indexed.is_some() {
                 None
+            } else if Self::is_special_scalar_name(&name) {
+                self.special_scalar_value_for_snapshot(&name)
             } else if name == "SHELLOPTS" {
                 Some(self.shellopts_value())
             } else {
@@ -2886,6 +3100,16 @@ impl Environment for ShellState {
                 | "DIRSTACK"
                 | "FUNCNAME"
                 | "SHELLOPTS"
+                | "BASH_ARGV0"
+                | "BASH_COMMAND"
+                | "BASH_SUBSHELL"
+                | "EPOCHREALTIME"
+                | "EPOCHSECONDS"
+                | "HISTCMD"
+                | "LINENO"
+                | "RANDOM"
+                | "SECONDS"
+                | "SRANDOM"
         );
         if !special_name
             && !self.variables.contains_key(name)
@@ -2904,11 +3128,15 @@ impl Environment for ShellState {
         };
         let attrs = if special_indexed.is_some() {
             VarAttrs::ARRAY
+        } else if let Some(attrs) = Self::special_scalar_attrs(name) {
+            attrs
         } else {
             self.attrs(name)
         };
         let scalar = if special_indexed.is_some() {
             None
+        } else if Self::is_special_scalar_name(name) {
+            self.special_scalar_value_for_snapshot(name)
         } else if name == "SHELLOPTS" {
             Some(self.shellopts_value())
         } else {
@@ -2971,6 +3199,17 @@ impl Environment for ShellState {
         if let Some(slot) = self.local_option_scopes.last_mut() {
             slot.get_or_insert(snapshot);
         }
+    }
+
+    fn logical_pwd(&self) -> Option<String> {
+        self.logical_pwd_value
+            .clone()
+            .or_else(|| self.get("PWD").filter(|pwd| !pwd.is_empty()))
+    }
+
+    fn set_logical_pwd(&mut self, value: String) {
+        self.logical_pwd_value = Some(value.clone());
+        self.set("PWD", value);
     }
 
     fn alias_set(&mut self, name: &str, value: String) {
@@ -3354,6 +3593,24 @@ impl Environment for ShellState {
             .or_insert_with(|| default_keymap(name).unwrap_or_else(|| Keymap::new(name)));
         entry.bind(seq, action);
     }
+    fn keymap_bind_macro(&mut self, name: &str, seq: &str, text: &str) {
+        let entry = self
+            .keymaps
+            .entry(name.to_string())
+            .or_insert_with(|| default_keymap(name).unwrap_or_else(|| Keymap::new(name)));
+        let idx = entry.macros.len() as u32;
+        entry.macros.push(text.to_string());
+        entry.bind(seq, EditAction::Macro(idx));
+    }
+    fn keymap_bind_shell_command(&mut self, name: &str, seq: &str, command: &str) {
+        let entry = self
+            .keymaps
+            .entry(name.to_string())
+            .or_insert_with(|| default_keymap(name).unwrap_or_else(|| Keymap::new(name)));
+        let idx = entry.shell_commands.len() as u32;
+        entry.shell_commands.push(command.to_string());
+        entry.bind(seq, EditAction::ShellCommand(idx));
+    }
     fn keymap_unbind(&mut self, name: &str, seq: &str) -> bool {
         if !self.keymaps.contains_key(name) {
             if let Some(default) = default_keymap(name) {
@@ -3525,6 +3782,13 @@ fn state_valid_name(name: &str) -> bool {
         && chars.all(|c| c == '_' || c.is_ascii_alphanumeric())
 }
 
+fn xtrace_fd_value_is_valid(value: &str) -> bool {
+    let Ok(fd) = value.parse::<i32>() else {
+        return false;
+    };
+    fd >= 0 && unsafe { libc::fcntl(fd, libc::F_GETFD) >= 0 }
+}
+
 fn state_array_reference(value: &str) -> Option<(&str, &str)> {
     let open = value.find('[')?;
     let close = value.rfind(']')?;
@@ -3551,9 +3815,6 @@ impl ShellState {
         let mut letters = String::new();
         if self.interactive {
             letters.push('i');
-        }
-        if self.read_from_stdin {
-            letters.push('s');
         }
         if self.allexport {
             letters.push('a');
@@ -3608,6 +3869,11 @@ impl ShellState {
         }
         if self.functrace {
             letters.push('T');
+        }
+        if self.startup_state == StartupMode::DashC {
+            letters.push('c');
+        } else if self.read_from_stdin {
+            letters.push('s');
         }
         letters
     }

@@ -11,7 +11,7 @@
 use cherubsh_common::jobs::JobState;
 use cherubsh_common::signals::{SignalMaskGuard, TrapAction, TrapKind, NSIG};
 use cherubsh_common::Environment;
-use cherubsh_exec::{execute_in, ExecResult};
+use cherubsh_exec::{execute_with_state, ExecResult, ExecState};
 use cherubsh_lexer::Lexer;
 use cherubsh_parser::{Ast, Command, CommandData, Parser};
 
@@ -102,6 +102,24 @@ fn run_trap_body(state: &mut ShellState, sig: i32, body: &str) {
 }
 
 fn parse_and_run(state: &mut ShellState, source: &str) -> ExecResult {
+    let mut exec_state = ExecState::default();
+    parse_and_run_with_state(state, source, &mut exec_state)
+}
+
+fn parse_and_run_with_state(
+    state: &mut ShellState,
+    source: &str,
+    exec_state: &mut ExecState,
+) -> ExecResult {
+    parse_and_run_with_state_offset(state, source, exec_state, true)
+}
+
+fn parse_and_run_with_state_offset(
+    state: &mut ShellState,
+    source: &str,
+    exec_state: &mut ExecState,
+    offset_lines: bool,
+) -> ExecResult {
     if source.is_empty() {
         return ExecResult {
             status: 0,
@@ -118,10 +136,12 @@ fn parse_and_run(state: &mut ShellState, source: &str) -> ExecResult {
     let mut parser = Parser::new(tokens, source);
     match parser.parse() {
         Ok(mut ast) => {
-            if let Some(line) = state.diagnostic_line() {
-                offset_command_lines(&mut ast.root, line.saturating_sub(1));
+            if offset_lines {
+                if let Some(line) = state.diagnostic_line() {
+                    offset_command_lines(&mut ast.root, line.saturating_sub(1));
+                }
             }
-            execute_in(&Ast { root: ast.root }, state)
+            execute_with_state(&Ast { root: ast.root }, state, exec_state)
         }
         Err(err) => {
             eprintln!("cherubsh: trap: {}", err.message);
@@ -202,13 +222,24 @@ fn offset_line(line: &mut u32, delta: u32) {
 /// Bash unsets the EXIT trap inside the body so `exit` from within doesn't
 /// re-enter; we do the same.
 pub fn run_exit_trap(state: &mut ShellState) -> Option<i32> {
+    let mut exec_state = ExecState::default();
+    run_exit_trap_with_exec_state(state, &mut exec_state)
+}
+
+pub fn run_exit_trap_with_exec_state(
+    state: &mut ShellState,
+    exec_state: &mut ExecState,
+) -> Option<i32> {
     if state.inherited_exit_trap_suppressed() {
         return None;
     }
     if let Some(TrapAction::Command(body)) = state.trap_action(TrapKind::Exit) {
         state.trap_clear(TrapKind::Exit);
         let saved = state.last_command_exit_value;
-        let result = parse_and_run(state, &body);
+        let saved_trap = state.running_trap_sig;
+        state.running_trap_sig = Some(0);
+        let result = parse_and_run_with_state_offset(state, &body, exec_state, false);
+        state.running_trap_sig = saved_trap;
         if result.exit_shell {
             return Some(result.status);
         }

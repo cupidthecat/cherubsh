@@ -242,7 +242,7 @@ pub const MINOR_VERSION: u32 = 2;
 pub const PATCH_LEVEL: u32 = 21;
 pub const BUILD_VERSION: u32 = 1;
 pub const DIST_VERSION: &str = "5.2";
-pub const MACHTYPE: &str = "x86_64-rust-linux-gnu";
+pub const MACHTYPE: &str = "x86_64-pc-linux-gnu";
 
 pub fn show_shell_version() {
     println!(

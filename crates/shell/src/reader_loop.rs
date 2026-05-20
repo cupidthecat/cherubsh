@@ -2713,6 +2713,10 @@ fn top_level_heredocs_in_line_update_depth(
                     i += 2;
                 }
             }
+            b'(' if i + 1 < bytes.len() && bytes[i + 1] == b'(' => {
+                *arithmetic_depth = 2;
+                i += 2;
+            }
             b')' if *depth > 0 => {
                 *depth -= 1;
                 i += 1;
