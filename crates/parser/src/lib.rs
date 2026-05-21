@@ -774,19 +774,15 @@ impl Parser {
             TokenValue::Number { raw, .. } => raw,
             TokenValue::None => String::new(),
         };
-        if !is_shell_identifier(&name_text) {
-            return Err(ParseError {
-                message: format!("`{name_text}': not a valid identifier"),
-                span: Some(name_token.span),
-            });
-        }
         let name = WordDesc {
             text: name_text,
             flags: 0,
             span: name_token.span,
             raw: self.raw_for_span(name_token.span),
         };
+        let line = self.line_number_for_offset(name.span.start);
 
+        self.skip_newlines();
         let map_list = if self.is_word("in") {
             self.expect_word("in")?;
             self.parse_word_list_until_command_body()
@@ -813,7 +809,7 @@ impl Parser {
                 name,
                 map_list,
                 action: Box::new(action),
-                line: 0,
+                line,
             }),
             flags: 0,
             line: 0,
@@ -824,6 +820,7 @@ impl Parser {
     fn parse_select_command(&mut self) -> Result<Command, ParseError> {
         self.expect_word("select")?;
         let name = self.parse_word_desc()?;
+        let line = self.line_number_for_offset(name.span.start);
         let map_list = if self.is_word("in") {
             self.expect_word("in")?;
             self.parse_word_list_until_command_body()
@@ -849,7 +846,7 @@ impl Parser {
                 name,
                 map_list,
                 action: Box::new(action),
-                line: 0,
+                line,
             }),
             flags: 0,
             line: 0,
@@ -1221,8 +1218,12 @@ impl Parser {
     }
 
     fn parse_arith_command(&mut self) -> Result<Command, ParseError> {
+        let open_end = self
+            .peek()
+            .map(|token| token.span.end)
+            .unwrap_or(self.input.len());
         self.expect_kind(TokenKind::DblLParen, "expected '(('")?;
-        let expr_text = self.collect_arith_command_expr()?;
+        let expr_text = self.collect_arith_command_expr(open_end)?;
         let expr = WordDesc {
             text: expr_text,
             flags: 0,
@@ -1350,6 +1351,15 @@ impl Parser {
         // Unary op `-X lhs`
         if is_unary_test_op(&lhs.text) {
             let rhs = self.cond_word()?;
+            if matches!(rhs.text.as_str(), "&" | "<") {
+                return Err(ParseError {
+                    message: format!(
+                        "unexpected argument `{}` to conditional unary operator",
+                        rhs.text
+                    ),
+                    span: Some(rhs.span),
+                });
+            }
             return Ok(CondCommand {
                 cond_type: CondType::Unary,
                 op: Some(lhs),
@@ -1362,6 +1372,12 @@ impl Parser {
         // If terminator next, synthesize "-n lhs".
         self.skip_newlines();
         if self.cond_at_terminator() {
+            if lhs.text == "&" {
+                return Err(ParseError {
+                    message: "unexpected token `&' in conditional command".to_string(),
+                    span: Some(lhs.span),
+                });
+            }
             let op = WordDesc {
                 text: "-n".to_string(),
                 flags: 0,
@@ -1382,7 +1398,10 @@ impl Parser {
         self.skip_newlines();
         if !is_binary_test_op(&op.text) {
             return Err(ParseError {
-                message: format!("unknown conditional operator '{}'", op.text),
+                message: format!(
+                    "unexpected token `{}`, conditional binary operator expected",
+                    op.text
+                ),
                 span: Some(op.span),
             });
         }
@@ -1391,6 +1410,12 @@ impl Parser {
         } else {
             self.cond_rhs_word()?
         };
+        if rhs.text == "&" {
+            return Err(ParseError {
+                message: "unexpected argument `&' to conditional binary operator".to_string(),
+                span: Some(rhs.span),
+            });
+        }
         Ok(CondCommand {
             cond_type: CondType::Binary,
             op: Some(op),
@@ -1411,14 +1436,7 @@ impl Parser {
         let text = match &token.value {
             TokenValue::Text(text) => text.clone(),
             TokenValue::Number { raw, .. } => raw.clone(),
-            TokenValue::None => match token.kind {
-                TokenKind::Less => "<".to_string(),
-                TokenKind::Greater => ">".to_string(),
-                TokenKind::Bang => "!".to_string(),
-                TokenKind::AndAnd => "&&".to_string(),
-                TokenKind::OrOr => "||".to_string(),
-                _ => String::new(),
-            },
+            TokenValue::None => token_to_text_lossy(&token),
         };
         Ok(WordDesc {
             text,
@@ -1469,36 +1487,36 @@ impl Parser {
             });
         }
         while parts.len() < 3 {
-            parts.push(String::new());
+            parts.push((String::new(), String::new()));
         }
-        let init = if parts[0].is_empty() {
+        let init = if parts[0].0.is_empty() {
             None
         } else {
             Some(WordDesc {
-                text: parts[0].clone(),
+                text: parts[0].0.clone(),
                 flags: 0,
                 span: Span::new(0, 0, 0),
-                raw: Some(parts[0].clone()),
+                raw: Some(parts[0].1.clone()),
             })
         };
-        let test = if parts[1].is_empty() {
+        let test = if parts[1].0.is_empty() {
             None
         } else {
             Some(WordDesc {
-                text: parts[1].clone(),
+                text: parts[1].0.clone(),
                 flags: 0,
                 span: Span::new(0, 0, 0),
-                raw: Some(parts[1].clone()),
+                raw: Some(parts[1].1.clone()),
             })
         };
-        let step = if parts[2].is_empty() {
+        let step = if parts[2].0.is_empty() {
             None
         } else {
             Some(WordDesc {
-                text: parts[2].clone(),
+                text: parts[2].0.clone(),
                 flags: 0,
                 span: Span::new(0, 0, 0),
-                raw: Some(parts[2].clone()),
+                raw: Some(parts[2].1.clone()),
             })
         };
 
@@ -2034,20 +2052,17 @@ impl Parser {
         ) && self.peek_n(2).map(|t| t.kind.clone()) == Some(TokenKind::RParen)
     }
 
-    fn collect_arith_command_expr(&mut self) -> Result<String, ParseError> {
-        let start = self
-            .peek()
-            .map(|token| token.span.start)
-            .unwrap_or(self.input.len());
+    fn collect_arith_command_expr(&mut self, start: usize) -> Result<String, ParseError> {
         let mut paren_depth = 0usize;
+        let mut bracket_depth = 0usize;
         while let Some(token) = self.peek() {
             match token.kind {
-                TokenKind::DblRParen if paren_depth == 0 => {
+                TokenKind::DblRParen if paren_depth == 0 && bracket_depth == 0 => {
                     let end = token.span.start.min(self.input.len());
                     self.bump();
                     return Ok(self.input[start.min(end)..end].to_string());
                 }
-                TokenKind::DblRParen if paren_depth == 1 => {
+                TokenKind::DblRParen if paren_depth == 1 && bracket_depth == 0 => {
                     let end = (token.span.start + 1).min(self.input.len());
                     self.bump();
                     if self.peek_kind() == Some(TokenKind::RParen) {
@@ -2056,7 +2071,11 @@ impl Parser {
                     return Ok(self.input[start.min(end)..end].to_string());
                 }
                 TokenKind::DblRParen => {
-                    paren_depth = paren_depth.saturating_sub(2);
+                    if bracket_depth > 0 && paren_depth == 1 {
+                        paren_depth = 0;
+                    } else {
+                        paren_depth = paren_depth.saturating_sub(2);
+                    }
                     self.bump();
                 }
                 TokenKind::DblLParen => {
@@ -2073,11 +2092,16 @@ impl Parser {
                 }
                 TokenKind::End => {
                     return Err(ParseError {
-                        message: "expected '))'".to_string(),
+                        message: if bracket_depth > 0 || paren_depth > 0 {
+                            "unexpected EOF while looking for matching `)'".to_string()
+                        } else {
+                            "expected '))'".to_string()
+                        },
                         span: self.peek_span().cloned(),
                     });
                 }
                 _ => {
+                    update_arith_bracket_depth(token, &mut bracket_depth);
                     self.bump();
                 }
             }
@@ -2518,7 +2542,7 @@ fn pattern_extglob_op_precedes(text: &str) -> bool {
         .is_some_and(|b| matches!(*b, b'@' | b'+' | b'*' | b'?' | b'!'))
 }
 
-fn split_arith_for_clauses(text: &str) -> (Vec<String>, usize) {
+fn split_arith_for_clauses(text: &str) -> (Vec<(String, String)>, usize) {
     let mut parts = Vec::new();
     let mut start = 0usize;
     let mut separators = 0usize;
@@ -2527,7 +2551,8 @@ fn split_arith_for_clauses(text: &str) -> (Vec<String>, usize) {
     let mut double_quoted = false;
     let mut escaped = false;
 
-    for (idx, ch) in text.char_indices() {
+    let mut iter = text.char_indices().peekable();
+    while let Some((idx, ch)) = iter.next() {
         if escaped {
             escaped = false;
             continue;
@@ -2547,6 +2572,21 @@ fn split_arith_for_clauses(text: &str) -> (Vec<String>, usize) {
                 double_quoted = false;
             }
             continue;
+        }
+
+        if ch == '$' {
+            if let Some((_, next)) = iter.peek().copied() {
+                if next == '(' {
+                    iter.next();
+                    skip_arith_for_nested(&mut iter, '(', ')');
+                    continue;
+                }
+                if next == '{' {
+                    iter.next();
+                    skip_arith_for_nested(&mut iter, '{', '}');
+                    continue;
+                }
+            }
         }
 
         match ch {
@@ -2569,11 +2609,73 @@ fn split_arith_for_clauses(text: &str) -> (Vec<String>, usize) {
     (parts, separators)
 }
 
-fn arith_for_clause_text(text: &str) -> String {
+fn skip_arith_for_nested<I>(iter: &mut std::iter::Peekable<I>, open: char, close: char)
+where
+    I: Iterator<Item = (usize, char)>,
+{
+    let mut depth = 1usize;
+    let mut single_quoted = false;
+    let mut double_quoted = false;
+    let mut escaped = false;
+    while let Some((_, ch)) = iter.next() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        if ch == '\\' {
+            escaped = true;
+            continue;
+        }
+        if single_quoted {
+            if ch == '\'' {
+                single_quoted = false;
+            }
+            continue;
+        }
+        if double_quoted {
+            if ch == '"' {
+                double_quoted = false;
+            }
+            continue;
+        }
+        if ch == '\'' {
+            single_quoted = true;
+            continue;
+        }
+        if ch == '"' {
+            double_quoted = true;
+            continue;
+        }
+        if ch == '$' {
+            if let Some((_, next)) = iter.peek().copied() {
+                if next == '(' {
+                    iter.next();
+                    skip_arith_for_nested(iter, '(', ')');
+                    continue;
+                }
+                if next == '{' {
+                    iter.next();
+                    skip_arith_for_nested(iter, '{', '}');
+                    continue;
+                }
+            }
+        }
+        if ch == open {
+            depth += 1;
+        } else if ch == close {
+            depth = depth.saturating_sub(1);
+            if depth == 0 {
+                break;
+            }
+        }
+    }
+}
+
+fn arith_for_clause_text(text: &str) -> (String, String) {
     if text.trim().is_empty() {
-        String::new()
+        (String::new(), String::new())
     } else {
-        text.trim_start().to_string()
+        (text.trim().to_string(), text.trim_start().to_string())
     }
 }
 
@@ -2635,6 +2737,21 @@ fn token_to_text_lossy(token: &Token) -> String {
         _ => "?",
     }
     .to_string()
+}
+
+fn update_arith_bracket_depth(token: &Token, depth: &mut usize) {
+    let text = match &token.value {
+        TokenValue::Text(text) => text.as_str(),
+        TokenValue::Number { raw, .. } => raw.as_str(),
+        TokenValue::None => return,
+    };
+    for byte in text.bytes() {
+        match byte {
+            b'[' => *depth += 1,
+            b']' => *depth = depth.saturating_sub(1),
+            _ => {}
+        }
+    }
 }
 
 fn assignment_builtin_accepts_compound(name: &str) -> bool {
@@ -3251,7 +3368,7 @@ mod tests {
             CommandData::Arith(cmd) => {
                 assert_eq!(
                     cmd.expression.text,
-                    "now1 - offset <= now2 && now2 >= now1 "
+                    " now1 - offset <= now2 && now2 >= now1 "
                 );
             }
             _ => panic!("expected arith command"),

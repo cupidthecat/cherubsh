@@ -10,10 +10,19 @@ pub struct Renderer {
     last_rows: u16,
     last_cursor_row: u16,
     last_cursor_col: u16,
+    silent: bool,
 }
 
 impl Renderer {
     pub fn new(prompt: &str) -> Self {
+        Self::with_mode(prompt, false)
+    }
+
+    pub fn silent(prompt: &str) -> Self {
+        Self::with_mode(prompt, true)
+    }
+
+    fn with_mode(prompt: &str, silent: bool) -> Self {
         let visible: String = strip_csi(prompt);
         let cols = visible.chars().count() as u16;
         Self {
@@ -22,10 +31,14 @@ impl Renderer {
             last_rows: 0,
             last_cursor_row: 0,
             last_cursor_col: 0,
+            silent,
         }
     }
 
     pub fn full_redraw(&mut self, buf: &EditBuffer) -> io::Result<()> {
+        if self.silent {
+            return Ok(());
+        }
         let term_cols = term_columns().max(1);
         let mut stderr = io::stderr().lock();
         // Move cursor to start: up by last_cursor_row, then \r.
@@ -55,6 +68,26 @@ impl Renderer {
         self.last_cursor_row = cursor_row;
         self.last_cursor_col = cursor_col;
         Ok(())
+    }
+
+    pub fn scripted_accept(&mut self, buf: &EditBuffer) -> io::Result<()> {
+        if !self.silent {
+            return Ok(());
+        }
+        let mut stderr = io::stderr().lock();
+        stderr.write_all(self.prompt.as_bytes())?;
+        stderr.write_all(buf.contents().as_bytes())?;
+        stderr.flush()
+    }
+
+    pub fn scripted_eof(&mut self) -> io::Result<()> {
+        if !self.silent {
+            return Ok(());
+        }
+        let mut stderr = io::stderr().lock();
+        stderr.write_all(self.prompt.as_bytes())?;
+        stderr.write_all(b"exit\n")?;
+        stderr.flush()
     }
 }
 

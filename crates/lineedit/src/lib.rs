@@ -132,14 +132,28 @@ impl LineEditor {
         } else {
             None
         };
-        let mut renderer = render::Renderer::new(prompt);
+        let mut renderer = if raw_mode {
+            render::Renderer::new(prompt)
+        } else {
+            render::Renderer::silent(prompt)
+        };
         renderer.full_redraw(&buf)?;
         let result = loop {
             let key = match input::read_key()? {
                 Some(k) => k,
                 None if raw_mode => continue,
-                None if buf.is_empty() => break Err(EditError::Eof),
-                None => break Ok(buf.contents()),
+                None if buf.is_empty() => {
+                    if !raw_mode {
+                        renderer.scripted_eof()?;
+                    }
+                    break Err(EditError::Eof);
+                }
+                None => {
+                    if !raw_mode {
+                        renderer.scripted_accept(&buf)?;
+                    }
+                    break Ok(buf.contents());
+                }
             };
             match self.dispatch(
                 key,
@@ -151,7 +165,12 @@ impl LineEditor {
                 &mut renderer,
             )? {
                 LoopOutcome::Continue => {}
-                LoopOutcome::Accept => break Ok(buf.contents()),
+                LoopOutcome::Accept => {
+                    if !raw_mode {
+                        renderer.scripted_accept(&buf)?;
+                    }
+                    break Ok(buf.contents());
+                }
                 LoopOutcome::Interrupted => break Err(EditError::Interrupted),
                 LoopOutcome::Eof => break Err(EditError::Eof),
             }

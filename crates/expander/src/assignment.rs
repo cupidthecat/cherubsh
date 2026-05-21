@@ -76,7 +76,7 @@ pub fn expand_assignment_word(
         let target_name = target.as_ref();
         let value = expand_assignment_rhs(rhs, env, runner)?;
         return if env.kind(target_name) == VarKind::Assoc {
-            let key = expand_subscript_text(subscript, env, runner)?.into_owned();
+            let key = expand_assoc_subscript_text(subscript, env, runner)?;
             let value = if append {
                 append_value(
                     env.get_array_assoc(target_name, &key).unwrap_or_default(),
@@ -188,7 +188,7 @@ fn expand_array_element_assignment(
     runner: &mut dyn CommandRunner,
 ) -> Result<Option<ExpandedAssignment>, ExpandError> {
     if env.kind(name) == VarKind::Assoc {
-        let key = expand_subscript_text(subscript, env, runner)?.into_owned();
+        let key = expand_assoc_subscript_text(subscript, env, runner)?;
         let value = if append {
             append_value(
                 env.get_array_assoc(name, &key).unwrap_or_default(),
@@ -261,6 +261,14 @@ fn expand_subscript_text<'a>(
     } else {
         Ok(Cow::Borrowed(subscript))
     }
+}
+
+fn expand_assoc_subscript_text(
+    subscript: &str,
+    env: &mut dyn Environment,
+    runner: &mut dyn CommandRunner,
+) -> Result<String, ExpandError> {
+    expand_assignment_rhs(subscript, env, runner)
 }
 
 fn fast_expand_simple_subscript(subscript: &str, env: &dyn Environment) -> Option<String> {
@@ -469,24 +477,49 @@ fn normalize_indexed_subscript(
 fn invalid_compound_metachar(body: &str) -> Option<String> {
     let bytes = body.as_bytes();
     let mut i = 0usize;
+    let mut at_word_start = true;
     while i < bytes.len() {
         match bytes[i] {
+            b if b.is_ascii_whitespace() => {
+                i += 1;
+                at_word_start = true;
+            }
+            b'#' if at_word_start => {
+                while i < bytes.len() && bytes[i] != b'\n' {
+                    i += 1;
+                }
+            }
             b'\\' => {
                 i = (i + 2).min(bytes.len());
+                at_word_start = false;
             }
             b'\'' | b'"' => {
                 i = skip_quoted(bytes, i, bytes[i]);
+                at_word_start = false;
             }
             b'$' if bytes.get(i + 1) == Some(&b'(') => {
                 i = skip_balanced(bytes, i + 2, b'(', b')');
+                at_word_start = false;
+            }
+            b'$' if bytes.get(i + 1) == Some(&b'{') => {
+                i = if current_subst_starts(bytes, i + 2) {
+                    skip_current_subst(bytes, i + 2)
+                } else {
+                    skip_balanced(bytes, i + 1, b'{', b'}')
+                };
+                at_word_start = false;
             }
             b'<' | b'>' if bytes.get(i + 1) == Some(&b'(') => {
                 i = skip_balanced(bytes, i + 2, b'(', b')');
+                at_word_start = false;
             }
             b'&' | b'|' | b';' => return Some((bytes[i] as char).to_string()),
             b'<' if bytes.get(i + 1) == Some(&b'>') => return Some("<>".to_string()),
             b'<' | b'>' => return Some((bytes[i] as char).to_string()),
-            _ => i += 1,
+            _ => {
+                i += 1;
+                at_word_start = false;
+            }
         }
     }
     None
@@ -530,6 +563,47 @@ fn skip_backticks(bytes: &[u8], mut i: usize) -> usize {
             return i + 1;
         } else {
             i += 1;
+        }
+    }
+    i
+}
+
+fn current_subst_starts(bytes: &[u8], start: usize) -> bool {
+    matches!(
+        bytes.get(start).copied(),
+        Some(b'|') | Some(b' ' | b'\t' | b'\n' | b'\r')
+    )
+}
+
+fn skip_current_subst(bytes: &[u8], mut i: usize) -> usize {
+    if bytes.get(i) == Some(&b'|') {
+        i += 1;
+    }
+    let mut brace_depth = 0usize;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'\\' => i = (i + 2).min(bytes.len()),
+            b'\'' | b'"' | b'`' => i = skip_quoted(bytes, i, bytes[i]),
+            b'$' if bytes.get(i + 1) == Some(&b'(') => {
+                i = skip_balanced(bytes, i + 2, b'(', b')');
+            }
+            b'$' if bytes.get(i + 1) == Some(&b'{') => {
+                i = if current_subst_starts(bytes, i + 2) {
+                    skip_current_subst(bytes, i + 2)
+                } else {
+                    skip_balanced(bytes, i + 1, b'{', b'}')
+                };
+            }
+            b'{' => {
+                brace_depth = brace_depth.saturating_add(1);
+                i += 1;
+            }
+            b'}' if brace_depth == 0 => return i + 1,
+            b'}' => {
+                brace_depth = brace_depth.saturating_sub(1);
+                i += 1;
+            }
+            _ => i += 1,
         }
     }
     i
@@ -583,11 +657,11 @@ fn parse_indexed_compound(
             let label = bracket_assignment_label(index_raw, value_raw, append);
             if trimmed.is_empty() {
                 report_compound_assignment_error(env, &label, "bad array subscript");
-                continue;
+                break;
             }
             if matches!(trimmed, "*" | "@") {
                 report_compound_assignment_error(env, &label, "cannot assign to non-numeric index");
-                continue;
+                break;
             }
             let mut index = match crate::arith::eval_preexpanded(
                 &idx_text,
@@ -597,7 +671,11 @@ fn parse_indexed_compound(
                 Err(err) => {
                     if compound_subscript_needs_invalid_operator_recovery(&idx_text) {
                         report_compound_arith_invalid_operator(env, &idx_text);
-                        continue;
+                        break;
+                    }
+                    if env.option("array_expand_once") {
+                        report_compound_arith_error(env, &err);
+                        return Ok(Vec::new());
                     }
                     return Err(err);
                 }
@@ -610,15 +688,15 @@ fn parse_indexed_compound(
                             index = resolved;
                         } else {
                             report_compound_assignment_error(env, &label, "bad array subscript");
-                            continue;
+                            break;
                         }
                     } else {
                         report_compound_assignment_error(env, &label, "bad array subscript");
-                        continue;
+                        break;
                     }
                 } else {
                     report_compound_assignment_error(env, &label, "bad array subscript");
-                    continue;
+                    break;
                 }
             }
             let mut value = expand_compound_value(value_raw, env, runner)?;
@@ -683,9 +761,18 @@ fn report_compound_arith_invalid_operator(env: &dyn Environment, expr: &str) {
     let display = String::from_utf8_lossy(&bytes).into_owned();
     let token = String::from_utf8_lossy(&bytes[token_start..]).into_owned();
     let message = format!(
-        "{display}: syntax error: invalid arithmetic operator (error token is \"{}\")",
+        "{display}: arithmetic syntax error: invalid arithmetic operator (error token is \"{}\")",
         token.replace('\\', "\\\\").replace('"', "\\\"")
     );
+    if let (Some(source), Some(line)) = (env.diagnostic_source_name(), env.diagnostic_line()) {
+        eprintln!("{source}: line {line}: {message}");
+    } else {
+        eprintln!("cherubsh: {message}");
+    }
+}
+
+fn report_compound_arith_error(env: &dyn Environment, err: &ExpandError) {
+    let message = err.clone().into_shell_error(None).message;
     if let (Some(source), Some(line)) = (env.diagnostic_source_name(), env.diagnostic_line()) {
         eprintln!("{source}: line {line}: {message}");
     } else {
@@ -726,7 +813,7 @@ fn parse_assoc_compound(
     while let Some(word) = iter.next() {
         if let Some((key_raw, value_raw, append)) = bracket_assignment(&word.text) {
             bracketed_syntax = Some(true);
-            let key = expand_string_to_string(key_raw, env, runner)?;
+            let key = expand_assoc_subscript_text(key_raw, env, runner)?;
             if key.is_empty() {
                 report_compound_assignment_error(env, "\"\"", "bad array subscript");
                 continue;
@@ -754,7 +841,7 @@ fn parse_assoc_compound(
             continue;
         }
         bracketed_syntax = Some(false);
-        let key = expand_string_to_string(&word.text, env, runner)?;
+        let key = expand_assoc_subscript_text(&word.text, env, runner)?;
         let Some(value_word) = iter.next() else {
             if key.is_empty() {
                 report_compound_assignment_error(env, &word.text, "bad array subscript");
@@ -1125,6 +1212,7 @@ fn append_value(
         return Ok(rhs);
     }
     if arithmetic {
+        crate::arith::eval_preexpanded(&old, &mut crate::ExpCtx::new(env, runner))?;
         let expr = format!("({old}) + ({rhs})");
         let value = crate::arith::eval_preexpanded(&expr, &mut crate::ExpCtx::new(env, runner))?;
         return Ok(value.to_string());
@@ -1194,6 +1282,7 @@ mod tests {
         let words = lex_words("[1]=x # comment words\n[2]=y a#b");
         let texts = words.into_iter().map(|w| w.text).collect::<Vec<_>>();
         assert_eq!(texts, vec!["[1]=x", "[2]=y", "a#b"]);
+        assert_eq!(invalid_compound_metachar("# ignored ;\n [1]=two"), None);
     }
 
     #[test]

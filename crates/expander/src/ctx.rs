@@ -38,6 +38,12 @@ pub struct ProcSubstHandle {
     pub fd: libc::c_int,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CurrentSubstMode {
+    Output,
+    Reply,
+}
+
 /// Bridge between the expander and the rest of the shell. Implemented by exec
 /// to break the expander↔exec circular crate dependency.
 pub trait CommandRunner {
@@ -53,6 +59,17 @@ pub trait CommandRunner {
         src: &str,
     ) -> Result<Vec<u8>, ExpandError> {
         self.run_subst(env, src)
+    }
+
+    fn run_current_subst(
+        &mut self,
+        _env: &mut dyn Environment,
+        _src: &str,
+        _mode: CurrentSubstMode,
+    ) -> Result<(Vec<u8>, i32), ExpandError> {
+        Err(ExpandError::Other(
+            "current-shell command substitution unavailable in this context".into(),
+        ))
     }
 
     /// Spawn an async command and return a filename whose I/O is wired to its

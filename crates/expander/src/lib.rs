@@ -1,4 +1,4 @@
-//! Cherubshell expansion subsystem. Implements bash 5.2.21's subst.c surface:
+//! Cherubshell expansion subsystem. Implements bash 5.3's subst.c surface:
 //! brace, tilde, parameter, command, arithmetic, process substitution; IFS
 //! word splitting; pathname (glob) expansion; quote removal. Operator
 //! semantics aim for byte-for-byte parity with bash where feasible - see the
@@ -30,7 +30,7 @@ pub mod split;
 pub mod tilde;
 pub mod wd;
 
-pub use ctx::{CommandRunner, ExpCtx, ExpandFlags, NullRunner, ProcSubstHandle};
+pub use ctx::{CommandRunner, CurrentSubstMode, ExpCtx, ExpandFlags, NullRunner, ProcSubstHandle};
 pub use error::ExpandError;
 pub use wd::Wd;
 
@@ -204,8 +204,29 @@ pub fn expand_for_arith(
     result
 }
 
+pub fn expand_for_arith_with_text(
+    expr: &str,
+    env: &mut dyn Environment,
+    runner: &mut dyn CommandRunner,
+) -> Result<(String, i64), ExpandError> {
+    let mut ctx = ExpCtx::new(env, runner);
+    let result = eval_arith_expression_with_text_impl(expr, &mut ctx);
+    close_proc_subst_handles(ctx.proc_subst);
+    result
+}
+
 pub(crate) fn eval_arith_expression_impl(expr: &str, ctx: &mut ExpCtx) -> Result<i64, ExpandError> {
+    eval_arith_expression_with_text_impl(expr, ctx).map(|(_, value)| value)
+}
+
+fn eval_arith_expression_with_text_impl(
+    expr: &str,
+    ctx: &mut ExpCtx,
+) -> Result<(String, i64), ExpandError> {
     let needs_preexpansion = arith_needs_preexpansion(expr);
+    if let Some(err) = invalid_quoted_empty_index_lvalue_error(expr) {
+        return Err(err);
+    }
     let inner = if needs_preexpansion {
         Cow::Owned(expand_arith_preserving_assoc_subscripts(expr, ctx)?)
     } else {
@@ -217,11 +238,37 @@ pub(crate) fn eval_arith_expression_impl(expr: &str, ctx: &mut ExpCtx) -> Result
     if let Some(err) = invalid_index_variable_subscript_error(&inner, ctx.env) {
         return Err(err);
     }
-    if needs_preexpansion {
+    let value = if needs_preexpansion {
         arith::eval_preexpanded(&inner, ctx)
     } else {
         arith::eval(&inner, ctx)
+    }?;
+    Ok((inner.into_owned(), value))
+}
+
+fn invalid_quoted_empty_index_lvalue_error(expr: &str) -> Option<ExpandError> {
+    let marker = "[\"\"]";
+    let open = expr.find(marker)?;
+    let before = &expr[..open];
+    let name_start = before
+        .rfind(|ch: char| !(ch == '_' || ch.is_ascii_alphanumeric()))
+        .map(|idx| idx + 1)
+        .unwrap_or(0);
+    let name = &before[name_start..];
+    if name.is_empty()
+        || !name
+            .chars()
+            .all(|ch| ch == '_' || ch.is_ascii_alphanumeric())
+        || !name
+            .chars()
+            .next()
+            .is_some_and(|ch| ch == '_' || ch.is_ascii_alphabetic())
+    {
+        return None;
     }
+    Some(ExpandError::ArithSyntax(format!(
+        "`{name}[]': not a valid identifier"
+    )))
 }
 
 fn arith_needs_preexpansion(expr: &str) -> bool {
@@ -255,7 +302,7 @@ fn invalid_index_variable_subscript_error(
     }
     let token_start = value.find(']').unwrap_or(0);
     Some(ExpandError::ArithSyntax(format!(
-        "{value}: syntax error: invalid arithmetic operator (error token is \"{}\")",
+        "{value}: arithmetic syntax error: invalid arithmetic operator (error token is \"{}\")",
         value[token_start..].replace('"', "\\\"")
     )))
 }
@@ -294,7 +341,7 @@ fn invalid_escaped_index_subscript_error(expr: &str, env: &dyn Environment) -> O
     };
     let token = &subscript[token_start..];
     Some(ExpandError::ArithSyntax(format!(
-        "{}: syntax error: invalid arithmetic operator (error token is \"{}\")",
+        "{}: arithmetic syntax error: invalid arithmetic operator (error token is \"{}\")",
         subscript.replace('"', "\\\""),
         token.replace('"', "\\\"")
     )))

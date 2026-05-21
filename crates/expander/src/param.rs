@@ -15,7 +15,7 @@ use cherubsh_common::{AssignError, Environment, ProcSubstDir, VarAttrs, VarKind}
 use crate::arith;
 use crate::buf::{is_ctl, ExpandBuf, CTLESC, CTLFIELD, CTLNUL, CTLRAW};
 use crate::cmdsub;
-use crate::ctx::ExpCtx;
+use crate::ctx::{CurrentSubstMode, ExpCtx};
 use crate::error::ExpandError;
 use crate::nameref;
 use crate::pattern::{
@@ -171,15 +171,18 @@ fn command_subst_close_line(
     ctx: &ExpCtx,
 ) -> Option<u32> {
     let base = ctx.env.diagnostic_line()?;
-    let before = bytes[..body_start.min(bytes.len())]
+    let anchor = if compat_bash_52() { end } else { body_start };
+    let before = bytes[..anchor.min(bytes.len())]
         .iter()
         .filter(|byte| **byte == b'\n')
         .count() as u32;
-    let body = bytes[body_start.min(bytes.len())..end.min(bytes.len())]
-        .iter()
-        .filter(|byte| **byte == b'\n')
-        .count() as u32;
-    Some(base.saturating_add(before).saturating_add(body))
+    Some(base.saturating_add(before))
+}
+
+fn compat_bash_52() -> bool {
+    std::env::var("CHERUBSH_BASH_COMPAT_VERSION")
+        .ok()
+        .is_some_and(|version| version.starts_with("5.2"))
 }
 
 fn report_command_subst_unexpected_eof(bytes: &[u8], body_start: usize, ctx: &ExpCtx) {
@@ -187,6 +190,21 @@ fn report_command_subst_unexpected_eof(bytes: &[u8], body_start: usize, ctx: &Ex
     let message = "unexpected EOF while looking for matching `)'";
     if ctx.heredoc_context {
         line = line.saturating_add(1);
+        if let Some(source) = ctx.env.diagnostic_source_name() {
+            eprintln!("{source}: command substitution: line {line}: {message}");
+        } else {
+            eprintln!("command substitution: line {line}: {message}");
+        }
+        return;
+    }
+
+    if ctx.param_rhs_nosplit {
+        let line = ctx
+            .env
+            .diagnostic_line()
+            .unwrap_or(1)
+            .saturating_add(line)
+            .saturating_add(1);
         if let Some(source) = ctx.env.diagnostic_source_name() {
             eprintln!("{source}: command substitution: line {line}: {message}");
         } else {
@@ -489,6 +507,19 @@ fn parameter_brace_expand(
     out: &mut ExpandBuf,
 ) -> Result<(), ExpandError> {
     let start = *i + 2; // past ${
+    if let Some(mode) = current_subst_mode(bytes, start) {
+        let body_start = if mode == CurrentSubstMode::Reply {
+            start + 1
+        } else {
+            start
+        };
+        let (body, end) = extract_current_brace_body(bytes, body_start)?;
+        *i = end;
+        let src = String::from_utf8_lossy(&body).into_owned();
+        let buf = cmdsub::current_substitute(&src, ctx, quoted, mode)?;
+        out.extend_from(&buf);
+        return Ok(());
+    }
     let posix_single_quote = quoted && ctx.env.option("posix");
     if !quoted && !posix_single_quote {
         if let Some((body, end)) = simple_brace_body(bytes, start) {
@@ -501,6 +532,14 @@ fn parameter_brace_expand(
     let (body, end) = extract_brace_body(bytes, start, posix_single_quote)?;
     *i = end;
     expand_brace_body(&body, ctx, quoted, out)
+}
+
+fn current_subst_mode(bytes: &[u8], start: usize) -> Option<CurrentSubstMode> {
+    match bytes.get(start).copied() {
+        Some(b'|') => Some(CurrentSubstMode::Reply),
+        Some(b) if b.is_ascii_whitespace() => Some(CurrentSubstMode::Output),
+        _ => None,
+    }
 }
 
 fn simple_brace_body(bytes: &[u8], start: usize) -> Option<(&[u8], usize)> {
@@ -887,14 +926,14 @@ fn compute_length(name: &[u8], ctx: &mut ExpCtx) -> Result<usize, ExpandError> {
         let base = &nm[..bracket];
         let target = nameref::resolve(ctx.env, base).unwrap_or_else(|| base.to_string());
         let kind = ctx.env.kind(&target);
+        let close = nm.rfind(']').unwrap_or(nm.len());
+        let subscript = &nm[bracket + 1..close];
         if ctx.eval_unbound_error
             && matches!(kind, VarKind::Unset)
             && ctx.env.get(&target).is_none()
         {
-            return Err(ExpandError::UnboundVariable(target));
+            return Err(ExpandError::UnboundVariable(format!("{base}[{subscript}]")));
         }
-        let close = nm.rfind(']').unwrap_or(nm.len());
-        let subscript = &nm[bracket + 1..close];
         if subscript == "@" || subscript == "*" {
             if target != base && target.contains('[') {
                 return Ok(0);
@@ -907,13 +946,17 @@ fn compute_length(name: &[u8], ctx: &mut ExpCtx) -> Result<usize, ExpandError> {
         }
         if kind == VarKind::Assoc {
             let key = crate::expand_string_to_string_impl(subscript, ctx)?;
+            if key.is_empty() {
+                return Err(ExpandError::InvalidArraySubscript(format!("[{subscript}]")));
+            }
             return Ok(ctx
                 .env
                 .get_array_assoc(&target, &key)
                 .map(|v| scalar_length(&v, ctx.env))
                 .unwrap_or(0));
         }
-        let idx = parse_indexed_subscript(ctx, &target, subscript, &target)?;
+        let label = format!("[{subscript}]");
+        let idx = parse_indexed_subscript(ctx, &target, subscript, &label)?;
         if kind != VarKind::Indexed {
             return Ok(if idx == 0 {
                 ctx.env
@@ -929,6 +972,21 @@ fn compute_length(name: &[u8], ctx: &mut ExpCtx) -> Result<usize, ExpandError> {
             .get_array_indexed(&target, idx)
             .map(|v| scalar_length(&v, ctx.env))
             .unwrap_or(0));
+    }
+    if let Some(target) = nameref::resolve(ctx.env, nm) {
+        if target != nm {
+            if let Some((base, _)) = array_all_ref(&target) {
+                return Ok(match ctx.env.kind(base) {
+                    VarKind::Assoc => ctx.env.assoc_len(base),
+                    VarKind::Indexed => ctx.env.array_len(base),
+                    _ => usize::from(ctx.env.get(base).is_some()),
+                });
+            }
+            if target.contains('[') {
+                let value = read_scalar(ctx, &target, true)?;
+                return Ok(scalar_length(&value, ctx.env));
+            }
+        }
     }
     Ok(scalar_length(&read_scalar(ctx, nm, true)?, ctx.env))
 }
@@ -1671,11 +1729,21 @@ fn assign_default_parameter(
         return Ok(value);
     }
 
+    let unresolved_nameref = ctx.env.attrs(name).contains(VarAttrs::NAMEREF)
+        && ctx
+            .env
+            .nameref_target(name)
+            .as_deref()
+            .unwrap_or_default()
+            .is_empty();
     let target = nameref::resolve(ctx.env, name).unwrap_or_else(|| name.to_string());
     let value = apply_assignment_attrs(ctx, &target, value)?;
     ctx.env
         .assign(name, value.clone())
         .map_err(expand_assign_error)?;
+    if unresolved_nameref {
+        return Ok(value);
+    }
     Ok(read_scalar(ctx, name, false).unwrap_or(value))
 }
 
@@ -1972,6 +2040,16 @@ fn parameter_is_set(ctx: &mut ExpCtx, name: &str) -> bool {
             _ => ctx.env.get(&target).is_some(),
         };
     }
+    if ctx.env.attrs(name).contains(VarAttrs::NAMEREF)
+        && ctx
+            .env
+            .nameref_target(name)
+            .as_deref()
+            .unwrap_or_default()
+            .is_empty()
+    {
+        return false;
+    }
     if let Some(bracket) = name.find('[') {
         let base = &name[..bracket];
         let close = name.rfind(']').unwrap_or(name.len());
@@ -2041,7 +2119,7 @@ fn handle_substring(
     }
     if name == "#" && rest == b"%" {
         return Err(ExpandError::Other(
-            "#: %: syntax error: operand expected (error token is \"%\")".into(),
+            "#: %: arithmetic syntax error: operand expected (error token is \"%\")".into(),
         ));
     }
     let mut depth = 0;
@@ -2248,7 +2326,7 @@ fn eval_substring_arith(name: &str, expr: &str, ctx: &mut ExpCtx) -> Result<i64,
 }
 
 fn is_bash_style_arith_syntax(message: &str) -> bool {
-    message.contains(": syntax error")
+    message.contains(": syntax error") || message.contains(": arithmetic syntax error")
 }
 
 fn indexed_array_substring_elems(
@@ -3123,6 +3201,16 @@ fn prompt_expand(value: &str, ctx: &mut ExpCtx) -> Result<String, ExpandError> {
     let mut i = 0;
     while i < bytes.len() {
         if bytes[i] != b'\\' {
+            if ctx.env.option("posix") && bytes[i] == b'!' {
+                if i + 1 < bytes.len() && bytes[i + 1] == b'!' {
+                    out.push('!');
+                    i += 2;
+                } else {
+                    out.push_str(&ctx.env.prompt_history_number().to_string());
+                    i += 1;
+                }
+                continue;
+            }
             out.push(bytes[i] as char);
             i += 1;
             continue;
@@ -3218,8 +3306,8 @@ fn prompt_expand(value: &str, ctx: &mut ExpCtx) -> Result<String, ExpandError> {
             b's' => {
                 let shell = ctx
                     .env
-                    .positional(0)
-                    .or_else(|| ctx.env.get("BASH_ARGV0"))
+                    .prompt_shell_name()
+                    .or_else(|| ctx.env.positional(0))
                     .unwrap_or_else(|| "cherubsh".to_string());
                 out.push_str(&base_name(&shell));
                 i += 2;
@@ -3261,7 +3349,11 @@ fn prompt_expand(value: &str, ctx: &mut ExpCtx) -> Result<String, ExpandError> {
                 i += 2;
             }
             b'!' => {
-                out.push_str(&ctx.env.get("HISTCMD").unwrap_or_default());
+                out.push_str(&ctx.env.prompt_history_number().to_string());
+                i += 2;
+            }
+            b'j' => {
+                out.push_str(&ctx.env.prompt_job_count().to_string());
                 i += 2;
             }
             other => {
@@ -3363,15 +3455,16 @@ fn render_pwd(env: &dyn Environment, basename_only: bool) -> String {
 fn bash_version(env: &dyn Environment, release: bool) -> String {
     let raw = env
         .get("BASH_VERSION")
-        .unwrap_or_else(|| "5.2.21".to_string());
+        .or_else(|| std::env::var("CHERUBSH_BASH_COMPAT_VERSION").ok())
+        .unwrap_or_else(|| "5.3.0".to_string());
     let numeric = raw
         .split(|c: char| !(c.is_ascii_digit() || c == '.'))
         .find(|s| !s.is_empty())
-        .unwrap_or("5.2.21");
+        .unwrap_or("5.3.0");
     let mut parts = numeric.split('.');
     let major = parts.next().unwrap_or("5");
-    let minor = parts.next().unwrap_or("2");
-    let patch = parts.next().unwrap_or("21");
+    let minor = parts.next().unwrap_or("3");
+    let patch = parts.next().unwrap_or("0");
     if release {
         format!("{major}.{minor}.{patch}")
     } else {
@@ -3535,14 +3628,13 @@ fn read_scalar(ctx: &mut ExpCtx, name: &str, length_mode: bool) -> Result<String
         None => name.to_string(),
     };
     if target != name && target.contains('[') {
-        if length_mode {
-            return Ok(String::new());
-        }
         let saved = ctx.eval_unbound_error;
-        ctx.eval_unbound_error = false;
+        if !length_mode && !saved {
+            ctx.eval_unbound_error = false;
+        }
         let result = read_scalar(ctx, &target, length_mode);
         ctx.eval_unbound_error = saved;
-        return result;
+        return result.map_err(|err| map_nameref_unbound(err, &target, name));
     }
     let kind = ctx.env.kind(&target);
     match kind {
@@ -3552,23 +3644,46 @@ fn read_scalar(ctx: &mut ExpCtx, name: &str, length_mode: bool) -> Result<String
                 .get_array_indexed(&target, 0)
                 .or_else(|| ctx.env.get(&target));
             if ctx.eval_unbound_error && value.is_none() {
-                return Err(ExpandError::UnboundVariable(target));
+                return Err(ExpandError::UnboundVariable(
+                    nameref_unbound_name(&target, name).to_string(),
+                ));
             }
             Ok(value.unwrap_or_default())
         }
         VarKind::Assoc => {
             let value = ctx.env.get_array_assoc(&target, "0");
             if ctx.eval_unbound_error && value.is_none() {
-                return Err(ExpandError::UnboundVariable(target));
+                return Err(ExpandError::UnboundVariable(
+                    nameref_unbound_name(&target, name).to_string(),
+                ));
             }
             Ok(value.unwrap_or_default())
         }
         _ => {
             if ctx.eval_unbound_error && ctx.env.get(&target).is_none() {
-                return Err(ExpandError::UnboundVariable(target));
+                return Err(ExpandError::UnboundVariable(
+                    nameref_unbound_name(&target, name).to_string(),
+                ));
             }
             Ok(ctx.env.get(&target).unwrap_or_default())
         }
+    }
+}
+
+fn nameref_unbound_name<'a>(target: &'a str, source: &'a str) -> &'a str {
+    if target != source {
+        source
+    } else {
+        target
+    }
+}
+
+fn map_nameref_unbound(err: ExpandError, target: &str, source: &str) -> ExpandError {
+    match err {
+        ExpandError::UnboundVariable(name) if name == target => {
+            ExpandError::UnboundVariable(source.to_string())
+        }
+        other => other,
     }
 }
 
@@ -4478,6 +4593,90 @@ fn expand_pattern(raw: &[u8], ctx: &mut ExpCtx) -> Result<Vec<u8>, ExpandError> 
     let expanded = result?;
     // Patterns preserve their internal CTLESC markers (quoting denotes literal).
     Ok(expanded.into_bytes())
+}
+
+/// Locate the closing `}` for Bash 5.3's current-shell command substitution
+/// forms (`${ command; }` and `${| command; }`). Unlike parameter expansion,
+/// the body is shell code, so literal function/group braces are balanced too.
+fn extract_current_brace_body(bytes: &[u8], start: usize) -> Result<(Vec<u8>, usize), ExpandError> {
+    let mut i = start;
+    let mut brace_depth = 0usize;
+    let mut body = Vec::new();
+    while i < bytes.len() {
+        let b = bytes[i];
+        if b == b'\\' && i + 1 < bytes.len() {
+            body.push(b);
+            body.push(bytes[i + 1]);
+            i += 2;
+            continue;
+        }
+        if append_ansi_c_literal(bytes, &mut i, &mut body) {
+            continue;
+        }
+        if matches!(b, b'\'' | b'"' | b'`') {
+            append_quoted_bytes(bytes, &mut i, &mut body, b)?;
+            continue;
+        }
+        if b == b'$' && i + 1 < bytes.len() {
+            let n = bytes[i + 1];
+            if n == b'{' {
+                body.extend_from_slice(b"${");
+                i += 2;
+                if current_subst_mode(bytes, i).is_some() {
+                    let body_start = if bytes[i] == b'|' { i + 1 } else { i };
+                    if bytes[i] == b'|' {
+                        body.push(b'|');
+                    }
+                    let (inner, end) = extract_current_brace_body(bytes, body_start)?;
+                    body.extend_from_slice(&inner);
+                    body.push(b'}');
+                    i = end;
+                } else {
+                    let (inner, end) = extract_brace_body(bytes, i, false)?;
+                    body.extend_from_slice(&inner);
+                    body.push(b'}');
+                    i = end;
+                }
+                continue;
+            }
+            if n == b'(' {
+                body.extend_from_slice(b"$(");
+                i += 2;
+                if i < bytes.len() && bytes[i] == b'(' {
+                    body.push(b'(');
+                    i += 1;
+                    let (inner, end) = extract_double_paren(bytes, i)?;
+                    body.extend_from_slice(&inner);
+                    body.extend_from_slice(b"))");
+                    i = end;
+                } else {
+                    let (inner, end) = extract_paren(bytes, i)?;
+                    body.extend_from_slice(&inner);
+                    body.push(b')');
+                    i = end;
+                }
+                continue;
+            }
+        }
+        if b == b'{' {
+            brace_depth = brace_depth.saturating_add(1);
+            body.push(b);
+            i += 1;
+            continue;
+        }
+        if b == b'}' {
+            if brace_depth == 0 {
+                return Ok((body, i + 1));
+            }
+            brace_depth -= 1;
+            body.push(b);
+            i += 1;
+            continue;
+        }
+        body.push(b);
+        i += 1;
+    }
+    Err(ExpandError::BadSubstitution("missing '}'".into()))
 }
 
 /// Locate matching `}` accounting for nested `{}`, `$()`, `$(())`, `${}`, and
@@ -5469,7 +5668,7 @@ mod tests {
         assert!(matches!(
             err,
             ExpandError::ArithSyntax(msg)
-                if msg == r#"PARAM: }: syntax error: operand expected (error token is "}")"#
+                if msg == r#"PARAM: }: arithmetic syntax error: operand expected (error token is "}")"#
         ));
 
         let err = expand_error(&mut env, r#"${@:1:$(($# - 2))}"#);

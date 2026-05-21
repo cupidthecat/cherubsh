@@ -15,6 +15,7 @@ pub enum ExpandError {
     BadPattern(String),
     InvalidArraySubscript(String),
     CommandSubstFailed(i32),
+    ExitShell(i32),
     AlreadyReported(i32),
     SubstitutionRecursive(u32),
     AmbiguousRedirect(String),
@@ -61,6 +62,7 @@ impl ExpandError {
             ExpandError::CommandSubstFailed(c) => {
                 ShellError::with_code("command substitution failed".to_string(), c)
             }
+            ExpandError::ExitShell(c) => ShellError::with_code(String::new(), c),
             ExpandError::AlreadyReported(c) => ShellError::with_code(String::new(), c),
             ExpandError::SubstitutionRecursive(d) => {
                 ShellError::new(format!("expansion nesting too deep: {}", d))
@@ -80,12 +82,16 @@ impl ExpandError {
     }
 
     pub fn already_reported(&self) -> bool {
-        matches!(self, ExpandError::AlreadyReported(_))
+        matches!(
+            self,
+            ExpandError::AlreadyReported(_) | ExpandError::ExitShell(_)
+        )
     }
 }
 
 fn is_bash_style_arith_syntax(message: &str) -> bool {
     message.contains(": syntax error")
+        || message.contains(": arithmetic syntax error")
         || message.contains("(error token is ")
         || (message.starts_with('`') && message.contains("not a valid identifier"))
 }

@@ -7,6 +7,7 @@
 
 use std::ffi::OsString;
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
+use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 
 use cherubsh_common::Environment;
@@ -28,6 +29,21 @@ pub struct GlobFlags {
     pub globstar: bool,
     pub globskipdots: bool,
     pub globignore: Vec<Vec<u8>>,
+    pub globsort: GlobSort,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum GlobSort {
+    #[default]
+    NameAsc,
+    NameDesc,
+    NoSort,
+    AtimeAsc,
+    AtimeDesc,
+    MtimeAsc,
+    MtimeDesc,
+    SizeAsc,
+    SizeDesc,
 }
 
 impl GlobFlags {
@@ -50,6 +66,11 @@ impl GlobFlags {
         if !globignore.is_empty() {
             dotglob = true;
         }
+        let globsort = env
+            .get("GLOBSORT")
+            .as_deref()
+            .map(parse_globsort)
+            .unwrap_or_default();
         Self {
             opts: GlobOpts {
                 nocaseglob,
@@ -62,6 +83,7 @@ impl GlobFlags {
             globstar,
             globskipdots,
             globignore,
+            globsort,
         }
     }
 }
@@ -239,9 +261,11 @@ pub fn pathname_expand(wd: &Wd, env: &dyn Environment) -> Result<Vec<Wd>, Expand
         current_dirs = next;
     }
 
-    let mut out: Vec<Wd> = current_dirs
+    sort_glob_paths(&mut current_dirs, flags.globsort);
+
+    let out: Vec<Wd> = current_dirs
         .into_iter()
-        .map(|p| {
+        .filter_map(|p| {
             let mut bytes = Vec::new();
             let raw = p.as_os_str().as_encoded_bytes();
             if absolute || raw.starts_with(b"./") {
@@ -258,16 +282,96 @@ pub fn pathname_expand(wd: &Wd, env: &dyn Environment) -> Result<Vec<Wd>, Expand
             if trailing_slash && bytes.last() != Some(&b'/') {
                 bytes.push(b'/');
             }
-            Wd::from_bytes_with_flags(bytes, wd.flags, wd.span)
+            if is_ignored_path(&bytes, &flags) {
+                None
+            } else {
+                Some(Wd::from_bytes_with_flags(bytes, wd.flags, wd.span))
+            }
         })
         .collect();
 
     if out.is_empty() {
         return no_glob_match_result(wd, &flags);
-    } else {
-        out.sort_by(|a, b| a.buf.bytes.cmp(&b.buf.bytes));
     }
     Ok(out)
+}
+
+fn parse_globsort(value: &str) -> GlobSort {
+    match value {
+        "nosort" => GlobSort::NoSort,
+        "-name" => GlobSort::NameDesc,
+        "+name" | "name" | "" => GlobSort::NameAsc,
+        "+atime" | "atime" => GlobSort::AtimeAsc,
+        "-atime" => GlobSort::AtimeDesc,
+        "+mtime" | "mtime" => GlobSort::MtimeAsc,
+        "-mtime" => GlobSort::MtimeDesc,
+        "+size" | "size" => GlobSort::SizeAsc,
+        "-size" => GlobSort::SizeDesc,
+        _ => GlobSort::NameAsc,
+    }
+}
+
+fn sort_glob_paths(paths: &mut [PathBuf], sort: GlobSort) {
+    match sort {
+        GlobSort::NoSort => {}
+        GlobSort::NameAsc => paths.sort_by(|a, b| path_bytes(a).cmp(&path_bytes(b))),
+        GlobSort::NameDesc => paths.sort_by(|a, b| path_bytes(b).cmp(&path_bytes(a))),
+        GlobSort::AtimeAsc => paths.sort_by(|a, b| {
+            path_atime_key(a)
+                .cmp(&path_atime_key(b))
+                .then_with(|| path_bytes(a).cmp(&path_bytes(b)))
+        }),
+        GlobSort::AtimeDesc => paths.sort_by(|a, b| {
+            path_atime_key(b)
+                .cmp(&path_atime_key(a))
+                .then_with(|| path_bytes(b).cmp(&path_bytes(a)))
+        }),
+        GlobSort::MtimeAsc => paths.sort_by(|a, b| {
+            path_mtime_key(a)
+                .cmp(&path_mtime_key(b))
+                .then_with(|| path_bytes(a).cmp(&path_bytes(b)))
+        }),
+        GlobSort::MtimeDesc => paths.sort_by(|a, b| {
+            path_mtime_key(b)
+                .cmp(&path_mtime_key(a))
+                .then_with(|| path_bytes(b).cmp(&path_bytes(a)))
+        }),
+        GlobSort::SizeAsc => paths.sort_by(|a, b| {
+            path_size_key(a)
+                .cmp(&path_size_key(b))
+                .then_with(|| path_bytes(a).cmp(&path_bytes(b)))
+        }),
+        GlobSort::SizeDesc => paths.sort_by(|a, b| {
+            path_size_key(b)
+                .cmp(&path_size_key(a))
+                .then_with(|| path_bytes(b).cmp(&path_bytes(a)))
+        }),
+    }
+}
+
+fn path_bytes(path: &Path) -> Vec<u8> {
+    let raw = path.as_os_str().as_encoded_bytes();
+    if raw.starts_with(b"./") {
+        raw[2..].to_vec()
+    } else {
+        raw.to_vec()
+    }
+}
+
+fn path_atime_key(path: &Path) -> (i64, i64) {
+    path.metadata()
+        .map(|m| (m.atime(), m.atime_nsec()))
+        .unwrap_or_default()
+}
+
+fn path_mtime_key(path: &Path) -> (i64, i64) {
+    path.metadata()
+        .map(|m| (m.mtime(), m.mtime_nsec()))
+        .unwrap_or_default()
+}
+
+fn path_size_key(path: &Path) -> u64 {
+    path.metadata().map(|m| m.len()).unwrap_or_default()
 }
 
 fn no_glob_match_result(wd: &Wd, flags: &GlobFlags) -> Result<Vec<Wd>, ExpandError> {
@@ -318,7 +422,7 @@ fn matches_glob_entry_parsed(
     {
         return false;
     }
-    fnmatch_parsed(segment_tokens, name, flags.opts) && !is_ignored(name, flags)
+    fnmatch_parsed(segment_tokens, name, flags.opts)
 }
 
 fn split_globignore(value: &str) -> Vec<&[u8]> {
@@ -439,11 +543,46 @@ fn path_with_trailing_slash(path: &Path) -> PathBuf {
     PathBuf::from(OsString::from_vec(bytes))
 }
 
-fn is_ignored(name: &[u8], flags: &GlobFlags) -> bool {
+fn is_ignored_path(path: &[u8], flags: &GlobFlags) -> bool {
     flags
         .globignore
         .iter()
-        .any(|p| fnmatch(p, name, flags.opts))
+        .any(|p| globignore_match(p, path, flags.opts))
+}
+
+fn globignore_match(pattern: &[u8], path: &[u8], opts: GlobOpts) -> bool {
+    if !pattern.contains(&b'/') || !path.contains(&b'/') {
+        return fnmatch(pattern, path, opts);
+    }
+    if let Some(collapsed) = collapse_literal_slash_extglob(pattern) {
+        return globignore_match(&collapsed, path, opts);
+    }
+    let pat_parts = pattern.split(|b| *b == b'/');
+    let path_parts = path.split(|b| *b == b'/');
+    pat_parts
+        .zip(path_parts)
+        .all(|(pat, text)| fnmatch(pat, text, opts))
+        && pattern.split(|b| *b == b'/').count() == path.split(|b| *b == b'/').count()
+}
+
+fn collapse_literal_slash_extglob(pattern: &[u8]) -> Option<Vec<u8>> {
+    let marker = b"@(/)";
+    let pos = pattern
+        .windows(marker.len())
+        .position(|window| window == marker)?;
+    let segment_start = pattern[..pos]
+        .iter()
+        .rposition(|b| *b == b'/')
+        .map(|idx| idx + 1)
+        .unwrap_or(0);
+    if has_glob_meta(&pattern[segment_start..pos], GlobOpts::default()) {
+        return None;
+    }
+    let mut out = Vec::with_capacity(pattern.len() - marker.len() + 1);
+    out.extend_from_slice(&pattern[..pos]);
+    out.push(b'/');
+    out.extend_from_slice(&pattern[pos + marker.len()..]);
+    Some(out)
 }
 
 /// Convenience for case/`[[ =~ ]]` matching: anchored fnmatch on `String`s.

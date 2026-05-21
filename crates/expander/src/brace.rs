@@ -369,7 +369,11 @@ fn expand_sequence(body: &[u8]) -> Option<Vec<Vec<u8>>> {
         let going_up = s <= e;
         let abs_step = raw_step.unsigned_abs() as i32;
         loop {
-            out.push(vec![cur as u8]);
+            out.push(if cur == b'\\' as i32 {
+                Vec::new()
+            } else {
+                vec![cur as u8]
+            });
             if going_up {
                 if cur as i32 >= e as i32 {
                     break;
@@ -526,6 +530,14 @@ mod tests {
     #[test]
     fn seq_alpha() {
         assert_eq!(s(&brace_expand(b"{a..e}")), vec!["a", "b", "c", "d", "e"]);
+    }
+
+    #[test]
+    fn seq_alpha_skips_backslash() {
+        assert_eq!(
+            s(&brace_expand(b"{Z..a}")),
+            vec!["Z", "[", "", "]", "^", "_", "`", "a"]
+        );
     }
 
     #[test]

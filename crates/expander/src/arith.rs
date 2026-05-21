@@ -279,14 +279,14 @@ fn arith_expr_from(src: &[u8], start: usize) -> String {
 }
 
 fn quote_error_token(token: &str) -> String {
-    token.replace('\\', "\\\\").replace('"', "\\\"")
+    token.replace('\\', "\\\\")
 }
 
 fn arith_operand_expected(src: &[u8], start: usize) -> ExpandError {
     let expr = arith_expr_from(src, 0);
     let token = quote_error_token(&arith_expr_from(src, start));
     ExpandError::ArithSyntax(format!(
-        "{expr}: syntax error: operand expected (error token is \"{token}\")"
+        "{expr}: arithmetic syntax error: operand expected (error token is \"{token}\")"
     ))
 }
 
@@ -314,7 +314,7 @@ fn arith_syntax_error_in_expression(
     let expr = arith_expr_from(src, 0);
     let token = quote_error_token(&arith_expr_from(src, token_start));
     ExpandError::ArithSyntax(format!(
-        "{expr}: syntax error in expression (error token is \"{token}\")"
+        "{expr}: arithmetic syntax error in expression (error token is \"{token}\")"
     ))
 }
 
@@ -322,7 +322,7 @@ fn arith_invalid_operator(src: &[u8], token_start: usize) -> ExpandError {
     let expr = arith_expr_from(src, 0);
     let token = quote_error_token(&arith_expr_from(src, token_start));
     ExpandError::ArithSyntax(format!(
-        "{expr}: syntax error: invalid arithmetic operator (error token is \"{token}\")"
+        "{expr}: arithmetic syntax error: invalid arithmetic operator (error token is \"{token}\")"
     ))
 }
 
@@ -472,6 +472,9 @@ fn eval_inner(expr: &str, ctx: &mut ExpCtx) -> Result<i64, ExpandError> {
     if expr.trim().is_empty() {
         return Ok(0);
     }
+    if let Some(err) = prefix_postfix_lvalue_error(expr) {
+        return Err(err);
+    }
     ctx.arith_depth = ctx.arith_depth.saturating_add(1);
     if ctx.arith_depth > MAX_ARITH_NESTING {
         ctx.arith_depth -= 1;
@@ -481,6 +484,19 @@ fn eval_inner(expr: &str, ctx: &mut ExpCtx) -> Result<i64, ExpandError> {
         let mut lex = Lexer::new(expr.as_bytes())?;
         let val = parse_comma(&mut lex, ctx, true)?;
         if lex.cur != Tok::Eof {
+            if matches!(lex.cur, Tok::PlusPlus | Tok::MinusMinus) {
+                let trimmed = expr.trim_start();
+                if trimmed.starts_with("--") || trimmed.starts_with("++") {
+                    let op = if matches!(lex.cur, Tok::PlusPlus) {
+                        "++"
+                    } else {
+                        "--"
+                    };
+                    return Err(ExpandError::ArithSyntax(format!(
+                        "{expr}: {op}: assignment requires lvalue (error token is \"{op} \")"
+                    )));
+                }
+            }
             if assignment_opcode(&lex.cur).is_some() {
                 return Err(arith_assignment_to_non_variable(
                     lex.src,
@@ -498,6 +514,24 @@ fn eval_inner(expr: &str, ctx: &mut ExpCtx) -> Result<i64, ExpandError> {
     })();
     ctx.arith_depth -= 1;
     result
+}
+
+fn prefix_postfix_lvalue_error(expr: &str) -> Option<ExpandError> {
+    let trimmed = expr.trim();
+    let (prefix, suffix) = if trimmed.starts_with("--") && trimmed.ends_with("++") {
+        ("--", "++")
+    } else if trimmed.starts_with("++") && trimmed.ends_with("--") {
+        ("++", "--")
+    } else {
+        return None;
+    };
+    let name = &trimmed[prefix.len()..trimmed.len() - suffix.len()];
+    if !is_arith_identifier(name) {
+        return None;
+    }
+    Some(ExpandError::ArithSyntax(format!(
+        "{trimmed} : {suffix}: assignment requires lvalue (error token is \"{suffix} \")"
+    )))
 }
 
 fn parse_comma(lex: &mut Lexer<'_>, ctx: &mut ExpCtx, active: bool) -> Result<i64, ExpandError> {
@@ -525,7 +559,11 @@ fn parse_assign(lex: &mut Lexer<'_>, ctx: &mut ExpCtx, active: bool) -> Result<i
                 Some(lvalue) => load_lvalue_value(lvalue, ctx)?,
                 None => 0,
             };
+            let rhs_start = lex.tok_start;
             let rhs = parse_assign(lex, ctx, active)?;
+            if active && matches!(opcode, 4 | 5) && rhs == 0 {
+                return Err(arith_division_by_zero(lex.src, rhs_start));
+            }
             let new_val = assigned_value(opcode, lhs_val, rhs)?;
             if active {
                 if let Some(lvalue) = precomputed {
@@ -766,6 +804,14 @@ fn parse_add(lex: &mut Lexer<'_>, ctx: &mut ExpCtx, active: bool) -> Result<i64,
                 }
             }
             Tok::PlusPlus => {
+                if lex.tok_end == lex.src.len()
+                    && arith_expr_from(lex.src, 0).trim_start().starts_with("--")
+                {
+                    return Err(ExpandError::ArithSyntax(format!(
+                        "{}: ++: assignment requires lvalue (error token is \"++ \")",
+                        arith_expr_from(lex.src, 0)
+                    )));
+                }
                 lex.consume_first_char_of_double_operator()?;
                 let r = parse_mul(lex, ctx, active)?;
                 if active {
@@ -842,8 +888,21 @@ fn parse_mul(lex: &mut Lexer<'_>, ctx: &mut ExpCtx, active: bool) -> Result<i64,
 fn parse_power(lex: &mut Lexer<'_>, ctx: &mut ExpCtx, active: bool) -> Result<i64, ExpandError> {
     let base = parse_unary(lex, ctx, active)?;
     if lex.cur == Tok::StarStar {
+        let exp_start = lex.tok_end.min(lex.src.len());
         lex.advance()?;
         let exp = parse_power(lex, ctx, active)?;
+        if active && exp < 0 {
+            let token_start = if exp_start < lex.src.len() && lex.src[exp_start] == b'-' {
+                exp_start + 1
+            } else {
+                exp_start
+            };
+            let expr = arith_expr_from(lex.src, 0);
+            let token = quote_error_token(&arith_expr_from(lex.src, token_start));
+            return Err(ExpandError::ArithSyntax(format!(
+                "{expr}: exponent less than 0 (error token is \"{token}\")"
+            )));
+        }
         return if active { pow_i64(base, exp) } else { Ok(0) };
     }
     Ok(if active { base } else { 0 })
@@ -1038,6 +1097,9 @@ fn resolve_lvalue(name: &str, ctx: &mut ExpCtx) -> Result<LValue, ExpandError> {
                 key: unescape_assoc_subscript(subscript),
             })
         } else {
+            if subscript.is_empty() {
+                return Err(ExpandError::InvalidArraySubscript(format!("{base}[]")));
+            }
             Ok(LValue::Indexed {
                 name: base.to_string(),
                 index: eval_array_index(subscript, ctx)?,
@@ -1066,7 +1128,7 @@ fn load_lvalue_value(lvalue: &LValue, ctx: &mut ExpCtx) -> Result<i64, ExpandErr
                 if let Some(v) = ctx.env.get_cow(name) {
                     finish_loaded_value(prepare_loaded_value(v), ctx, 0)
                 } else if ctx.eval_unbound_error {
-                    Err(ExpandError::UnboundVariable(format!("{name}[{index}]")))
+                    Err(ExpandError::UnboundVariable(name.clone()))
                 } else {
                     Ok(0)
                 }
@@ -1175,7 +1237,8 @@ fn unescape_assoc_subscript(subscript: &str) -> String {
 }
 
 fn eval_array_index(subscript: &str, ctx: &mut ExpCtx) -> Result<i64, ExpandError> {
-    let expanded = if ctx.arith_expand_subscripts {
+    let expand_subscript = ctx.arith_expand_subscripts && !ctx.env.option("assoc_expand_once");
+    let expanded = if expand_subscript {
         crate::expand_arith_string_to_string_impl(subscript, ctx)?
     } else {
         subscript.to_string()
@@ -1183,9 +1246,16 @@ fn eval_array_index(subscript: &str, ctx: &mut ExpCtx) -> Result<i64, ExpandErro
     if expanded.trim().is_empty() {
         return Ok(0);
     }
+    if !ctx.arith_expand_subscripts {
+        if let Some(unquoted) = strip_arith_subscript_double_quotes(&expanded) {
+            if unquoted.trim().is_empty() {
+                return Ok(0);
+            }
+        }
+    }
     if let Some(pos) = expanded.find("\\]") {
         return Err(ExpandError::ArithSyntax(format!(
-            "{}: syntax error: invalid arithmetic operator (error token is \"{}\")",
+            "{}: arithmetic syntax error: invalid arithmetic operator (error token is \"{}\")",
             expanded,
             quote_error_token(&expanded[pos..])
         )));
@@ -1206,6 +1276,23 @@ fn eval_array_index(subscript: &str, ctx: &mut ExpCtx) -> Result<i64, ExpandErro
     })();
     ctx.arith_expand_subscripts = prev;
     result
+}
+
+fn strip_arith_subscript_double_quotes(value: &str) -> Option<String> {
+    let bytes = value.as_bytes();
+    if bytes.len() < 2 || bytes.first() != Some(&b'"') || bytes.last() != Some(&b'"') {
+        return None;
+    }
+    let mut out = String::new();
+    let mut i = 1usize;
+    while i + 1 < bytes.len() {
+        if bytes[i] == b'\\' && i + 1 < bytes.len() - 1 {
+            i += 1;
+        }
+        out.push(bytes[i] as char);
+        i += 1;
+    }
+    Some(out)
 }
 
 fn parse_primary(lex: &mut Lexer<'_>, ctx: &mut ExpCtx, active: bool) -> Result<i64, ExpandError> {
@@ -1307,11 +1394,11 @@ fn parse_plain_value(s: &str) -> Option<i64> {
 }
 
 fn parse_value_recursive(s: &str, ctx: &mut ExpCtx, depth: u32) -> Result<i64, ExpandError> {
-    if depth > MAX_ARITH_NESTING {
-        return Err(ExpandError::ArithRecursion);
-    }
-    let _guard = ValueRecursionGuard::enter()?;
     let trimmed = s.trim();
+    if depth > MAX_ARITH_NESTING {
+        return Err(arith_recursion_error(trimmed));
+    }
+    let _guard = ValueRecursionGuard::enter().map_err(|_| arith_recursion_error(trimmed))?;
     if trimmed.is_empty() {
         return Ok(0);
     }
@@ -1337,7 +1424,7 @@ fn parse_value_recursive(s: &str, ctx: &mut ExpCtx, depth: u32) -> Result<i64, E
     {
         if let Some(v) = ctx.env.get_cow(trimmed) {
             if v.as_ref().trim() == trimmed {
-                return Err(ExpandError::ArithRecursion);
+                return Err(arith_recursion_error(trimmed));
             }
             if v.as_ref() != s {
                 return finish_loaded_value(prepare_loaded_value(v), ctx, depth + 1);
@@ -1355,6 +1442,14 @@ fn parse_value_recursive(s: &str, ctx: &mut ExpCtx, depth: u32) -> Result<i64, E
     })();
     ctx.arith_expand_subscripts = prev;
     result
+}
+
+fn arith_recursion_error(token: &str) -> ExpandError {
+    let token = if token.is_empty() { "" } else { token };
+    ExpandError::ArithSyntax(format!(
+        "{token}: expression recursion level exceeded (error token is \"{}\")",
+        quote_error_token(token)
+    ))
 }
 
 #[cfg(test)]

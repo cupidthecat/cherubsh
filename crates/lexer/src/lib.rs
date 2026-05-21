@@ -700,7 +700,11 @@ impl<'a> Lexer<'a> {
             b'{' => {
                 out.push('{');
                 self.offset += 1;
-                self.scan_parameter_brace(out, flags, in_double_quotes);
+                if self.current_subst_starts_here() {
+                    self.scan_current_subst_brace(out, flags, in_double_quotes);
+                } else {
+                    self.scan_parameter_brace(out, flags, in_double_quotes);
+                }
                 if self.offset < self.input.len() && self.peek_byte() == b'}' {
                     out.push('}');
                     self.offset += 1;
@@ -796,6 +800,71 @@ impl<'a> Lexer<'a> {
     fn push_range(&self, out: &mut String, start: usize, end: usize) {
         for b in &self.input.as_bytes()[start..end] {
             out.push(*b as char);
+        }
+    }
+
+    fn current_subst_starts_here(&self) -> bool {
+        matches!(
+            self.input.as_bytes().get(self.offset).copied(),
+            Some(b'|') | Some(b' ' | b'\t' | b'\n' | b'\r')
+        )
+    }
+
+    fn scan_current_subst_brace(
+        &mut self,
+        out: &mut String,
+        flags: &mut u32,
+        in_double_quotes: bool,
+    ) {
+        let mut brace_depth = 0usize;
+        if self.offset < self.input.len() && self.peek_byte() == b'|' {
+            out.push('|');
+            self.offset += 1;
+        }
+        while self.offset < self.input.len() {
+            let ch = self.peek_byte();
+            match ch {
+                b'}' if brace_depth == 0 => return,
+                b'}' => {
+                    brace_depth = brace_depth.saturating_sub(1);
+                    out.push('}');
+                    self.offset += 1;
+                }
+                b'{' => {
+                    brace_depth = brace_depth.saturating_add(1);
+                    out.push('{');
+                    self.offset += 1;
+                }
+                b'\\' => {
+                    out.push('\\');
+                    self.offset += 1;
+                    if self.offset < self.input.len() {
+                        out.push(self.take_char());
+                    }
+                }
+                b'$' => {
+                    out.push('$');
+                    self.offset += 1;
+                    self.scan_dollar(out, flags, in_double_quotes);
+                }
+                b'\'' | b'"' | b'`' => {
+                    let q = ch;
+                    out.push(q as char);
+                    self.offset += 1;
+                    while self.offset < self.input.len() && self.peek_byte() != q {
+                        if self.peek_byte() == b'\\' && self.offset + 1 < self.input.len() {
+                            out.push('\\');
+                            self.offset += 1;
+                        }
+                        out.push(self.take_char());
+                    }
+                    if self.offset < self.input.len() {
+                        out.push(q as char);
+                        self.offset += 1;
+                    }
+                }
+                _ => out.push(self.take_char()),
+            }
         }
     }
 
@@ -933,12 +1002,21 @@ impl<'a> Lexer<'a> {
 
     fn scan_balanced_pair(&mut self, out: &mut String, open: u8, close: u8) {
         let mut depth = 1;
+        let mut at_word_start = true;
         while self.offset < self.input.len() && depth > 0 {
             let ch = self.peek_byte();
-            if ch == open && open != close {
+            if ch.is_ascii_whitespace() {
+                out.push(self.take_char());
+                at_word_start = true;
+            } else if ch == b'#' && at_word_start {
+                while self.offset < self.input.len() && self.peek_byte() != b'\n' {
+                    out.push(self.take_char());
+                }
+            } else if ch == open && open != close {
                 depth += 1;
                 out.push(ch as char);
                 self.offset += 1;
+                at_word_start = false;
             } else if ch == close {
                 depth -= 1;
                 if depth == 0 {
@@ -946,12 +1024,14 @@ impl<'a> Lexer<'a> {
                 }
                 out.push(ch as char);
                 self.offset += 1;
+                at_word_start = false;
             } else if ch == b'\\' {
                 out.push('\\');
                 self.offset += 1;
                 if self.offset < self.input.len() {
                     out.push(self.take_char());
                 }
+                at_word_start = false;
             } else if ch == b'$'
                 && self.offset + 1 < self.input.len()
                 && self.input.as_bytes()[self.offset + 1] == b'('
@@ -959,6 +1039,7 @@ impl<'a> Lexer<'a> {
                 out.push('$');
                 self.offset += 1;
                 self.scan_dollar_in_balanced_pair(out);
+                at_word_start = false;
             } else if ch == b'$'
                 && self.offset + 1 < self.input.len()
                 && self.input.as_bytes()[self.offset + 1] == b'{'
@@ -968,10 +1049,15 @@ impl<'a> Lexer<'a> {
                 out.push('{');
                 self.offset += 1;
                 let mut flags = 0;
-                self.scan_parameter_brace(out, &mut flags, false);
+                if self.current_subst_starts_here() {
+                    self.scan_current_subst_brace(out, &mut flags, false);
+                } else {
+                    self.scan_parameter_brace(out, &mut flags, false);
+                }
                 if self.offset < self.input.len() {
                     out.push(self.take_char());
                 }
+                at_word_start = false;
             } else if ch == b'\'' {
                 out.push('\'');
                 self.offset += 1;
@@ -982,6 +1068,7 @@ impl<'a> Lexer<'a> {
                     out.push('\'');
                     self.offset += 1;
                 }
+                at_word_start = false;
             } else if ch == b'"' {
                 out.push('"');
                 self.offset += 1;
@@ -990,8 +1077,10 @@ impl<'a> Lexer<'a> {
                     out.push('"');
                     self.offset += 1;
                 }
+                at_word_start = false;
             } else {
                 out.push(self.take_char());
+                at_word_start = false;
             }
         }
     }
@@ -1015,7 +1104,11 @@ impl<'a> Lexer<'a> {
                         out.push('{');
                         self.offset += 1;
                         let mut flags = 0;
-                        self.scan_parameter_brace(out, &mut flags, true);
+                        if self.current_subst_starts_here() {
+                            self.scan_current_subst_brace(out, &mut flags, true);
+                        } else {
+                            self.scan_parameter_brace(out, &mut flags, true);
+                        }
                         if self.offset < self.input.len() && self.peek_byte() == b'}' {
                             out.push('}');
                             self.offset += 1;
@@ -1632,6 +1725,16 @@ mod tests {
     fn compound_assignment_is_one_token() {
         let ws = words("arr=(a b c)");
         assert_eq!(ws, vec!["arr=(a b c)".to_string()]);
+
+        let ws = words("arr=(\n# don't scan this ; ( comment\n[1]=$'x'\n) echo done");
+        assert_eq!(
+            ws,
+            vec![
+                "arr=(\n# don't scan this ; ( comment\n[1]=$'x'\n)".to_string(),
+                "echo".to_string(),
+                "done".to_string()
+            ]
+        );
     }
 
     #[test]

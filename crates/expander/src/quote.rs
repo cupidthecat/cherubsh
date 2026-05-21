@@ -269,21 +269,78 @@ fn push_unicode_for_locale(out: &mut Vec<u8>, cp: u32, locale: Option<&str>) -> 
     if cp == 0 {
         return false;
     }
-    if locale.is_some_and(is_big5_hkscs_locale) && cp == 0x03b1 {
-        out.extend_from_slice(&[0xa3, 0x5c]);
+    if cp > 0x7fff_ffff {
+        return true;
+    }
+    if let Some(bytes) = locale.and_then(|locale| big5_codepoint_bytes(cp, locale)) {
+        out.extend_from_slice(&bytes);
         return true;
     }
     if let Some(c) = char::from_u32(cp) {
         let mut buf = [0u8; 4];
         let s = c.encode_utf8(&mut buf);
         out.extend_from_slice(s.as_bytes());
+    } else {
+        push_extended_utf8(out, cp);
     }
     true
 }
 
-fn is_big5_hkscs_locale(locale: &str) -> bool {
+pub fn push_extended_utf8(out: &mut Vec<u8>, cp: u32) {
+    match cp {
+        0x0000..=0x007f => out.push(cp as u8),
+        0x0080..=0x07ff => {
+            out.push((0xc0 | (cp >> 6)) as u8);
+            out.push((0x80 | (cp & 0x3f)) as u8);
+        }
+        0x0800..=0xffff => {
+            out.push((0xe0 | (cp >> 12)) as u8);
+            out.push((0x80 | ((cp >> 6) & 0x3f)) as u8);
+            out.push((0x80 | (cp & 0x3f)) as u8);
+        }
+        0x0001_0000..=0x001f_ffff => {
+            out.push((0xf0 | (cp >> 18)) as u8);
+            out.push((0x80 | ((cp >> 12) & 0x3f)) as u8);
+            out.push((0x80 | ((cp >> 6) & 0x3f)) as u8);
+            out.push((0x80 | (cp & 0x3f)) as u8);
+        }
+        0x0020_0000..=0x03ff_ffff => {
+            out.push((0xf8 | (cp >> 24)) as u8);
+            out.push((0x80 | ((cp >> 18) & 0x3f)) as u8);
+            out.push((0x80 | ((cp >> 12) & 0x3f)) as u8);
+            out.push((0x80 | ((cp >> 6) & 0x3f)) as u8);
+            out.push((0x80 | (cp & 0x3f)) as u8);
+        }
+        _ => {
+            out.push((0xfc | ((cp >> 30) & 0x01)) as u8);
+            out.push((0x80 | ((cp >> 24) & 0x3f)) as u8);
+            out.push((0x80 | ((cp >> 18) & 0x3f)) as u8);
+            out.push((0x80 | ((cp >> 12) & 0x3f)) as u8);
+            out.push((0x80 | ((cp >> 6) & 0x3f)) as u8);
+            out.push((0x80 | (cp & 0x3f)) as u8);
+        }
+    }
+}
+
+fn big5_codepoint_bytes(cp: u32, locale: &str) -> Option<Vec<u8>> {
     let lower = locale.to_ascii_lowercase();
-    lower.starts_with("zh_hk.") && lower.contains("big5hkscs")
+    if !(lower.starts_with("zh_tw.") && lower.contains("big5")
+        || lower.starts_with("zh_hk.") && lower.contains("big5hkscs"))
+    {
+        return None;
+    }
+    let second = match cp {
+        0x03a8 => b'Z',
+        0x03a9 => b'[',
+        0x03b1 => b'\\',
+        0x03b2 => b']',
+        0x03b3 => b'^',
+        0x03b4 => b'_',
+        0x03b5 => b'`',
+        0x03b6 => b'a',
+        _ => return None,
+    };
+    Some(vec![0xa3, second])
 }
 
 /// Scan a single-quoted run starting just past the opening `'`. Returns the

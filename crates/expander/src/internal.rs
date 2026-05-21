@@ -80,7 +80,15 @@ fn run(wd: &Wd, ctx: &mut ExpCtx, no_tilde: bool) -> Result<Wd, ExpandError> {
                 had_quotes = true;
                 had_unquoted = true;
             } else {
-                out.buf.push_quoted_null();
+                if std::env::var("CHERUBSH_BASH_COMPAT_VERSION")
+                    .ok()
+                    .is_some_and(|version| version.starts_with("5.2"))
+                {
+                    out.buf.push_quoted_null();
+                } else {
+                    out.buf.push_quoted(b'\\');
+                    had_unquoted = true;
+                }
                 i += 1;
                 had_quotes = true;
             }

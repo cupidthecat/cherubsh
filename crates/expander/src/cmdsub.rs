@@ -4,7 +4,7 @@
 use std::fs;
 
 use crate::buf::ExpandBuf;
-use crate::ctx::ExpCtx;
+use crate::ctx::{CurrentSubstMode, ExpCtx};
 use crate::error::ExpandError;
 use crate::ExpandFlags;
 use cherubsh_common::{Span, CMD_SUBST_HEREDOC_WARN_MARKER, W_HASDOLLAR};
@@ -78,7 +78,23 @@ pub fn command_substitute(
     Ok(bytes_to_subst_buf(bytes, quoted))
 }
 
-fn bytes_to_subst_buf(bytes: Vec<u8>, quoted: bool) -> ExpandBuf {
+pub fn current_substitute(
+    src: &str,
+    ctx: &mut ExpCtx,
+    quoted: bool,
+    mode: CurrentSubstMode,
+) -> Result<ExpandBuf, ExpandError> {
+    let (mut bytes, status) = ctx.runner.run_current_subst(ctx.env, src, mode)?;
+    if mode == CurrentSubstMode::Output {
+        while bytes.last() == Some(&b'\n') {
+            bytes.pop();
+        }
+    }
+    ctx.last_cmd_subst_status = status;
+    Ok(bytes_to_subst_buf(bytes, quoted))
+}
+
+pub(crate) fn bytes_to_subst_buf(bytes: Vec<u8>, quoted: bool) -> ExpandBuf {
     let bytes = bytes.into_iter().filter(|b| *b != 0).collect::<Vec<_>>();
     let mut buf = ExpandBuf::with_capacity(bytes.len());
     if quoted && bytes.is_empty() {
