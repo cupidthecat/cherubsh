@@ -6,6 +6,7 @@ CherubSH (`cherubsh`), formerly known as cupidshell, is a strict Bash 5.3-compat
 
 - Bash 5.3-compatible parser, lexer, expansion engine, execution model, and shell state.
 - Full standard upstream Bash 5.3 test-suite parity: 86 / 86 upstream `run-*` drivers passing.
+- Bash corpus test support: the upstream Bash 5.3 `tests` tree is vendored and runnable through the parity harness.
 - Vendored Brush compatibility corpus parity: 2,077 / 2,077 runnable compat cases passing against the Bash 5.3 oracle, with 28 cases skipped by Brush metadata or Bash-version constraints.
 - Differential fixture harness that compares CherubSH behavior directly against a Bash 5.3 oracle.
 - Bash-compatible parameter expansion, arithmetic expansion, command substitution, process substitution, brace expansion, globbing, word splitting, quote removal, arrays, associative arrays, and namerefs.
@@ -51,7 +52,7 @@ The files under `tests/misc` are vendored too, but they are not part of Bash's n
 
 The brush compatibility corpus is vendored under `vendor/brush` from `brush-shell/tests/cases`. The active CherubSH gate runs `vendor/brush/brush-shell/tests/cases/compat` against the same Bash 5.3 oracle used by the main parity harness; brush-specific CLI cases under `cases/brush` are retained as source context only.
 
-Current Brush parity status for v0.2.0:
+Current Brush parity status for v0.3.0:
 
 | Brush result | Count |
 | --- | ---: |

@@ -5,6 +5,9 @@
 #   RUNS=15              measured runs per case
 #   WARMUPS=3            warmup runs per case
 #   CHERUBSH=path        CherubSH binary to test
+#   BASH_ORACLE_VERSION  Bash oracle version: 5.3 default, or 5.2.21
+#   BASH_ORACLE_PATH     explicit Bash oracle binary path
+#   BASH_53_PATH=path    Bash 5.3 oracle binary
 #   BASH_521_PATH=path   Bash 5.2.21 oracle binary
 #   BENCH_BUILD=0        skip cargo release build
 
@@ -15,8 +18,31 @@ WS_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 RUNS="${RUNS:-15}"
 WARMUPS="${WARMUPS:-3}"
 CHERUBSH="${CHERUBSH:-${WS_ROOT}/target/release/cherubsh}"
-ORACLE="${BASH_521_PATH:-${WS_ROOT}/target/oracle/bash-5.2.21/bash}"
 BENCH_BUILD="${BENCH_BUILD:-1}"
+ORACLE_VERSION="${BASH_ORACLE_VERSION:-5.3}"
+
+case "${ORACLE_VERSION}" in
+    5.2|5.2.21)
+        ORACLE_VERSION="5.2.21"
+        ORACLE_LABEL="bash-5.2.21"
+        RATIO_COLUMN="ratio_vs_bash_521"
+        ORACLE="${BASH_ORACLE_PATH:-${BASH_521_PATH:-${WS_ROOT}/target/oracle/bash-5.2.21/bash}}"
+        ORACLE_BUILDER="${WS_ROOT}/oracle/build-bash-5.2.21.sh"
+        VERSION_RE='version 5\.2\.21'
+        ;;
+    5.3|5.3.0)
+        ORACLE_VERSION="5.3"
+        ORACLE_LABEL="bash-5.3"
+        RATIO_COLUMN="ratio_vs_bash_53"
+        ORACLE="${BASH_ORACLE_PATH:-${BASH_53_PATH:-${WS_ROOT}/target/oracle/bash-5.3/bash}}"
+        ORACLE_BUILDER="${WS_ROOT}/oracle/build-bash-5.3.sh"
+        VERSION_RE='version 5\.3(\.0)?'
+        ;;
+    *)
+        echo "error: unsupported BASH_ORACLE_VERSION=${ORACLE_VERSION}" >&2
+        exit 2
+        ;;
+esac
 
 if ! [[ "${RUNS}" =~ ^[0-9]+$ ]] || (( RUNS < 1 )); then
     echo "error: RUNS must be a positive integer" >&2
@@ -38,9 +64,9 @@ if ! [[ -x "${CHERUBSH}" ]]; then
     exit 2
 fi
 
-if ! [[ -x "${ORACLE}" ]] || ! "${ORACLE}" --version 2>/dev/null | head -n1 | grep -q 'version 5\.2\.21'; then
-    echo ">> oracle missing or wrong version; building bash-5.2.21..."
-    bash "${WS_ROOT}/oracle/build-bash-5.2.21.sh" >/dev/null
+if ! [[ -x "${ORACLE}" ]] || ! "${ORACLE}" --version 2>/dev/null | head -n1 | grep -Eq "${VERSION_RE}"; then
+    echo ">> oracle missing or wrong version; building bash-${ORACLE_VERSION}..."
+    bash "${ORACLE_BUILDER}" >/dev/null
 fi
 
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/cherubsh-bench.XXXXXX")"
@@ -602,7 +628,7 @@ CASES=(
     "globstar_scan"$'\t'"script"$'\t'"${GLOBSTAR_SCAN}"
 )
 
-SHELL_LABELS=("cherubsh" "bash-5.2.21")
+SHELL_LABELS=("cherubsh" "${ORACLE_LABEL}")
 SHELL_PATHS=("${CHERUBSH}" "${ORACLE}")
 
 CASE_COUNT=0
@@ -629,7 +655,7 @@ RAW="${WS_ROOT}/target/bench/raw.tsv"
 SUMMARY="${WS_ROOT}/target/bench/summary.tsv"
 mkdir -p "$(dirname "${RAW}")"
 printf 'case\tshell\trun\telapsed_ns\n' >"${RAW}"
-printf 'case\tshell\tmedian_ms\tmin_ms\tmax_ms\tratio_vs_bash_521\n' >"${SUMMARY}"
+printf 'case\tshell\tmedian_ms\tmin_ms\tmax_ms\t%s\n' "${RATIO_COLUMN}" >"${SUMMARY}"
 
 run_case() {
     local shell_path="$1"
@@ -751,7 +777,7 @@ ratio() {
 
 for case_row in "${CASES[@]}"; do
     IFS=$'\t' read -r case_name _mode _payload <<<"${case_row}"
-    base_ns="$(lookup_ns "${case_name}" "bash-5.2.21" "${median_ns_for[@]}")"
+    base_ns="$(lookup_ns "${case_name}" "${ORACLE_LABEL}" "${median_ns_for[@]}")"
     for label in "${SHELL_LABELS[@]}"; do
         med="$(lookup_ns "${case_name}" "${label}" "${median_ns_for[@]}")"
         min="$(lookup_ns "${case_name}" "${label}" "${min_ns_for[@]}")"
@@ -767,7 +793,7 @@ for case_row in "${CASES[@]}"; do
 done
 
 echo
-echo "Timing summary, lower is better. Ratio < 1.00 means faster than Bash 5.2.21."
+echo "Timing summary, lower is better. Ratio < 1.00 means faster than ${ORACLE_LABEL}."
 column -t -s $'\t' "${SUMMARY}"
 
 echo
