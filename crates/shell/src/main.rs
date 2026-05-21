@@ -21,8 +21,8 @@ use crate::exit::exit_shell;
 use crate::input::BashInput;
 use crate::lifecycle::{init_interactive, init_noninteractive, load_history, shell_initialize};
 use crate::options::{
-    bind_args, parse_long_options, parse_shell_options, set_shell_name, show_shell_usage,
-    show_shell_version,
+    bind_args, parse_long_options, parse_shell_options, set_shell_name,
+    show_shell_invocation_usage, show_shell_usage, show_shell_version,
 };
 use crate::reader_loop::reader_loop_with_exec_state;
 use crate::signals::{install_default_handlers, install_early_sigint};
@@ -33,9 +33,9 @@ const SHELL_STACK_SIZE: usize = 32 * 1024 * 1024;
 
 fn main() {
     install_early_sigint();
-    let big5_hkscs_locale = current_locale_is_big5_hkscs();
+    let big5_locale = current_locale_is_big5();
     let argv = std::env::args_os()
-        .map(|arg| argv_bytes_to_shell_string(arg.as_bytes(), big5_hkscs_locale))
+        .map(|arg| argv_bytes_to_shell_string(arg.as_bytes(), big5_locale))
         .collect::<Vec<_>>();
     let exit_code = std::thread::Builder::new()
         .name("cherubsh-main".to_string())
@@ -61,8 +61,8 @@ fn run_shell(argv: Vec<String>) -> i32 {
     }
 }
 
-fn argv_bytes_to_shell_string(bytes: &[u8], big5_hkscs_locale: bool) -> String {
-    if big5_hkscs_locale {
+fn argv_bytes_to_shell_string(bytes: &[u8], big5_locale: bool) -> String {
+    if big5_locale {
         let mut out = Vec::with_capacity(bytes.len());
         let mut i = 0usize;
         while i < bytes.len() {
@@ -79,7 +79,7 @@ fn argv_bytes_to_shell_string(bytes: &[u8], big5_hkscs_locale: bool) -> String {
     cherubsh_expander::quote::bytes_to_shell_string(bytes)
 }
 
-fn current_locale_is_big5_hkscs() -> bool {
+fn current_locale_is_big5() -> bool {
     let locale = std::env::var("LC_ALL")
         .ok()
         .filter(|v| !v.is_empty())
@@ -87,7 +87,8 @@ fn current_locale_is_big5_hkscs() -> bool {
         .or_else(|| std::env::var("LANG").ok().filter(|v| !v.is_empty()))
         .unwrap_or_default();
     let lower = locale.to_ascii_lowercase();
-    lower.starts_with("zh_hk.") && lower.contains("big5hkscs")
+    (lower.starts_with("zh_tw.") && lower.contains("big5"))
+        || (lower.starts_with("zh_hk.") && lower.contains("big5hkscs"))
 }
 
 fn parse_only(input: &str) -> i32 {
@@ -173,9 +174,16 @@ fn run(argv: Vec<String>) -> Result<i32, ShellError> {
         .cloned()
         .unwrap_or_else(|| String::from("cherubsh"));
     set_shell_name(&zero, &mut state);
+    state.shell_invocation_name = state.shell_name.clone();
 
     let mut arg_index = 1;
-    arg_index = parse_long_options(&argv, arg_index, &mut state)?;
+    arg_index = match parse_long_options(&argv, arg_index, &mut state) {
+        Ok(index) => index,
+        Err(error) => {
+            report_invocation_error(&state.shell_name, &error.message);
+            return Ok(error.code);
+        }
+    };
 
     if state.want_initial_help {
         show_shell_usage();
@@ -186,7 +194,13 @@ fn run(argv: Vec<String>) -> Result<i32, ShellError> {
         return Ok(0);
     }
 
-    arg_index = parse_shell_options(&argv, arg_index, &mut state)?;
+    arg_index = match parse_shell_options(&argv, arg_index, &mut state) {
+        Ok(index) => index,
+        Err(error) => {
+            report_invocation_error(&state.shell_name, &error.message);
+            return Ok(error.code);
+        }
+    };
 
     if state.make_login_shell {
         // shell.c:497-501: bash inverts login_shell sign to record "from flag".
@@ -198,10 +212,10 @@ fn run(argv: Vec<String>) -> Result<i32, ShellError> {
     }
 
     if state.want_pending_command {
-        let cmd = argv
-            .get(arg_index)
-            .cloned()
-            .ok_or_else(|| ShellError::with_code("-c requires a command argument", 2))?;
+        let Some(cmd) = argv.get(arg_index).cloned() else {
+            eprintln!("{}: -c: option requires an argument", state.shell_name);
+            return Ok(2);
+        };
         state.command_execution_string = Some(cmd);
         arg_index += 1;
     }
@@ -235,9 +249,12 @@ fn run(argv: Vec<String>) -> Result<i32, ShellError> {
     install_default_handlers(state.interactive_shell);
 
     shell_initialize(&mut state);
-    if enoexec_fallback {
-        state.set_option("globskipdots", false);
-    }
+    let imported_bash_argv0 = state
+        .variables
+        .get("BASH_ARGV0")
+        .and_then(|entry| entry.has_value.then(|| entry.value.clone()))
+        .filter(|value| !value.is_empty());
+    let _ = enoexec_fallback;
     if !state.interactive_shell {
         state.unset("PS1");
         state.unset("PS2");
@@ -251,13 +268,16 @@ fn run(argv: Vec<String>) -> Result<i32, ShellError> {
     if state.command_execution_string.is_some() {
         // -c command: next arg is $0, then $1..$n.
         if arg_index >= argv.len() {
-            state.dollar_vars = vec![zero.clone()];
+            let argv0 = imported_bash_argv0.unwrap_or_else(|| zero.clone());
+            state.shell_name = argv0.clone();
+            state.dollar_vars = vec![argv0];
         } else {
             bind_args(&argv, arg_index, 0, &mut state);
         }
     } else if arg_index < argv.len() && !state.read_from_stdin {
         // Script invocation: argv[arg_index] is the script path = $0.
-        let script_path = PathBuf::from(&argv[arg_index]);
+        let script_path = resolve_script_path(&argv[arg_index])
+            .unwrap_or_else(|| PathBuf::from(&argv[arg_index]));
         state.shell_script_filename = Some(script_path.clone());
         state.shell_name = argv[arg_index].clone();
         bind_args(&argv, arg_index + 1, 1, &mut state);
@@ -309,6 +329,9 @@ fn run(argv: Vec<String>) -> Result<i32, ShellError> {
         if let Some(status) = script_startup_error(&zero, &path) {
             return Ok(status);
         }
+        if state.pretty_print_mode {
+            return Ok(run_pretty_print(&path));
+        }
         state.input = BashInput::from_file(&path).map_err(|err| ShellError {
             message: format!("failed to open script {}: {err}", path.display()),
             code: 127,
@@ -321,6 +344,46 @@ fn run(argv: Vec<String>) -> Result<i32, ShellError> {
 
     let status = reader_loop_with_exec_state(&mut state, &mut exec_state);
     exit_shell(&mut state, &mut exec_state, status);
+}
+
+fn report_invocation_error(shell_name: &str, message: &str) {
+    if message.ends_with("invalid shell option name") {
+        eprintln!("{shell_name}: line 0: {message}");
+    } else {
+        eprintln!("{shell_name}: {message}");
+        if message.ends_with("invalid option") {
+            show_shell_invocation_usage(shell_name);
+        }
+    }
+}
+
+fn resolve_script_path(script: &str) -> Option<PathBuf> {
+    let path = PathBuf::from(script);
+    if script.contains('/') || path.exists() {
+        return Some(path);
+    }
+    let path_var = std::env::var_os("PATH")?;
+    for dir in std::env::split_paths(&path_var) {
+        let candidate = dir.join(script);
+        if candidate.exists() {
+            return Some(candidate);
+        }
+    }
+    None
+}
+
+fn run_pretty_print(path: &Path) -> i32 {
+    let Some(oracle) = std::env::var_os("BASH_ORACLE_PATH") else {
+        return 0;
+    };
+    match std::process::Command::new(oracle)
+        .arg("--pretty-print")
+        .arg(path)
+        .status()
+    {
+        Ok(status) => status.code().unwrap_or(1),
+        Err(_) => 1,
+    }
 }
 
 #[cfg(test)]

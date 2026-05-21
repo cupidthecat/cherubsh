@@ -51,7 +51,7 @@ pub fn parse_long_options(
             "version" => state.do_version = true,
             _ => {
                 return Err(ShellError::with_code(
-                    format!("unknown long option: --{name}"),
+                    format!("--{name}: invalid option"),
                     2,
                 ));
             }
@@ -142,10 +142,7 @@ pub fn parse_shell_options(
                     if let Some(opt) = set_options::lookup_short(ch) {
                         state.set_option(opt.long, on);
                     } else {
-                        return Err(ShellError::with_code(
-                            format!("unknown shell option: -{ch}"),
-                            2,
-                        ));
+                        return Err(ShellError::with_code(format!("-{ch}: invalid option"), 2));
                     }
                 }
             }
@@ -236,33 +233,129 @@ pub fn set_shell_name(argv0: &str, state: &mut ShellState) {
     state.shell_name = base;
 }
 
-pub const SHELL_VERSION: &str = "5.2.21";
+pub const SHELL_VERSION: &str = "5.3.0";
 pub const MAJOR_VERSION: u32 = 5;
-pub const MINOR_VERSION: u32 = 2;
-pub const PATCH_LEVEL: u32 = 21;
+pub const MINOR_VERSION: u32 = 3;
+pub const PATCH_LEVEL: u32 = 0;
 pub const BUILD_VERSION: u32 = 1;
-pub const DIST_VERSION: &str = "5.2";
+pub const DIST_VERSION: &str = "5.3";
 pub const MACHTYPE: &str = "x86_64-pc-linux-gnu";
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CompatVersion {
+    pub major: u32,
+    pub minor: u32,
+    pub patch: u32,
+}
+
+impl CompatVersion {
+    pub fn dist(self) -> String {
+        format!("{}.{}", self.major, self.minor)
+    }
+
+    pub fn release(self) -> String {
+        format!("{}.{}.{}", self.major, self.minor, self.patch)
+    }
+}
+
+pub fn compat_version() -> CompatVersion {
+    let Some(raw) = std::env::var("CHERUBSH_BASH_COMPAT_VERSION")
+        .ok()
+        .filter(|value| !value.is_empty())
+    else {
+        return parse_compat_version(SHELL_VERSION).unwrap_or(CompatVersion {
+            major: MAJOR_VERSION,
+            minor: MINOR_VERSION,
+            patch: PATCH_LEVEL,
+        });
+    };
+    parse_compat_version(&raw).unwrap_or(CompatVersion {
+        major: MAJOR_VERSION,
+        minor: MINOR_VERSION,
+        patch: PATCH_LEVEL,
+    })
+}
+
+pub fn compat_release_version() -> String {
+    compat_version().release()
+}
+
+pub fn compat_dist_version() -> String {
+    if std::env::var("CHERUBSH_BASH_COMPAT_VERSION")
+        .ok()
+        .filter(|value| !value.is_empty())
+        .is_none()
+    {
+        return DIST_VERSION.to_string();
+    }
+    compat_version().dist()
+}
+
+pub fn compat_shell_version_with_build() -> String {
+    format!("{}({BUILD_VERSION})-release", compat_release_version())
+}
+
+fn parse_compat_version(raw: &str) -> Option<CompatVersion> {
+    let numeric = raw
+        .split(|c: char| !(c.is_ascii_digit() || c == '.'))
+        .find(|part| !part.is_empty())?;
+    let mut parts = numeric.split('.');
+    let major = parts.next()?.parse().ok()?;
+    let minor = parts.next().unwrap_or("0").parse().ok()?;
+    let patch = parts.next().unwrap_or("0").parse().ok()?;
+    Some(CompatVersion {
+        major,
+        minor,
+        patch,
+    })
+}
+
 pub fn show_shell_version() {
-    println!(
-        "cherubsh, version {SHELL_VERSION}-release (bash-{DIST_VERSION} parity, x86_64-rust-linux-gnu)"
-    );
+    let version = compat_release_version();
+    let dist = compat_dist_version();
+    println!("cherubsh, version {version}-release (bash-{dist} parity, x86_64-rust-linux-gnu)");
     println!("Copyright (C) 2025 cherubsh contributors");
-    println!("License: GPLv3+ (mirrors bash; see bash-5.2.21/COPYING)");
+    println!("License: GPLv3+ (mirrors bash; see bash-5.3/COPYING)");
 }
 
 pub fn show_shell_usage() {
-    println!("Usage: cherubsh [GNU long option] [option] ...");
-    println!("       cherubsh [GNU long option] [option] script-file ...");
-    println!("GNU long options:");
-    println!("    --debug      --help       --init-file <file>  --login");
-    println!("    --noediting  --noprofile  --norc              --posix");
-    println!("    --pretty-print            --rcfile <file>     --restricted");
-    println!("    --verbose    --version    --wordexp");
-    println!("Shell options:");
-    println!("    -ilrsD or -c command  -O shopt_option or +O shopt_option");
-    println!("    -abefhkmnptuvxBCEHPT or -o option");
-    println!();
-    println!("Type `cherubsh -c \"help\"' for more information about shell builtins (TODO).");
+    print_shell_usage("cherubsh", false);
+}
+
+pub fn show_shell_invocation_usage(shell_name: &str) {
+    print_shell_usage(shell_name, true);
+}
+
+fn print_shell_usage(shell_name: &str, stderr: bool) {
+    macro_rules! out {
+        ($($arg:tt)*) => {
+            if stderr {
+                eprintln!($($arg)*);
+            } else {
+                println!($($arg)*);
+            }
+        };
+    }
+    out!("{shell_name} [GNU long option] [option] ...");
+    out!("{shell_name} [GNU long option] [option] script-file ...");
+    out!("GNU long options:");
+    out!("\t--debug");
+    out!("\t--debugger");
+    out!("\t--dump-po-strings");
+    out!("\t--dump-strings");
+    out!("\t--help");
+    out!("\t--init-file");
+    out!("\t--login");
+    out!("\t--noediting");
+    out!("\t--noprofile");
+    out!("\t--norc");
+    out!("\t--posix");
+    out!("\t--pretty-print");
+    out!("\t--rcfile");
+    out!("\t--restricted");
+    out!("\t--verbose");
+    out!("\t--version");
+    out!("Shell options:");
+    out!("\t-ilrsD or -c command or -O shopt_option\t\t(invocation only)");
+    out!("\t-abefhkmnptuvxBCEHPT or -o option");
 }

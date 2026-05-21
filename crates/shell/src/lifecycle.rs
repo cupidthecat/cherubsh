@@ -2,13 +2,11 @@ use std::ffi::CStr;
 
 use cherubsh_common::{Environment, VarAttrs};
 
-use crate::options::{
-    BUILD_VERSION, MACHTYPE, MAJOR_VERSION, MINOR_VERSION, PATCH_LEVEL, SHELL_VERSION,
-};
+use crate::options::{compat_shell_version_with_build, compat_version, BUILD_VERSION, MACHTYPE};
 use crate::signals::{acquire_terminal, install_job_control_signals};
 use crate::state::{ShellState, StartupMode, VariableEntry};
 
-/// bash-5.2.21 config-top.h: DEFAULT_PATH_VALUE.
+/// bash-5.3 config-top.h: DEFAULT_PATH_VALUE.
 const DEFAULT_PATH_VALUE: &str = "/usr/local/bin:/usr/local/sbin:/usr/bin:/usr/sbin:/bin:/sbin:.";
 const BASH_LOADABLES_PATH_VALUE: &str =
     "/usr/local/lib/bash:/usr/lib/bash:/opt/local/lib/bash:/usr/pkg/lib/bash:/opt/pkg/lib/bash:.";
@@ -19,6 +17,9 @@ pub fn init_interactive(state: &mut ShellState) {
     state.interactive = true;
     state.interactive_shell = true;
     state.startup_state = StartupMode::Interactive;
+    state.shopt_options.insert("emacs".to_string(), true);
+    state.shopt_options.insert("history".to_string(), true);
+    state.shopt_options.insert("histexpand".to_string(), true);
 
     let mut tty_fd: Option<i32> = None;
     let mut shell_pgrp: i32 = unsafe { libc::getpgrp() };
@@ -28,6 +29,7 @@ pub fn init_interactive(state: &mut ShellState) {
         state.shell_pgrp_value = shell_pgrp;
         state.original_pgrp_value = original_pgrp;
         state.job_control = true;
+        state.set_option("monitor", true);
         install_job_control_signals();
     }
 }
@@ -50,6 +52,7 @@ pub fn shell_initialize(state: &mut ShellState) {
         return;
     }
     state.import_process_env();
+    apply_imported_option_vars(state);
 
     let pid = unsafe { libc::getpid() };
     let ppid = unsafe { libc::getppid() };
@@ -57,11 +60,7 @@ pub fn shell_initialize(state: &mut ShellState) {
         .map(|p| p.display().to_string())
         .unwrap_or_default();
 
-    bind(
-        state,
-        "BASH_VERSION",
-        format!("{SHELL_VERSION}({BUILD_VERSION})-release"),
-    );
+    bind(state, "BASH_VERSION", compat_shell_version_with_build());
     bind_bash_versinfo(state);
     bind(state, "BASH", shell_executable_path());
     bind(
@@ -129,8 +128,34 @@ pub fn shell_initialize(state: &mut ShellState) {
     bind_exported_unset(state, "OLDPWD");
     std::env::remove_var("OLDPWD");
     state.set_array("GROUPS", current_groups());
+    state.groups_dynamic = true;
 
     state.shell_initialized = true;
+}
+
+fn apply_imported_option_vars(state: &mut ShellState) {
+    if let Some(value) = state
+        .variables
+        .get("BASHOPTS")
+        .and_then(|entry| entry.has_value.then(|| entry.value.clone()))
+    {
+        for name in value.split(':').filter(|name| !name.is_empty()) {
+            if cherubsh_builtins::shopt_table::lookup(name).is_some() {
+                state.set_option(name, true);
+            }
+        }
+    }
+    if let Some(value) = state
+        .variables
+        .get("SHELLOPTS")
+        .and_then(|entry| entry.has_value.then(|| entry.value.clone()))
+    {
+        for name in value.split(':').filter(|name| !name.is_empty()) {
+            if cherubsh_builtins::options::lookup_long(name).is_some() {
+                state.set_option(name, true);
+            }
+        }
+    }
 }
 
 fn shell_executable_path() -> String {
@@ -187,12 +212,13 @@ fn bind_exported_unset(state: &mut ShellState, name: &str) {
 }
 
 fn bind_bash_versinfo(state: &mut ShellState) {
+    let version = compat_version();
     state.set_array(
         "BASH_VERSINFO",
         vec![
-            MAJOR_VERSION.to_string(),
-            MINOR_VERSION.to_string(),
-            PATCH_LEVEL.to_string(),
+            version.major.to_string(),
+            version.minor.to_string(),
+            version.patch.to_string(),
             BUILD_VERSION.to_string(),
             String::from("release"),
             String::from(MACHTYPE),

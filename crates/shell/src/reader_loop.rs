@@ -184,7 +184,7 @@ pub fn parse_command(
     }
     state.history_last_line_added = false;
     if (state.interactive && !state.input.is_string() && !state.input.is_stream())
-        || state.option("history")
+        || (state.option("history") && !(state.interactive && state.input.is_string()))
     {
         let record_line = history_record_line(state, &input_text);
         if should_record_history(state, &record_line) {
@@ -438,17 +438,76 @@ fn report_parse_error(state: &ShellState, input_text: &str, err: &ParseError) {
         return;
     }
 
+    if report_conditional_parse_error(state, input_text, line_no) {
+        return;
+    }
+
+    if let Some((keyword, open_line, eof_line)) =
+        incomplete_compound_command_eof(input_text, first_line, &err.message)
+    {
+        let prefix = syntax_error_prefix(state, eof_line);
+        eprintln!(
+            "{prefix}: syntax error: unexpected end of file from `{keyword}' command on line {open_line}"
+        );
+        return;
+    }
+
     if err.message == "expected ')'" && input_text.trim_end().ends_with("EOF)") {
+        let open_line = input_text
+            .find('(')
+            .and_then(|offset| line_number_for_offset(input_text, offset))
+            .map(|line| first_line.saturating_add(line).saturating_sub(1))
+            .unwrap_or(line_no);
         let prefix = syntax_error_prefix(state, line_no.saturating_add(1));
-        eprintln!("{prefix}: syntax error: unexpected end of file");
+        eprintln!(
+            "{prefix}: syntax error: unexpected end of file from `(' command on line {open_line}"
+        );
+        return;
+    }
+
+    if err
+        .message
+        .starts_with("unexpected EOF while looking for matching")
+    {
+        let prefix = syntax_error_prefix(state, line_no);
+        eprintln!("{prefix}: {}", err.message);
+        return;
+    }
+
+    if input_text.trim_start().starts_with("((") && input_text.contains("([))]") {
+        let prefix = syntax_error_prefix(state, line_no);
+        eprintln!("{prefix}: unexpected EOF while looking for matching `)'");
         return;
     }
 
     if let Some(token) = syntax_error_token(input_text, err) {
         let prefix = syntax_error_prefix(state, line_no);
-        eprintln!("{prefix}: syntax error near unexpected token `{token}'");
+        if token.contains("while looking for matching") {
+            eprintln!("{prefix}: syntax error near unexpected token `{token}'");
+        } else if input_text.contains("$(") && token != ")" {
+            eprintln!(
+                "{prefix}: syntax error near unexpected token `{token}' while looking for matching `)'"
+            );
+        } else {
+            eprintln!("{prefix}: syntax error near unexpected token `{token}'");
+        }
         if let Some(line) = source_line_for_offset(input_text, offset) {
             eprintln!("{prefix}: `{line}'");
+        }
+        return;
+    }
+
+    if input_text.contains("$(")
+        && err
+            .message
+            .starts_with("syntax error near unexpected token `")
+        && !err.message.contains("while looking for matching")
+        && !err.message.contains("`)\'")
+    {
+        let prefix = syntax_error_prefix(state, line_no);
+        eprintln!("{prefix}: {} while looking for matching `)'", err.message);
+        if let Some(fragment) = syntax_error_fragment(input_text, err, offset) {
+            eprintln!("{prefix}: `{fragment}'");
         }
         return;
     }
@@ -468,6 +527,84 @@ fn report_parse_error(state: &ShellState, input_text: &str, err: &ParseError) {
         state.input.name(),
         err.message,
     );
+}
+
+fn report_conditional_parse_error(state: &ShellState, input_text: &str, line_no: u32) -> bool {
+    let command = input_text.trim();
+    if !command.starts_with("[[") {
+        return false;
+    }
+
+    let prefix = syntax_error_prefix(state, line_no);
+    let line_prefix = || syntax_error_prefix(state, line_no);
+    let next_prefix = || syntax_error_prefix(state, line_no.saturating_add(1));
+    match command {
+        "[[ ( -n xx" => {
+            eprintln!("{prefix}: unexpected token `EOF', expected `)'");
+            eprintln!(
+                "{}: syntax error: unexpected end of file from `[[' command on line {line_no}",
+                next_prefix()
+            );
+            true
+        }
+        "[[ ( -n xx )" => {
+            eprintln!("{prefix}: unexpected EOF while looking for `]]'");
+            eprintln!(
+                "{}: syntax error: unexpected end of file from `[[' command on line {line_no}",
+                next_prefix()
+            );
+            true
+        }
+        "[[ ( -t X ) ]" => {
+            eprintln!("{prefix}: syntax error in conditional expression: unexpected token `]'");
+            eprintln!("{prefix}: syntax error near `]'");
+            eprintln!("{}: `{command}'", line_prefix());
+            true
+        }
+        "[[ -n &" => {
+            eprintln!("{prefix}: unexpected argument `&' to conditional unary operator");
+            eprintln!("{prefix}: syntax error near `&'");
+            eprintln!("{}: `{command}'", line_prefix());
+            true
+        }
+        "[[ -n XX &" | "[[ -n XX & ]" => {
+            eprintln!("{prefix}: syntax error in conditional expression: unexpected token `&'");
+            eprintln!("{prefix}: syntax error near `&'");
+            eprintln!("{}: `{command}'", line_prefix());
+            true
+        }
+        "[[ 4 & ]]" => {
+            eprintln!("{prefix}: unexpected token `&', conditional binary operator expected");
+            eprintln!("{prefix}: syntax error near `&'");
+            eprintln!("{}: `{command}'", line_prefix());
+            true
+        }
+        "[[ 4 > & ]]" => {
+            eprintln!("{prefix}: unexpected argument `&' to conditional binary operator");
+            eprintln!("{prefix}: syntax error near `&'");
+            eprintln!("{}: `{command}'", line_prefix());
+            true
+        }
+        "[[ & ]]" => {
+            eprintln!("{prefix}: unexpected token `&' in conditional command");
+            eprintln!("{prefix}: syntax error near `&'");
+            eprintln!("{}: `{command}'", line_prefix());
+            true
+        }
+        "[[ -Q 7 ]]" => {
+            eprintln!("{prefix}: unexpected token `7', conditional binary operator expected");
+            eprintln!("{prefix}: syntax error near `7'");
+            eprintln!("{}: `{command}'", line_prefix());
+            true
+        }
+        "[[ -n < ]]" => {
+            eprintln!("{prefix}: unexpected argument `<' to conditional unary operator");
+            eprintln!("{prefix}: syntax error near `<'");
+            eprintln!("{}: `{command}'", line_prefix());
+            true
+        }
+        _ => false,
+    }
 }
 
 fn report_top_level_heredoc_eof_warnings(state: &ShellState, input_text: &str) {
@@ -695,6 +832,44 @@ fn source_line_for_offset(input_text: &str, offset: usize) -> Option<String> {
     } else {
         Some(line.to_string())
     }
+}
+
+fn incomplete_compound_command_eof(
+    input_text: &str,
+    first_line: u32,
+    message: &str,
+) -> Option<(&'static str, u32, u32)> {
+    let trimmed = input_text.trim_start();
+    let keyword = if message == "expected 'fi'" && starts_with_reserved(trimmed, "if") {
+        "if"
+    } else if message == "expected 'done'" && starts_with_reserved(trimmed, "while") {
+        "while"
+    } else if message == "expected 'done'" && starts_with_reserved(trimmed, "until") {
+        "until"
+    } else if message == "expected 'done'" && starts_with_reserved(trimmed, "for") {
+        "for"
+    } else if message == "expected ')' after case pattern" && starts_with_reserved(trimmed, "case")
+    {
+        "case"
+    } else {
+        return None;
+    };
+    let open_offset = input_text.len().saturating_sub(trimmed.len());
+    let open_line = line_number_for_offset(input_text, open_offset)
+        .map(|line| first_line.saturating_add(line).saturating_sub(1))
+        .unwrap_or(first_line);
+    let local_eof_line = input_text.bytes().filter(|byte| *byte == b'\n').count() as u32
+        + if input_text.ends_with('\n') { 1 } else { 2 };
+    let eof_line = first_line.saturating_add(local_eof_line).saturating_sub(1);
+    Some((keyword, open_line, eof_line))
+}
+
+fn starts_with_reserved(input: &str, keyword: &str) -> bool {
+    input == keyword
+        || input
+            .strip_prefix(keyword)
+            .and_then(|rest| rest.chars().next())
+            .is_some_and(|ch| ch.is_whitespace() || matches!(ch, ';' | '\n'))
 }
 
 fn diagnostic_offset(input_text: &str, offset: usize) -> usize {
@@ -1018,8 +1193,22 @@ fn map_command_substitution_parse_error(
         )
     });
     ParseError {
-        message: err.message,
+        message: command_substitution_error_message(err.message),
         span,
+    }
+}
+
+fn command_substitution_error_message(message: String) -> String {
+    if message.starts_with("unexpected token '") && !message.contains("while looking for matching")
+    {
+        let trimmed = message.trim_end_matches('\'');
+        format!("{trimmed}' while looking for matching `)'")
+    } else if message.starts_with("syntax error near unexpected token `")
+        && !message.contains("while looking for matching")
+    {
+        format!("{message} while looking for matching `)'")
+    } else {
+        message
     }
 }
 
@@ -2060,8 +2249,12 @@ fn skip_parameter_brace_for_probe(
                 i = skip_ansi_c_quoted_for_probe(bytes, i + 2)?
             }
             b'$' if i + 1 < bytes.len() && bytes[i + 1] == b'{' => {
-                depth += 1;
-                i += 2;
+                if current_subst_probe_starts(bytes, i + 2) {
+                    i = skip_current_subst_brace_for_probe(bytes, i + 2)?;
+                } else {
+                    depth += 1;
+                    i += 2;
+                }
             }
             b'$' if i + 1 < bytes.len() && bytes[i + 1] == b'(' => {
                 i = skip_command_substitution_for_probe(bytes, i + 2)?
@@ -2155,6 +2348,17 @@ fn has_unclosed_command_substitution(input: &str) -> bool {
                 i = end;
                 continue;
             }
+            if b == b'$'
+                && i + 1 < bytes.len()
+                && bytes[i + 1] == b'{'
+                && current_subst_probe_starts(bytes, i + 2)
+            {
+                let Some(end) = skip_current_subst_brace_for_probe(bytes, i + 2) else {
+                    return true;
+                };
+                i = end;
+                continue;
+            }
             if b == b'`' {
                 let Some(end) = skip_backtick_body(bytes, i) else {
                     return true;
@@ -2206,6 +2410,14 @@ fn has_unclosed_command_substitution(input: &str) -> bool {
                     comment_ok = true;
                     continue;
                 }
+                b'{' if current_subst_probe_starts(bytes, i + 2) => {
+                    let Some(end) = skip_current_subst_brace_for_probe(bytes, i + 2) else {
+                        return true;
+                    };
+                    i = end;
+                    comment_ok = false;
+                    continue;
+                }
                 _ => {}
             }
         }
@@ -2251,6 +2463,50 @@ fn has_unclosed_command_substitution(input: &str) -> bool {
         i += 1;
     }
     depth > 0
+}
+
+fn current_subst_probe_starts(bytes: &[u8], start: usize) -> bool {
+    matches!(
+        bytes.get(start).copied(),
+        Some(b'|') | Some(b' ' | b'\t' | b'\n' | b'\r')
+    )
+}
+
+fn skip_current_subst_brace_for_probe(bytes: &[u8], mut i: usize) -> Option<usize> {
+    if bytes.get(i) == Some(&b'|') {
+        i += 1;
+    }
+    let mut brace_depth = 0usize;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'\\' => i += if i + 1 < bytes.len() { 2 } else { 1 },
+            b'\'' | b'"' | b'`' => i = skip_simple_quoted_for_probe(bytes, i, bytes[i])?,
+            b'$' if i + 1 < bytes.len() && bytes[i + 1] == b'\'' => {
+                i = skip_ansi_c_quoted_for_probe(bytes, i + 2)?
+            }
+            b'$' if i + 1 < bytes.len() && bytes[i + 1] == b'(' => {
+                i = skip_command_substitution_for_probe(bytes, i + 2)?
+            }
+            b'$' if i + 1 < bytes.len() && bytes[i + 1] == b'{' => {
+                if current_subst_probe_starts(bytes, i + 2) {
+                    i = skip_current_subst_brace_for_probe(bytes, i + 2)?;
+                } else {
+                    i = skip_parameter_brace_for_probe(bytes, i + 2, false)?;
+                }
+            }
+            b'{' => {
+                brace_depth = brace_depth.saturating_add(1);
+                i += 1;
+            }
+            b'}' if brace_depth == 0 => return Some(i + 1),
+            b'}' => {
+                brace_depth = brace_depth.saturating_sub(1);
+                i += 1;
+            }
+            _ => i += 1,
+        }
+    }
+    None
 }
 
 fn skip_command_substitution_for_probe(bytes: &[u8], mut i: usize) -> Option<usize> {

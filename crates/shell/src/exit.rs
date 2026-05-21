@@ -56,7 +56,7 @@ pub fn exit_shell(state: &mut ShellState, exec_state: &mut ExecState, status: i3
 
     let _ = std::io::stdout().flush();
     let _ = std::io::stderr().flush();
-    if state.interactive_shell {
+    if state.interactive_shell || state.login_shell != 0 {
         bash_logout(state);
     }
     let _ = std::io::stdout().flush();
