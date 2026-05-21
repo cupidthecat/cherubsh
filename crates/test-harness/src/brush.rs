@@ -23,10 +23,11 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use serde::Deserialize;
 use serde_yaml::Value;
 
-use crate::{cherub_path, oracle_bash_path, workspace_root, HarnessError, RunOutput};
+use crate::{
+    cherub_path, oracle_bash_path, oracle_version_dir, workspace_root, HarnessError, RunOutput,
+};
 
 const DEFAULT_TIMEOUT_SECS: u64 = 15;
-const ORACLE_VERSION: &str = "5.2.21";
 const SIGKILL: i32 = 9;
 
 static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -326,7 +327,7 @@ fn skip_reason(case: &BrushCase) -> Option<String> {
         .as_ref()
         .and_then(value_to_string)
     {
-        if compare_versions(ORACLE_VERSION, &min) == std::cmp::Ordering::Less {
+        if compare_versions(&oracle_version_dir(), &min) == std::cmp::Ordering::Less {
             return Some(format!("requires bash >= {min}"));
         }
     }
@@ -336,7 +337,7 @@ fn skip_reason(case: &BrushCase) -> Option<String> {
         .as_ref()
         .and_then(value_to_string)
     {
-        if compare_versions(ORACLE_VERSION, &max) == std::cmp::Ordering::Greater {
+        if compare_versions(&oracle_version_dir(), &max) == std::cmp::Ordering::Greater {
             return Some(format!("requires bash <= {max}"));
         }
     }

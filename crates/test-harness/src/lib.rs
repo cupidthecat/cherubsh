@@ -29,7 +29,8 @@ impl std::fmt::Display for HarnessError {
             ),
             Self::OracleUnavailable(path) => write!(
                 f,
-                "bash-5.2.21 oracle not available at {} (run oracle/build-bash-5.2.21.sh)",
+                "bash {} oracle not available at {}",
+                oracle_version(),
                 path.display()
             ),
         }
@@ -165,16 +166,44 @@ pub fn workspace_root() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("/home/frank/bash-rust/cherubsh"))
 }
 
-/// Path to the bash-5.2.21 oracle binary. Reads `BASH_521_PATH` env, defaults
-/// to the repo-local oracle build under `target/oracle`.
-pub fn oracle_bash_path() -> PathBuf {
-    if let Ok(path) = std::env::var("BASH_521_PATH") {
-        return PathBuf::from(path);
-    }
-    workspace_root().join("target/oracle/bash-5.2.21/bash")
+/// Selected Bash oracle version. Defaults to Bash 5.3 while preserving an
+/// explicit Bash 5.2.21 gate for legacy comparisons.
+pub fn oracle_version() -> String {
+    std::env::var("BASH_ORACLE_VERSION").unwrap_or_else(|_| "5.3".to_string())
 }
 
-/// True if the oracle binary exists and reports version 5.2.21.
+pub fn oracle_version_dir() -> String {
+    match oracle_version().as_str() {
+        "5.2" | "5.2.21" => "5.2.21".to_string(),
+        "5.3" | "5.3.0" => "5.3".to_string(),
+        other => other.to_string(),
+    }
+}
+
+/// Path to the selected bash oracle binary. Reads the generic
+/// `BASH_ORACLE_PATH` first, then the version-specific legacy variables.
+pub fn oracle_bash_path() -> PathBuf {
+    if let Ok(path) = std::env::var("BASH_ORACLE_PATH") {
+        return PathBuf::from(path);
+    }
+    match oracle_version_dir().as_str() {
+        "5.2.21" => {
+            if let Ok(path) = std::env::var("BASH_521_PATH") {
+                return PathBuf::from(path);
+            }
+            workspace_root().join("target/oracle/bash-5.2.21/bash")
+        }
+        "5.3" => {
+            if let Ok(path) = std::env::var("BASH_53_PATH") {
+                return PathBuf::from(path);
+            }
+            workspace_root().join("target/oracle/bash-5.3/bash")
+        }
+        other => workspace_root().join(format!("target/oracle/bash-{other}/bash")),
+    }
+}
+
+/// True if the oracle binary exists and reports the selected version.
 pub fn oracle_available() -> bool {
     let path = oracle_bash_path();
     if !path.exists() {
@@ -189,7 +218,11 @@ pub fn oracle_available() -> bool {
     match output {
         Ok(out) => {
             let banner = String::from_utf8_lossy(&out.stdout);
-            banner.contains("version 5.2.21")
+            match oracle_version_dir().as_str() {
+                "5.2.21" => banner.contains("version 5.2.21"),
+                "5.3" => banner.contains("version 5.3.0") || banner.contains("version 5.3"),
+                other => banner.contains(&format!("version {other}")),
+            }
         }
         Err(_) => false,
     }
@@ -336,10 +369,10 @@ pub fn assert_parser_accepts_like_bash(script: &str) {
 ///   output is treated as the expected answer. This is what `assert_parity`
 ///   does - it shells out to bash for ground truth, then diffs cherubsh.
 ///
-/// Oracle resolution: prefers the bash-5.2.21 binary at `oracle_bash_path()`
+/// Oracle resolution: prefers the selected bash binary at `oracle_bash_path()`
 /// if `oracle_available()`. Falls back to `default_bash_path()` (`/bin/bash`)
-/// with a warning when 5.2.21 is missing - useful during local development
-/// before the oracle is built. CI should always have the 5.2.21 oracle
+/// with a warning when the selected oracle is missing - useful during local development
+/// before the oracle is built. CI should always have the selected oracle
 /// present and use [`assert_parity_strict`] when divergence-from-5.2.21 is
 /// the explicit goal.
 pub fn assert_parity(spec: &RunSpec<'_>) {
@@ -349,7 +382,8 @@ pub fn assert_parity(spec: &RunSpec<'_>) {
     } else {
         let fallback = default_bash_path();
         eprintln!(
-            "warn: bash-5.2.21 oracle missing at {}; falling back to {} (set BASH_521_PATH or run oracle/build-bash-5.2.21.sh)",
+            "warn: bash {} oracle missing at {}; falling back to {}",
+            oracle_version(),
             oracle.display(),
             fallback.display(),
         );
@@ -365,12 +399,13 @@ pub fn assert_parity(spec: &RunSpec<'_>) {
     run_assert_parity(&bash_path, spec);
 }
 
-/// Strict variant: hard-fail if the bash-5.2.21 oracle is unavailable. Use
+/// Strict variant: hard-fail if the selected bash oracle is unavailable. Use
 /// from CI sweeps and from upstream-test wiring where parity is not optional.
 pub fn assert_parity_strict(spec: &RunSpec<'_>) {
     if !oracle_available() {
         panic!(
-            "bash-5.2.21 oracle not available at {}; build via oracle/build-bash-5.2.21.sh",
+            "bash {} oracle not available at {}",
+            oracle_version(),
             oracle_bash_path().display()
         );
     }
@@ -537,12 +572,12 @@ mod tests {
     fn oracle_path_honors_env_override() {
         // SAFETY: tests in this crate are single-threaded by default for env
         // mutation; if expanded, gate behind a Mutex.
-        let prev = std::env::var_os("BASH_521_PATH");
-        std::env::set_var("BASH_521_PATH", "/some/explicit/path");
+        let prev = std::env::var_os("BASH_ORACLE_PATH");
+        std::env::set_var("BASH_ORACLE_PATH", "/some/explicit/path");
         assert_eq!(oracle_bash_path(), PathBuf::from("/some/explicit/path"));
         match prev {
-            Some(value) => std::env::set_var("BASH_521_PATH", value),
-            None => std::env::remove_var("BASH_521_PATH"),
+            Some(value) => std::env::set_var("BASH_ORACLE_PATH", value),
+            None => std::env::remove_var("BASH_ORACLE_PATH"),
         }
     }
 

@@ -1,4 +1,4 @@
-//! Driver for the bash-5.2.21 upstream test suite (`bash-5.2.21/tests/`).
+//! Driver for the selected Bash upstream test suite.
 //!
 //! Each upstream test is a `run-<name>` shell script that invokes
 //! `${THIS_SH} ./<name>.tests` and diffs the captured output against
@@ -21,7 +21,7 @@ use std::sync::OnceLock;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use crate::{oracle_bash_path, workspace_root, HarnessError};
+use crate::{oracle_bash_path, oracle_version_dir, workspace_root, HarnessError};
 
 #[derive(Debug, Clone)]
 pub struct UpstreamTest {
@@ -133,8 +133,12 @@ pub fn run_upstream(
     command.env("HOME", &clean_home);
     command.env("THIS_SH", &shell_for_test);
     command.env("BASH", &shell_for_test);
+    command.env("BASH_ORACLE_PATH", oracle_bash_path());
+    if oracle_version_dir() == "5.2.21" {
+        command.env("CHERUBSH_BASH_COMPAT_VERSION", "5.2.21");
+    }
     command.env("BUILD_DIR", tests_dir.parent().unwrap_or(&tests_dir));
-    // Upstream drivers redirect to ${BASH_TSTOUT}; the bash-5.2.21 run-all
+    // Upstream drivers redirect to ${BASH_TSTOUT}; the Bash run-all
     // script sets this up centrally, but we run drivers individually so we
     // must provide a unique tmp file per invocation.
     let tstout = std::env::temp_dir().join(format!(
@@ -153,6 +157,7 @@ pub fn run_upstream(
         let inherited_slave = pty.slave;
         unsafe {
             command.pre_exec(move || {
+                close_inherited_fds(Some(inherited_slave));
                 libc::setsid();
                 let fd = libc::open(slave_path.as_ptr(), libc::O_RDWR);
                 if fd >= 0 {
@@ -165,6 +170,12 @@ pub fn run_upstream(
         }
     } else {
         command.process_group(0);
+        unsafe {
+            command.pre_exec(|| {
+                close_inherited_fds(None);
+                Ok(())
+            });
+        }
     }
 
     let mut child = command.spawn().map_err(HarnessError::Io)?;
@@ -232,6 +243,16 @@ pub fn run_upstream(
         timed_out,
         tstout_path,
     })
+}
+
+fn close_inherited_fds(except: Option<RawFd>) {
+    for fd in 3..256 {
+        if Some(fd) != except {
+            unsafe {
+                libc::close(fd);
+            }
+        }
+    }
 }
 
 struct ControllingPty {
@@ -384,7 +405,13 @@ fn upstream_support_helper(tests_dir: &Path) -> Option<UpstreamSupportHelper> {
 }
 
 fn prepare_upstream_support_helper() -> Option<UpstreamSupportHelper> {
-    let vendor_dir = workspace_root().join("vendor/bash-5.2.21");
+    let vendor_dir = std::env::var("BASH_TESTS_DIR")
+        .ok()
+        .map(PathBuf::from)
+        .or_else(|| std::env::var("BASH_53_TESTS_DIR").ok().map(PathBuf::from))
+        .or_else(|| std::env::var("BASH_521_TESTS_DIR").ok().map(PathBuf::from))
+        .and_then(|tests_dir| tests_dir.parent().map(Path::to_path_buf))
+        .unwrap_or_else(|| workspace_root().join("vendor/bash-5.3"));
     let source_dir = vendor_dir.join("support");
     let root = std::env::temp_dir().join(format!(
         "cherub-upstream-support-{}-{}",
