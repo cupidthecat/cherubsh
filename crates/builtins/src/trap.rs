@@ -49,14 +49,16 @@ impl Builtin for Trap {
         BuiltinFlags::SPECIAL | BuiltinFlags::POSIX
     }
     fn synopsis(&self) -> &'static str {
-        "trap [-lp] [[arg] signal_spec ...]"
+        "trap [-Plp] [[action] signal_spec ...]"
     }
     fn run(&self, ctx: &mut BuiltinCtx<'_>) -> i32 {
         let mut list_signals = false;
         let mut print_only = false;
-        let mut parser = OptParser::new(ctx.args, "lp");
+        let mut print_plain = false;
+        let mut parser = OptParser::new(ctx.args, "Plp");
         loop {
             match parser.next() {
+                GetOpt::Opt { ch: 'P', .. } => print_plain = true,
                 GetOpt::Opt { ch: 'l', .. } => list_signals = true,
                 GetOpt::Opt { ch: 'p', .. } => print_only = true,
                 GetOpt::Opt { .. } => {}
@@ -92,6 +94,35 @@ impl Builtin for Trap {
             return 0;
         }
         let rest = parser.remaining(ctx.args);
+        if print_only && print_plain {
+            report_diagnostic(ctx.env_ref(), "trap", "cannot specify both -p and -P");
+            return 2;
+        }
+        if print_plain {
+            if rest.is_empty() {
+                report_diagnostic(
+                    ctx.env_ref(),
+                    "trap",
+                    "-P requires at least one signal name",
+                );
+                eprintln!("trap: usage: {}", self.synopsis());
+                return 2;
+            }
+            for sig in rest {
+                if !is_signal_spec(sig) {
+                    report_diagnostic(
+                        ctx.env_ref(),
+                        "trap",
+                        &format!("{sig}: invalid signal specification"),
+                    );
+                    return 1;
+                }
+                if let Some(act) = ctx.env_ref().trap_get(sig) {
+                    println!("{act}");
+                }
+            }
+            return 0;
+        }
         if print_only {
             if rest.is_empty() {
                 print_traps(ctx);
@@ -125,6 +156,11 @@ impl Builtin for Trap {
         } else {
             (Some(rest[0].clone()), &rest[1..])
         };
+
+        if signals.is_empty() && action.as_deref() != Some("") {
+            eprintln!("trap: usage: {}", self.synopsis());
+            return 2;
+        }
 
         for sig in signals {
             if !is_signal_spec(sig) {
@@ -216,8 +252,15 @@ fn is_signal_spec(s: &str) -> bool {
     let upper = s.to_ascii_uppercase();
     let stripped = upper.strip_prefix("SIG").unwrap_or(&upper);
     matches!(stripped, "EXIT" | "ERR" | "RETURN" | "DEBUG")
-        || stripped.parse::<i32>().is_ok()
+        || stripped
+            .parse::<i32>()
+            .ok()
+            .is_some_and(valid_signal_number)
         || SIGNAL_NAMES.iter().any(|(_, n)| *n == stripped)
+}
+
+fn valid_signal_number(n: i32) -> bool {
+    n == 0 || SIGNAL_NAMES.iter().any(|(num, _)| *num == n)
 }
 
 fn canonical_signal_name(name: &str) -> String {

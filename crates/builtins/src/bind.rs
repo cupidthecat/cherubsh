@@ -82,6 +82,7 @@ impl Builtin for Bind {
             return 0;
         }
         if let Some(seq) = remove_seq {
+            let seq = trim_keyseq_quotes(&seq);
             ctx.env().keymap_unbind(&active, &seq);
             return 0;
         }
@@ -105,20 +106,26 @@ impl Builtin for Bind {
         }
         if let Some(name) = query_fn {
             // Print key sequences bound to the named function.
+            let mut found = false;
             if let Some(kmap) = ctx.env_ref().keymap_get(&active) {
                 let want = parse_function_name(&name);
                 for (seq, act) in &kmap.bindings {
                     if Some(*act) == want {
                         println!("{} can be invoked via \"{}\".", name, seq);
+                        found = true;
                     }
                 }
             }
-            return 0;
+            if found {
+                return 0;
+            }
+            println!("{name} is not bound to any keys.");
+            return 1;
         }
         if let Some(spec) = x_bind {
-            if let Some((seq, _cmd)) = spec.split_once(':') {
-                ctx.env()
-                    .keymap_bind_shell_command(&active, seq, &spec[seq.len() + 1..]);
+            if let Some((seq, cmd)) = spec.split_once(':') {
+                let seq = trim_keyseq_quotes(seq);
+                ctx.env().keymap_bind_shell_command(&active, &seq, cmd);
             }
             return 0;
         }
@@ -133,6 +140,14 @@ impl Builtin for Bind {
             if let Some(kmap) = ctx.env_ref().keymap_get(&active) {
                 for (seq, act) in &kmap.bindings {
                     match *act {
+                        EditAction::ShellCommand(idx) => {
+                            let Some(command) = kmap.shell_commands.get(idx as usize) else {
+                                continue;
+                            };
+                            if print_xbinds {
+                                println!("\"{seq}\" \"{command}\"");
+                            }
+                        }
                         EditAction::Macro(idx) => {
                             let Some(text) = kmap.macros.get(idx as usize) else {
                                 continue;
@@ -175,6 +190,10 @@ fn quoted_macro(value: &str) -> Option<&str> {
     value
         .strip_prefix('"')
         .and_then(|value| value.strip_suffix('"'))
+}
+
+fn trim_keyseq_quotes(value: &str) -> String {
+    value.trim_matches('"').to_string()
 }
 
 fn parse_function_name(name: &str) -> Option<EditAction> {
@@ -260,47 +279,182 @@ fn action_name(action: EditAction) -> &'static str {
 
 fn known_function_names() -> &'static [&'static str] {
     &[
-        "beginning-of-line",
-        "end-of-line",
-        "forward-char",
+        "abort",
+        "accept-line",
+        "alias-expand-line",
+        "arrow-key-prefix",
+        "backward-byte",
         "backward-char",
-        "forward-word",
-        "backward-word",
-        "delete-char",
         "backward-delete-char",
-        "self-insert",
-        "kill-line",
         "backward-kill-line",
-        "kill-word",
         "backward-kill-word",
-        "unix-word-rubout",
-        "unix-line-discard",
-        "yank",
-        "yank-pop",
+        "backward-word",
+        "bash-vi-complete",
+        "beginning-of-history",
+        "beginning-of-line",
+        "bracketed-paste-begin",
+        "call-last-kbd-macro",
+        "capitalize-word",
+        "character-search",
+        "character-search-backward",
+        "clear-display",
+        "clear-screen",
+        "complete",
+        "complete-command",
+        "complete-filename",
+        "complete-hostname",
+        "complete-into-braces",
+        "complete-username",
+        "complete-variable",
+        "copy-backward-word",
+        "copy-forward-word",
+        "copy-region-as-kill",
+        "dabbrev-expand",
+        "delete-char",
+        "delete-char-or-list",
+        "delete-horizontal-space",
+        "digit-argument",
+        "display-shell-version",
+        "do-lowercase-version",
+        "downcase-word",
+        "dump-functions",
+        "dump-macros",
+        "dump-variables",
+        "dynamic-complete-history",
+        "edit-and-execute-command",
+        "emacs-editing-mode",
+        "end-kbd-macro",
+        "end-of-history",
+        "end-of-line",
+        "exchange-point-and-mark",
+        "execute-named-command",
+        "export-completions",
+        "fetch-history",
+        "forward-backward-delete-char",
+        "forward-byte",
+        "forward-char",
+        "forward-search-history",
+        "forward-word",
+        "glob-complete-word",
+        "glob-expand-word",
+        "glob-list-expansions",
+        "history-and-alias-expand-line",
+        "history-expand-line",
+        "history-search-backward",
+        "history-search-forward",
+        "history-substring-search-backward",
+        "history-substring-search-forward",
+        "insert-comment",
+        "insert-completions",
+        "insert-last-argument",
+        "kill-line",
+        "kill-region",
+        "kill-whole-line",
+        "kill-word",
+        "magic-space",
+        "menu-complete",
+        "menu-complete-backward",
+        "next-history",
+        "next-screen-line",
+        "non-incremental-forward-search-history",
+        "non-incremental-forward-search-history-again",
+        "non-incremental-reverse-search-history",
+        "non-incremental-reverse-search-history-again",
+        "old-menu-complete",
+        "operate-and-get-next",
+        "overwrite-mode",
+        "possible-command-completions",
+        "possible-completions",
+        "possible-filename-completions",
+        "possible-hostname-completions",
+        "possible-username-completions",
+        "possible-variable-completions",
+        "previous-history",
+        "previous-screen-line",
+        "print-last-kbd-macro",
+        "quoted-insert",
+        "re-read-init-file",
+        "redraw-current-line",
+        "reverse-search-history",
+        "revert-line",
+        "self-insert",
+        "set-mark",
+        "shell-backward-kill-word",
+        "shell-backward-word",
+        "shell-expand-line",
+        "shell-forward-word",
+        "shell-kill-word",
+        "shell-transpose-words",
+        "skip-csi-sequence",
+        "spell-correct-word",
+        "start-kbd-macro",
+        "tab-insert",
+        "tilde-expand",
         "transpose-chars",
         "transpose-words",
-        "upcase-word",
-        "downcase-word",
-        "capitalize-word",
-        "previous-history",
-        "next-history",
-        "operate-and-get-next",
-        "beginning-of-history",
-        "end-of-history",
-        "reverse-search-history",
-        "forward-search-history",
-        "accept-line",
-        "complete",
-        "possible-completions",
-        "menu-complete",
+        "tty-status",
         "undo",
-        "revert-line",
-        "clear-screen",
-        "abort",
-        "vi-movement-mode",
-        "vi-insertion-mode",
-        "vi-append-mode",
+        "universal-argument",
+        "unix-filename-rubout",
+        "unix-line-discard",
+        "unix-word-rubout",
+        "upcase-word",
         "vi-append-eol",
+        "vi-append-mode",
+        "vi-arg-digit",
+        "vi-bWord",
+        "vi-back-to-indent",
+        "vi-backward-bigword",
+        "vi-backward-word",
+        "vi-bword",
+        "vi-change-case",
+        "vi-change-char",
+        "vi-change-to",
+        "vi-char-search",
+        "vi-column",
+        "vi-complete",
+        "vi-delete",
+        "vi-delete-to",
+        "vi-eWord",
+        "vi-edit-and-execute-command",
+        "vi-editing-mode",
+        "vi-end-bigword",
+        "vi-end-word",
+        "vi-eof-maybe",
+        "vi-eword",
+        "vi-fWord",
+        "vi-fetch-history",
+        "vi-first-print",
+        "vi-forward-bigword",
+        "vi-forward-word",
+        "vi-fword",
+        "vi-goto-mark",
+        "vi-insert-beg",
+        "vi-insertion-mode",
+        "vi-match",
+        "vi-movement-mode",
+        "vi-next-word",
+        "vi-overstrike",
+        "vi-overstrike-delete",
+        "vi-prev-word",
+        "vi-put",
+        "vi-redo",
+        "vi-replace",
+        "vi-rubout",
+        "vi-search",
+        "vi-search-again",
+        "vi-set-mark",
+        "vi-subst",
+        "vi-tilde-expand",
+        "vi-undo",
+        "vi-unix-word-rubout",
+        "vi-yank-arg",
+        "vi-yank-pop",
+        "vi-yank-to",
+        "yank",
+        "yank-last-arg",
+        "yank-nth-arg",
+        "yank-pop",
     ]
 }
 

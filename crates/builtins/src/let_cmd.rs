@@ -1,3 +1,4 @@
+use crate::common::{array_expand_once_subscript_message, report_bare_diagnostic};
 use crate::{Builtin, BuiltinCtx};
 use cherubsh_common::Environment;
 
@@ -12,12 +13,23 @@ impl Builtin for Let {
         "let arg [arg ...]"
     }
     fn run(&self, ctx: &mut BuiltinCtx<'_>) -> i32 {
-        if ctx.args.is_empty() {
+        let args = if ctx.args.first().is_some_and(|arg| arg == "--") {
+            let mut start = 1;
+            if ctx.env_ref().command_substitution_depth() > 0 {
+                while ctx.args.get(start).is_some_and(|arg| arg == "--") {
+                    start += 1;
+                }
+            }
+            &ctx.args[start..]
+        } else {
+            ctx.args
+        };
+        if args.is_empty() {
             report_let_error(ctx.env_ref(), "", "expression expected");
             return 2;
         }
         let mut last_value: i64 = 0;
-        for expr in ctx.args.iter() {
+        for expr in args.iter() {
             if let Some((word, token)) = let_word_split_array_subscript_error(expr) {
                 report_let_error(
                     ctx.env_ref(),
@@ -31,16 +43,41 @@ impl Builtin for Let {
                     ctx.env_ref(),
                     expr,
                     &format!(
-                        "syntax error: operand expected (error token is \"{}\")",
+                        "arithmetic syntax error: operand expected (error token is \"{}\")",
                         token.replace('\\', "\\\\").replace('"', "\\\"")
                     ),
                 );
                 return 1;
             }
-            match ctx.shell.evaluate_arith(expr) {
+            if let Some(subscript) = first_indexed_subscript(expr) {
+                if let Some(message) = array_expand_once_subscript_message(ctx.env_ref(), subscript)
+                {
+                    report_bare_diagnostic(ctx.env_ref(), &message);
+                    return 1;
+                }
+            }
+            let rewritten_expr;
+            let eval_expr = if !ctx.env_ref().option("assoc_expand_once") && expr.contains("[\"\"]")
+            {
+                rewritten_expr = expr.replace("[\"\"]", "[0]");
+                rewritten_expr.as_str()
+            } else {
+                expr.as_str()
+            };
+            match ctx.shell.evaluate_arith(eval_expr) {
                 Ok(v) => last_value = v,
                 Err(msg) => {
-                    report_let_error(ctx.env_ref(), expr, &msg);
+                    if ctx.env_ref().option("assoc_expand_once")
+                        && expr.contains("[\"")
+                        && msg.contains("arithmetic syntax error: operand expected")
+                    {
+                        report_bare_arith_error(ctx.env_ref(), expr, &msg);
+                        if ctx.env_ref().subshell_level() > 0 {
+                            ctx.shell.request_exit(1);
+                        }
+                    } else {
+                        report_let_error(ctx.env_ref(), expr, &msg);
+                    }
                     return 1;
                 }
             }
@@ -100,10 +137,24 @@ fn let_word_split_array_subscript_error(expr: &str) -> Option<(&str, &str)> {
         .rsplit_once(',')
         .map(|(_, token)| token)
         .unwrap_or(word);
-    if token.contains('[') {
+    if token.contains('[') && (word.contains("],") || word.contains("\\],")) {
         Some((word, token))
     } else {
         None
+    }
+}
+
+fn first_indexed_subscript(expr: &str) -> Option<&str> {
+    let open = expr.find('[')?;
+    let close = expr[open + 1..].find(']').map(|idx| open + 1 + idx)?;
+    Some(&expr[open + 1..close])
+}
+
+fn report_bare_arith_error(env: &dyn Environment, expr: &str, message: &str) {
+    let detail = normalize_arith_message(expr, message);
+    match (env.diagnostic_source_name(), env.diagnostic_line()) {
+        (Some(source), Some(line)) => eprintln!("{source}: line {line}: {detail}"),
+        _ => eprintln!("cherubsh: {detail}"),
     }
 }
 

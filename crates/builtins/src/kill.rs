@@ -1,6 +1,7 @@
 use crate::common::report_diagnostic;
 use crate::{Builtin, BuiltinCtx};
 use cherubsh_common::signals::SignalMaskGuard;
+use cherubsh_common::signals::{TrapAction, TrapKind};
 use cherubsh_common::JobId;
 
 pub struct Kill;
@@ -61,6 +62,38 @@ impl Builtin for Kill {
                 };
                 idx += 1;
                 continue;
+            }
+            if let Some(spec) = arg.strip_prefix("-s") {
+                if !spec.is_empty() {
+                    signum = parse_signal(spec).unwrap_or(-1);
+                    if signum < 0 {
+                        report_diagnostic(
+                            ctx.env_ref(),
+                            "kill",
+                            &format!("{spec}: invalid signal specification"),
+                        );
+                        return 1;
+                    }
+                    idx += 1;
+                    continue;
+                }
+            }
+            if let Some(spec) = arg.strip_prefix("-n") {
+                if !spec.is_empty() {
+                    signum = match spec.parse() {
+                        Ok(n) => n,
+                        Err(_) => {
+                            report_diagnostic(
+                                ctx.env_ref(),
+                                "kill",
+                                &format!("{spec}: invalid signal specification"),
+                            );
+                            return 1;
+                        }
+                    };
+                    idx += 1;
+                    continue;
+                }
             }
             if let Some(stripped) = arg.strip_prefix('-') {
                 if let Some(num) = parse_signal(stripped) {
@@ -177,6 +210,15 @@ impl Builtin for Kill {
                     continue;
                 }
             };
+            if targets_current_shell(ctx, pid) {
+                match ctx.env_ref().trap_action(TrapKind::Numeric(signum)) {
+                    Some(TrapAction::Command(_)) | Some(TrapAction::Ignore) => {
+                        let _ = ctx.shell.run_signal_trap(signum);
+                        continue;
+                    }
+                    Some(TrapAction::Default) | None => {}
+                }
+            }
             let result = unsafe { libc::kill(pid, signum) };
             if result != 0 {
                 let err = std::io::Error::last_os_error();
@@ -193,7 +235,7 @@ impl Builtin for Kill {
 
 fn targets_current_shell(ctx: &BuiltinCtx<'_>, pid: i32) -> bool {
     let env = ctx.env_ref();
-    pid == env.bashpid() || pid == env.shell_pid()
+    pid == env.bashpid()
 }
 
 fn resolve_jobspec(ctx: &mut BuiltinCtx<'_>, target: &str) -> Option<(JobId, i32)> {

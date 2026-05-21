@@ -1,4 +1,4 @@
-//! Master table of `shopt` options. Mirrors bash-5.2.21/builtins/shopt.def.
+//! Master table of `shopt` options. Mirrors bash-5.3/builtins/shopt.def.
 
 #[derive(Debug, Clone, Copy)]
 pub struct ShoptOption {
@@ -8,11 +8,19 @@ pub struct ShoptOption {
 
 pub const SHOPT_OPTIONS: &[ShoptOption] = &[
     ShoptOption {
-        name: "autocd",
+        name: "array_expand_once",
         default: false,
     },
     ShoptOption {
         name: "assoc_expand_once",
+        default: false,
+    },
+    ShoptOption {
+        name: "autocd",
+        default: false,
+    },
+    ShoptOption {
+        name: "bash_source_fullpath",
         default: false,
     },
     ShoptOption {

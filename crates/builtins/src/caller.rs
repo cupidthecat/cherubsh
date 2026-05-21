@@ -47,11 +47,12 @@ fn parse_level(ctx: &BuiltinCtx<'_>) -> Option<usize> {
     match arg.parse::<usize>() {
         Ok(level) => Some(level),
         Err(_) => {
-            crate::common::report_diagnostic(
-                ctx.env_ref(),
-                "caller",
-                &format!("{arg}: invalid number"),
-            );
+            let message = if arg.starts_with('-') {
+                format!("{arg}: invalid option")
+            } else {
+                format!("{arg}: invalid number")
+            };
+            crate::common::report_diagnostic(ctx.env_ref(), "caller", &message);
             print_usage();
             None
         }

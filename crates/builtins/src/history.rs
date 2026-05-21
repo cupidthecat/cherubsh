@@ -104,11 +104,25 @@ impl Builtin for History {
         }
 
         // Plain listing.
-        let limit: Option<usize> = ctx.args.first().and_then(|s| s.parse::<usize>().ok());
+        if rest.len() > 1 {
+            report_diagnostic(ctx.env_ref(), "history", "too many arguments");
+            return 2;
+        }
+        let limit: Option<usize> = rest.first().and_then(|s| s.parse::<usize>().ok());
         let table = match ctx.env_ref().history() {
             Some(t) => t,
             None => return 0,
         };
+        if let Some(arg) = rest.first() {
+            if arg.parse::<usize>().is_err() {
+                report_diagnostic(
+                    ctx.env_ref(),
+                    "history",
+                    &format!("{arg}: numeric argument required"),
+                );
+                return 2;
+            }
+        }
         let total = table.len();
         let start = limit.map(|n| total.saturating_sub(n)).unwrap_or(0);
         let time_format = ctx.env_ref().get("HISTTIMEFORMAT");
@@ -152,11 +166,16 @@ fn current_epoch() -> u64 {
 
 fn handle_delete(ctx: &mut BuiltinCtx<'_>, spec: &str) -> i32 {
     let Some(parsed) = parse_delete_spec(spec) else {
-        report_diagnostic(
-            ctx.env_ref(),
-            "history",
-            &format!("{spec}: history position out of range"),
-        );
+        let message = if spec
+            .as_bytes()
+            .first()
+            .is_some_and(|b| !matches!(*b, b'-' | b'0'..=b'9'))
+        {
+            format!("{spec}: invalid number")
+        } else {
+            format!("{spec}: history position out of range")
+        };
+        report_diagnostic(ctx.env_ref(), "history", &message);
         return 1;
     };
     let (start, end, start_text, end_text) = parsed;

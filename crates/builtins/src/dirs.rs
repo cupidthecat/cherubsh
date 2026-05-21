@@ -33,6 +33,9 @@ impl Builtin for Dirs {
         let mut opts = DirsOptions::default();
         let mut selected = None;
         for arg in ctx.args {
+            if arg == "--" {
+                break;
+            }
             match parse_dirs_arg(arg) {
                 ParsedDirsArg::Clear => opts.clear = true,
                 ParsedDirsArg::NoTilde => opts.no_tilde = true,

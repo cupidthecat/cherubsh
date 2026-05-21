@@ -49,7 +49,11 @@ impl Builtin for Alias {
         for arg in rest {
             if let Some((name, value)) = arg.split_once('=') {
                 if !is_valid_alias_name(name) {
-                    eprintln!("cherubsh: alias: `{name}': invalid alias name");
+                    report_diagnostic(
+                        ctx.env_ref(),
+                        "alias",
+                        &format!("`{name}': invalid alias name"),
+                    );
                     status = 1;
                     continue;
                 }

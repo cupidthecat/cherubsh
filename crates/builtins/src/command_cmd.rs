@@ -1,7 +1,7 @@
 use crate::common::{report_diagnostic, search_path};
 use crate::getopt::{GetOpt, OptParser};
 use crate::type_cmd::print_function_definition;
-use crate::{lookup_raw, Builtin, BuiltinCtx};
+use crate::{is_special, lookup_raw, Builtin, BuiltinCtx};
 
 pub struct Command;
 pub static COMMAND: Command = Command;
@@ -113,6 +113,18 @@ fn describe(
         }
         return 0;
     }
+    if ctx.env_ref().option("posix")
+        && lookup_raw(name).is_some()
+        && ctx.env_ref().builtin_enabled(name)
+        && is_special(name)
+    {
+        if very_verbose {
+            println!("{name} is a special shell builtin");
+        } else {
+            println!("{name}");
+        }
+        return 0;
+    }
     if let Some(function) = ctx.shell.function_get(name) {
         if very_verbose {
             println!("{name} is a function");
@@ -166,7 +178,7 @@ fn describe(
             if verbose {
                 // bash uses exit 1, no stderr message
             } else {
-                eprintln!("cherubsh: command: {name}: not found");
+                report_diagnostic(ctx.env_ref(), "command", &format!("{name}: not found"));
             }
             1
         }

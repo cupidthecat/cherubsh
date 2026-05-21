@@ -4,9 +4,13 @@ use std::thread;
 use std::time::Duration;
 
 use cherubsh_common::jobs::{JobSpec, JobState};
-use cherubsh_common::signals::{TrapAction, TrapKind};
+use cherubsh_common::signals::{TrapAction, TrapKind, NSIG};
+use cherubsh_common::AssignError;
 
-use crate::common::{assign_direct_target, report_builtin_assign_error};
+use crate::common::{
+    assign_direct_target, indexed_target_array_expand_once_message, is_valid_name,
+    report_bare_diagnostic, report_builtin_assign_error, unset_array_reference,
+};
 use crate::getopt::{GetOpt, OptParser};
 use crate::{Builtin, BuiltinCtx, BuiltinFlags};
 
@@ -46,6 +50,12 @@ impl Builtin for Wait {
             }
         }
         let rest = parser.remaining(ctx.args).to_vec();
+
+        if let Some(var) = p_var.as_deref() {
+            if !prepare_wait_p_var(ctx, var) {
+                return 1;
+            }
+        }
 
         if rest.is_empty() {
             let (last_status, winner) = wait_for_children(ctx, wait_any, force);
@@ -147,6 +157,35 @@ fn report_wait_error(ctx: &BuiltinCtx<'_>, message: &str) {
     }
 }
 
+fn prepare_wait_p_var(ctx: &mut BuiltinCtx<'_>, var: &str) -> bool {
+    if let Some(message) = indexed_target_array_expand_once_message(ctx.env_ref(), var) {
+        report_bare_diagnostic(ctx.env_ref(), &message);
+        return false;
+    }
+    match unset_array_reference(ctx.env(), var) {
+        Ok(true) => return true,
+        Err(message) => {
+            report_wait_error(ctx, &message);
+            return false;
+        }
+        Ok(false) => {}
+    }
+    if !is_valid_name(var) {
+        report_builtin_assign_error(
+            ctx.env_ref(),
+            "wait",
+            &AssignError::InvalidName(var.to_string()),
+        );
+        return false;
+    }
+    if ctx.env_ref().is_readonly(var) {
+        report_wait_error(ctx, &format!("{var}: cannot unset: readonly variable"));
+        return false;
+    }
+    ctx.env().unset(var);
+    true
+}
+
 fn wait_for_children(ctx: &mut BuiltinCtx<'_>, wait_any: bool, force: bool) -> (i32, Option<i32>) {
     if let Some(pids) = all_waitable_job_pids(ctx) {
         if pids.is_empty() {
@@ -156,7 +195,11 @@ fn wait_for_children(ctx: &mut BuiltinCtx<'_>, wait_any: bool, force: bool) -> (
             let (status, winner) = wait_for_any_target(ctx, vec![WaitTarget { pids }], force);
             return (status.unwrap_or(127), winner);
         } else {
-            let _ = wait_for_pids(ctx, &pids, force);
+            if let Some(status) = wait_for_pids(ctx, &pids, force) {
+                if status > 128 {
+                    return (status, None);
+                }
+            }
             return (0, None);
         }
     }
@@ -169,6 +212,9 @@ fn wait_for_children(ctx: &mut BuiltinCtx<'_>, wait_any: bool, force: bool) -> (
         if pid < 0 {
             let errno = unsafe { *libc::__errno_location() };
             if errno == libc::EINTR {
+                if let Some(status) = run_pending_wait_trap(ctx) {
+                    return (status, None);
+                }
                 continue;
             }
             break;
@@ -212,11 +258,21 @@ fn wait_for_pids(ctx: &mut BuiltinCtx<'_>, pids: &[i32], force: bool) -> Option<
     for pid in pids {
         let mut status: libc::c_int = 0;
         loop {
-            let flags = if force { 0 } else { libc::WUNTRACED };
+            let flags = libc::WNOHANG | if force { 0 } else { libc::WUNTRACED };
             let rc = unsafe { libc::waitpid(*pid, &mut status, flags) };
+            if rc == 0 {
+                if let Some(status) = run_pending_wait_trap(ctx) {
+                    return Some(status);
+                }
+                thread::sleep(Duration::from_millis(10));
+                continue;
+            }
             if rc < 0 {
                 let errno = unsafe { *libc::__errno_location() };
                 if errno == libc::EINTR {
+                    if let Some(status) = run_pending_wait_trap(ctx) {
+                        return Some(status);
+                    }
                     continue;
                 }
                 break;
@@ -239,7 +295,6 @@ fn wait_for_any_target(
     force: bool,
 ) -> (Option<i32>, Option<i32>) {
     let mut pids: Vec<i32> = targets.into_iter().flat_map(|t| t.pids).collect();
-    pids.reverse();
     while !pids.is_empty() {
         let mut index = 0;
         while index < pids.len() {
@@ -255,6 +310,9 @@ fn wait_for_any_target(
             if rc < 0 {
                 let errno = unsafe { *libc::__errno_location() };
                 if errno == libc::EINTR {
+                    if let Some(status) = run_pending_wait_trap(ctx) {
+                        return (Some(status), None);
+                    }
                     continue;
                 }
                 pids.remove(index);
@@ -265,6 +323,29 @@ fn wait_for_any_target(
         thread::sleep(Duration::from_millis(10));
     }
     (None, None)
+}
+
+fn run_pending_wait_trap(ctx: &mut BuiltinCtx<'_>) -> Option<i32> {
+    for sig in 1..NSIG {
+        let sig = sig as i32;
+        if sig == libc::SIGCHLD {
+            continue;
+        }
+        let count = ctx.env().pending_signal_take(sig);
+        if count == 0 {
+            continue;
+        }
+        if let Some(TrapAction::Command(body)) = ctx.env_ref().trap_action(TrapKind::Numeric(sig)) {
+            for _ in 0..count {
+                let saved = ctx.env_ref().running_trap();
+                ctx.env().set_running_trap(Some(sig));
+                let _ = ctx.shell.run_source(&body);
+                ctx.env().set_running_trap(saved);
+            }
+            return Some(128 + sig);
+        }
+    }
+    None
 }
 
 fn update_job_table(ctx: &mut BuiltinCtx<'_>, pid: i32, status: libc::c_int) {

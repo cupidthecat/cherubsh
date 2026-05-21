@@ -8,6 +8,7 @@ use crate::common::{
     parse_assignment_op, report_assign_error, report_builtin_readonly_error, report_diagnostic,
 };
 use crate::getopt::{GetOpt, OptParser};
+use crate::type_cmd::print_function_definition;
 use crate::{Builtin, BuiltinCtx, BuiltinFlags};
 
 pub struct Readonly;
@@ -63,6 +64,21 @@ impl Builtin for Readonly {
         let rest_start = parser.index;
         let rest = parser.remaining(ctx.args);
 
+        if function_form && (print_only || rest.is_empty()) {
+            let mut names = ctx.shell.function_names();
+            names.sort();
+            for name in names {
+                if !ctx.env_ref().function_is_readonly(&name) {
+                    continue;
+                }
+                if let Some(function) = ctx.shell.function_get(&name) {
+                    print_function_definition(&name, &function);
+                    println!("declare -fr {name}");
+                }
+            }
+            return 0;
+        }
+
         if print_only || rest.is_empty() {
             let prefix = if ctx.env_ref().option("posix") {
                 "readonly"
@@ -103,6 +119,10 @@ impl Builtin for Readonly {
                         "readonly",
                         &format!("`{readonly_name}': not a valid identifier"),
                     );
+                    if posix_special_error_is_fatal(ctx) {
+                        ctx.shell.request_exit(1);
+                        return 1;
+                    }
                     status = 1;
                     continue;
                 }
@@ -116,6 +136,15 @@ impl Builtin for Readonly {
                 let arg_flags = ctx.arg_flag(rest_start + offset);
                 let compound = (arg.contains("=(") || arg.contains("+=("))
                     && (arg_flags & W_COMPASSIGN != 0 || array_form || assoc_form);
+                if compound
+                    && array_form
+                    && arg_flags & W_COMPASSIGN != 0
+                    && ctx.env_ref().is_readonly(&name)
+                {
+                    report_function_readonly_error(ctx, &name);
+                    status = 1;
+                    continue;
+                }
                 if compound && arg_flags & W_COMPASSIGN == 0 && ctx.env_ref().is_readonly(&name) {
                     report_builtin_readonly_error(ctx.env_ref(), "readonly", &name);
                     status = 1;
@@ -142,6 +171,10 @@ impl Builtin for Readonly {
                         Ok(()) => 0,
                         Err(err) => {
                             report_assign_error(ctx.env_ref(), &err);
+                            if posix_special_error_is_fatal(ctx) {
+                                ctx.shell.request_exit(1);
+                                return 1;
+                            }
                             1
                         }
                     }
@@ -163,6 +196,10 @@ impl Builtin for Readonly {
                         "readonly",
                         &format!("`{readonly_name}': not a valid identifier"),
                     );
+                    if posix_special_error_is_fatal(ctx) {
+                        ctx.shell.request_exit(1);
+                        return 1;
+                    }
                     status = 1;
                     continue;
                 }
@@ -179,11 +216,35 @@ impl Builtin for Readonly {
                     "readonly",
                     &format!("`{arg}': not a valid identifier"),
                 );
+                if posix_special_error_is_fatal(ctx) {
+                    ctx.shell.request_exit(1);
+                    return 1;
+                }
                 status = 1;
             }
         }
         status
     }
+}
+
+fn posix_special_error_is_fatal(ctx: &BuiltinCtx<'_>) -> bool {
+    ctx.env_ref().option("posix")
+        && !ctx.env_ref().option("interactive")
+        && !ctx.invoked_via_command
+}
+
+fn report_function_readonly_error(ctx: &BuiltinCtx<'_>, name: &str) {
+    if let (Some(source), Some(line), Some(function)) = (
+        ctx.env_ref().diagnostic_source_name(),
+        ctx.env_ref().diagnostic_line(),
+        ctx.env_ref().get_array_indexed("FUNCNAME", 0),
+    ) {
+        if !function.is_empty() {
+            eprintln!("{source}: line {line}: {function}: {name}: readonly variable");
+            return;
+        }
+    }
+    report_builtin_readonly_error(ctx.env_ref(), "readonly", name);
 }
 
 fn readonly_target_name(ctx: &BuiltinCtx<'_>, name: &str) -> String {

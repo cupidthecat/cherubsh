@@ -223,6 +223,11 @@ impl HistoryTable {
         for line in reader.lines() {
             let line = line?;
             if entry.is_empty() && line.is_empty() {
+                if pending_ts.is_none() {
+                    if let Some(last) = self.entries.last_mut() {
+                        last.line.push('\n');
+                    }
+                }
                 continue;
             }
             if entry.is_empty() {

@@ -3,7 +3,7 @@ use cherubsh_common::Environment;
 use cherubsh_lexer::Lexer;
 use cherubsh_parser::{Command, CommandData, Parser};
 
-use crate::{ExecContext, ExecMode};
+use crate::{ExecContext, ExecMode, Unwind};
 
 const RUNNING_DEBUG_TRAP: i32 = -1;
 const RUNNING_ERR_TRAP: i32 = -2;
@@ -84,6 +84,26 @@ pub(crate) fn run_pending_traps(ctx: &mut ExecContext<'_>) {
     }
 }
 
+pub(crate) fn run_sigchld_trap_once(ctx: &mut ExecContext<'_>) {
+    if ctx.env.running_trap().is_some() {
+        return;
+    }
+    if let Some(TrapAction::Command(body)) = ctx.env.trap_action(TrapKind::Numeric(libc::SIGCHLD)) {
+        let _ = run_trap_body(ctx, libc::SIGCHLD, &body);
+    }
+}
+
+pub(crate) fn run_signal_trap(ctx: &mut ExecContext<'_>, sig: i32) -> Option<i32> {
+    if ctx.env.running_trap().is_some() {
+        return None;
+    }
+    match ctx.env.trap_action(TrapKind::Numeric(sig)) {
+        Some(TrapAction::Command(body)) => run_trap_body(ctx, sig, &body),
+        Some(TrapAction::Ignore) => Some(0),
+        _ => None,
+    }
+}
+
 fn handle_signal(ctx: &mut ExecContext<'_>, sig: i32, count: u32) {
     if sig == libc::SIGCHLD {
         let reaped = {
@@ -128,14 +148,37 @@ fn run_trap_body_with_line_offset(
     }
     let saved_trap = ctx.env.running_trap();
     ctx.env.set_running_trap(Some(sig));
+    let saved_trap_base = ctx.trap_base_function_depth;
+    ctx.trap_base_function_depth = Some(ctx.function_depth);
     let saved_status = ctx.last_status;
     let ast = parse_trap_body(ctx.env, body, offset_lines);
-    let status = match ast {
+    let mut status = match ast {
         Some(ast) => ctx.execute_command(&ast.root, ExecMode::Parent),
         None => 2,
     };
-    ctx.last_status = saved_status;
-    ctx.env.set_last_status(saved_status);
+    let mut restore_status = true;
+    match ctx.pending.take() {
+        Some(Unwind::Return { status: -1, .. }) => {
+            status = saved_status;
+        }
+        Some(Unwind::Return { status: n, .. })
+            if ctx.trap_base_function_depth == Some(0) && ctx.function_depth == 0 =>
+        {
+            status = n;
+            restore_status = false;
+        }
+        other => {
+            ctx.pending = other;
+        }
+    }
+    if restore_status {
+        ctx.last_status = saved_status;
+        ctx.env.set_last_status(saved_status);
+    } else {
+        ctx.last_status = status;
+        ctx.env.set_last_status(status);
+    }
+    ctx.trap_base_function_depth = saved_trap_base;
     ctx.env.set_running_trap(saved_trap);
     Some(status)
 }

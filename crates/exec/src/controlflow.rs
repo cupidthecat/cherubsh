@@ -215,19 +215,26 @@ pub(crate) fn execute_for<'a>(
     for_cmd: &ForCommand,
     mode: ExecMode,
 ) -> i32 {
+    if !is_valid_name(&for_cmd.name.text) {
+        report_invalid_loop_name(ctx, &for_cmd.name);
+        if ctx.env.option("posix") {
+            ctx.pending = Some(Unwind::Exit(1));
+        }
+        return 1;
+    }
     ctx.loop_depth += 1;
     let items: Vec<String> = if let Some(map_list) = for_cmd.map_list.as_ref() {
         match try_expand_words(map_list, ctx) {
             Ok(items) => items,
             Err(err) => {
-                let exits_shell = expansion_error_exits_shell(&err);
+                let exit_status = expansion_error_exit_status(&err);
                 if !err.already_reported() {
                     report_expand_error(ctx.env, err, None);
                 }
-                if exits_shell {
-                    ctx.pending = Some(Unwind::Exit(1));
+                if let Some(status) = exit_status {
+                    ctx.pending = Some(Unwind::Exit(status));
                     ctx.loop_depth -= 1;
-                    return 1;
+                    return status;
                 }
                 map_list.iter().map(|w| w.text.clone()).collect()
             }
@@ -318,6 +325,13 @@ pub(crate) fn execute_select<'a>(
     select_cmd: &SelectCommand,
     mode: ExecMode,
 ) -> i32 {
+    if !is_valid_name(&select_cmd.name.text) {
+        report_invalid_loop_name(ctx, &select_cmd.name);
+        if ctx.env.option("posix") {
+            ctx.pending = Some(Unwind::Exit(1));
+        }
+        return 1;
+    }
     let items: Vec<String> = if let Some(map_list) = select_cmd.map_list.as_ref() {
         expand_words(map_list, ctx)
     } else {
@@ -354,6 +368,9 @@ pub(crate) fn execute_select<'a>(
             .unwrap_or_default();
         if let Err(err) = ctx.env.assign(&select_cmd.name.text, selected) {
             cherubsh_builtins::common::report_assign_error(ctx.env, &err);
+            if ctx.env.option("posix") && matches!(err, AssignError::ReadOnly(_)) {
+                ctx.pending = Some(Unwind::Exit(1));
+            }
             break;
         }
 
@@ -364,6 +381,27 @@ pub(crate) fn execute_select<'a>(
     }
     ctx.loop_depth -= 1;
     status
+}
+
+fn report_invalid_loop_name(ctx: &mut ExecContext<'_>, name: &cherubsh_parser::WordDesc) {
+    let display = name.raw.as_deref().unwrap_or(name.text.as_str());
+    if ctx.function_depth > 0 && display.starts_with('$') {
+        if let Some(line) = ctx.env.diagnostic_line() {
+            ctx.env.push_diagnostic_line(line.saturating_sub(1).max(1));
+            cherubsh_builtins::common::report_diagnostic(
+                ctx.env,
+                &format!("`{display}'"),
+                "not a valid identifier",
+            );
+            ctx.env.pop_diagnostic_line();
+            return;
+        }
+    }
+    cherubsh_builtins::common::report_diagnostic(
+        ctx.env,
+        &format!("`{display}'"),
+        "not a valid identifier",
+    );
 }
 
 fn print_select_menu(items: &[String]) {
@@ -422,7 +460,10 @@ pub(crate) fn execute_arith_for<'a>(
         if let Some(step) = &for_cmd.step {
             ctx.run_debug_trap_for_command(mode);
             trace_arith_for_word(ctx, step, true);
-            let _ = eval_arith_word(ctx, step);
+            if eval_arith_word(ctx, step).is_none() {
+                status = 1;
+                break;
+            }
         }
     }
     ctx.loop_depth -= 1;
@@ -439,13 +480,22 @@ fn trace_arith_for_word(ctx: &mut ExecContext<'_>, word: &cherubsh_parser::WordD
 
 fn eval_arith_word(ctx: &mut ExecContext<'_>, word: &cherubsh_parser::WordDesc) -> Option<i64> {
     use cherubsh_expander::expand_for_arith;
-    let mut runner =
-        crate::runner::ExecRunner::with_functions(&ctx.functions, &ctx.function_sources);
+    let mut runner = crate::runner::ExecRunner::with_functions_mut_at_depth(
+        &mut ctx.functions,
+        &mut ctx.function_sources,
+        ctx.function_depth,
+        ctx.source_depth,
+    );
     let expr = sanitize_arith_for_expr(&word.text);
+    let report_expr = word
+        .raw
+        .as_deref()
+        .map(|raw| Cow::Borrowed(raw.trim_start()))
+        .unwrap_or_else(|| Cow::Borrowed(expr.as_ref()));
     match expand_for_arith(expr.as_ref(), ctx.env, &mut runner) {
         Ok(v) => Some(v),
         Err(err) => {
-            crate::report_arith_command_error(ctx.env, err, expr.as_ref());
+            crate::report_arith_command_error(ctx.env, err, report_expr.as_ref());
             None
         }
     }
@@ -453,6 +503,9 @@ fn eval_arith_word(ctx: &mut ExecContext<'_>, word: &cherubsh_parser::WordDesc) 
 
 fn sanitize_arith_for_expr(text: &str) -> Cow<'_, str> {
     let trimmed = text.trim();
+    if trimmed.contains("$(") || trimmed.contains("${") {
+        return Cow::Borrowed(trimmed);
+    }
     if !trimmed.ends_with(')') {
         return Cow::Borrowed(trimmed);
     }
@@ -496,13 +549,13 @@ pub(crate) fn execute_case<'a>(
     let word_value = match try_expand_one(&case_cmd.word, ctx) {
         Ok(value) => value,
         Err(err) => {
-            let exits_shell = expansion_error_exits_shell(&err);
+            let exit_status = expansion_error_exit_status(&err);
             if !err.already_reported() {
                 report_expand_error(ctx.env, err, Some(case_cmd.word.span));
             }
-            if exits_shell {
-                ctx.pending = Some(Unwind::Exit(1));
-                return 1;
+            if let Some(status) = exit_status {
+                ctx.pending = Some(Unwind::Exit(status));
+                return status;
             }
             case_cmd.word.text.clone()
         }
@@ -569,8 +622,12 @@ fn pattern_list_matches(
         globasciiranges: ctx.env.option("globasciiranges"),
     };
     for pat in &clause.patterns {
-        let mut runner =
-            crate::runner::ExecRunner::with_functions(&ctx.functions, &ctx.function_sources);
+        let mut runner = crate::runner::ExecRunner::with_functions_mut_at_depth(
+            &mut ctx.functions,
+            &mut ctx.function_sources,
+            ctx.function_depth,
+            ctx.source_depth,
+        );
         let expanded = match expand_case_pattern_bytes(pat, ctx.env, &mut runner) {
             Ok(value) => value,
             Err(err) => {
@@ -597,11 +654,12 @@ fn report_case_pattern_error(ctx: &ExecContext<'_>, err: ExpandError) {
     err.into_shell_error(None).report();
 }
 
-fn expansion_error_exits_shell(err: &ExpandError) -> bool {
-    matches!(
-        err,
-        ExpandError::UnboundVariable(_) | ExpandError::UnboundColonError(_, _)
-    )
+fn expansion_error_exit_status(err: &ExpandError) -> Option<i32> {
+    match err {
+        ExpandError::ExitShell(status) => Some(*status),
+        ExpandError::UnboundVariable(_) | ExpandError::UnboundColonError(_, _) => Some(1),
+        _ => None,
+    }
 }
 
 fn handle_loop_unwind(ctx: &mut ExecContext) -> bool {

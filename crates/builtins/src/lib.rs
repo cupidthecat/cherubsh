@@ -28,6 +28,7 @@ pub mod hash;
 pub mod help;
 pub mod kill;
 pub mod let_cmd;
+pub mod locale_cmd;
 pub mod mapfile;
 pub mod times;
 pub mod type_cmd;
@@ -45,6 +46,7 @@ pub mod readonly;
 pub mod set;
 pub mod shopt;
 pub mod source;
+pub mod strmatch;
 pub mod test_cmd;
 
 pub mod break_cmd;
@@ -152,6 +154,9 @@ pub trait ShellOps {
         self.run_source(src)
     }
     fn run_pending_traps(&mut self) {}
+    fn run_signal_trap(&mut self, _sig: i32) -> Option<i32> {
+        None
+    }
 
     /// Execute an already-parsed command (used by `source` after parse).
     fn run_command(&mut self, cmd: &Command) -> i32;
@@ -166,6 +171,9 @@ pub trait ShellOps {
     fn function_depth(&self) -> u32;
     fn source_depth(&self) -> u32 {
         0
+    }
+    fn trap_base_function_depth(&self) -> Option<u32> {
+        None
     }
     fn loop_depth(&self) -> u32;
 
@@ -230,6 +238,7 @@ pub fn lookup_raw(name: &str) -> Option<&'static dyn Builtin> {
         "export" => return Some(&export::EXPORT),
         "false" => return Some(&colon::FALSE),
         "local" => return Some(&local::LOCAL),
+        "locale" => return Some(&locale_cmd::LOCALE),
         "printf" => return Some(&printf::PRINTF),
         "pwd" => return Some(&pwd::PWD),
         "readonly" => return Some(&readonly::READONLY),
@@ -237,6 +246,7 @@ pub fn lookup_raw(name: &str) -> Option<&'static dyn Builtin> {
         "set" => return Some(&set::SET),
         "shift" => return Some(&shift::SHIFT),
         "source" => return Some(&source::SOURCE),
+        "strmatch" => return Some(&strmatch::STRMATCH),
         "test" => return Some(&test_cmd::TEST),
         "true" => return Some(&colon::TRUE),
         "typeset" => return Some(&declare::TYPESET),
@@ -285,6 +295,7 @@ static BUILTINS: &[&dyn Builtin] = &[
     &local::LOCAL,
     &source::DOT,
     &source::SOURCE,
+    &strmatch::STRMATCH,
     &eval::EVAL,
     &exec_cmd::EXEC,
     &declare::DECLARE,

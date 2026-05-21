@@ -6,7 +6,9 @@
 use std::os::unix::fs::MetadataExt;
 use std::path::Path;
 
-use crate::common::report_diagnostic;
+use crate::common::{
+    indexed_target_array_expand_once_message, report_bare_diagnostic, report_diagnostic,
+};
 use crate::{Builtin, BuiltinCtx};
 use cherubsh_common::{Environment, VarKind, W_ARRAYREF, W_QUOTED};
 
@@ -69,7 +71,12 @@ fn run_test(
             match parser.parse_or() {
                 Ok(val) => {
                     if parser.idx != args.len() {
-                        report_test_error(env, subject, "too many arguments");
+                        let msg = parser
+                            .peek()
+                            .filter(|tok| tok.starts_with('-'))
+                            .map(|tok| format!("syntax error: `{tok}' unexpected"))
+                            .unwrap_or_else(|| "too many arguments".to_string());
+                        report_test_error(env, subject, &msg);
                         2
                     } else {
                         bool_to_status(val)
@@ -106,7 +113,21 @@ fn binary_or_unary_2(
                 report_test_error(env, subject, &format!("{first}: binary operator expected"));
                 return 2;
             }
-            return bool_to_status(unary(ch, &args[1], env));
+            if ch == 'v' {
+                if let Some(env) = env {
+                    if let Some(message) = indexed_target_array_expand_once_message(env, &args[1]) {
+                        report_bare_diagnostic(env, &message);
+                        return 2;
+                    }
+                }
+            }
+            return match eval_unary(ch, &args[1], env) {
+                Ok(val) => bool_to_status(val),
+                Err(msg) => {
+                    report_test_error(env, subject, &msg);
+                    2
+                }
+            };
         }
     }
     report_test_error(
@@ -118,9 +139,6 @@ fn binary_or_unary_2(
 }
 
 fn ternary(args: &[String], env: Option<&dyn Environment>, subject: &str) -> i32 {
-    if args[0] == "!" {
-        return invert(binary_or_unary_2(&args[1..].to_vec(), &[], env, subject));
-    }
     if args[1] == "-a" {
         return bool_to_status(!args[0].is_empty() && !args[2].is_empty());
     }
@@ -135,6 +153,9 @@ fn ternary(args: &[String], env: Option<&dyn Environment>, subject: &str) -> i32
                 2
             }
         };
+    }
+    if args[0] == "!" {
+        return invert(binary_or_unary_2(&args[1..].to_vec(), &[], env, subject));
     }
     if args[0] == "(" && args[2] == ")" {
         return bool_to_status(!args[1].is_empty());
@@ -163,7 +184,12 @@ fn quaternary(
     match parser.parse_or() {
         Ok(val) => {
             if parser.idx != args.len() {
-                report_test_error(env, subject, "too many arguments");
+                let msg = parser
+                    .peek()
+                    .filter(|tok| tok.starts_with('-'))
+                    .map(|tok| format!("syntax error: `{tok}' unexpected"))
+                    .unwrap_or_else(|| "too many arguments".to_string());
+                report_test_error(env, subject, &msg);
                 2
             } else {
                 bool_to_status(val)
@@ -239,16 +265,19 @@ impl<'a> Parser<'a> {
         }
         let tok = self
             .eat()
-            .ok_or_else(|| "expected expression".to_string())?
+            .ok_or_else(|| "argument expected".to_string())?
             .to_string();
         // Unary?
         if let Some(op) = tok.strip_prefix('-') {
             if op.len() == 1 && is_unary_op(op.chars().next().unwrap()) {
-                let arg = self
-                    .eat()
-                    .ok_or_else(|| format!("-{op}: missing argument"))?
-                    .to_string();
-                return Ok(unary(op.chars().next().unwrap(), &arg, self.env));
+                let Some(arg) = self.eat().map(str::to_string) else {
+                    return Ok(!tok.is_empty());
+                };
+                if arg == ")" {
+                    self.idx = self.idx.saturating_sub(1);
+                    return Ok(!tok.is_empty());
+                }
+                return eval_unary_expr(op.chars().next().unwrap(), &arg, self.env);
             }
         }
         // Then check for binary
@@ -336,10 +365,31 @@ fn eval_binary_op(op: &str, lhs: &str, rhs: &str) -> Result<bool, String> {
     }
 }
 
+fn eval_unary(op: char, arg: &str, env: Option<&dyn Environment>) -> Result<bool, String> {
+    if op == 't' && arg.trim().parse::<i32>().is_err() {
+        return Err(format!("{arg}: integer expected"));
+    }
+    Ok(unary(op, arg, env))
+}
+
+fn eval_unary_expr(op: char, arg: &str, env: Option<&dyn Environment>) -> Result<bool, String> {
+    if op == 't' && arg == "0" {
+        return Ok(true);
+    }
+    eval_unary(op, arg, env)
+}
+
 fn parse_test_int(s: &str) -> Result<i64, String> {
-    s.trim()
-        .parse()
-        .map_err(|_| format!("{s}: integer expression expected"))
+    s.trim().parse().map_err(|_| {
+        if std::env::var("CHERUBSH_BASH_COMPAT_VERSION")
+            .ok()
+            .is_some_and(|version| version.starts_with("5.2"))
+        {
+            format!("{s}: integer expression expected")
+        } else {
+            format!("{s}: integer expected")
+        }
+    })
 }
 
 fn unary(op: char, arg: &str, env: Option<&dyn Environment>) -> bool {
@@ -375,12 +425,12 @@ fn unary(op: char, arg: &str, env: Option<&dyn Environment>) -> bool {
         'G' => meta
             .map(|m| m.gid() == unsafe { libc::getegid() } as u32)
             .unwrap_or(false),
-        'N' => meta.map(|m| m.mtime() >= m.atime()).unwrap_or(false),
+        'N' => meta.map(|m| m.mtime() > m.atime()).unwrap_or(false),
         'S' => meta
             .map(|m| (m.mode() & 0o170000) == 0o140000)
             .unwrap_or(false),
         't' => {
-            let fd: i32 = arg.parse().unwrap_or(-1);
+            let fd: i32 = arg.trim().parse().unwrap_or(-1);
             unsafe { libc::isatty(fd) == 1 }
         }
         'z' => arg.is_empty(),
@@ -481,5 +531,16 @@ fn report_test_error(env: Option<&dyn Environment>, subject: &str, message: &str
         report_diagnostic(env, subject, message);
     } else {
         eprintln!("cherubsh: {subject}: {message}");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::run_test;
+
+    #[test]
+    fn bang_can_be_binary_operand_in_three_arg_test() {
+        let args = vec!["!".to_string(), "!=".to_string(), "!".to_string()];
+        assert_eq!(run_test(&args, &[0; 3], false, None), 1);
     }
 }

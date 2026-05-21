@@ -19,18 +19,24 @@ impl Builtin for Suspend {
                 GetOpt::Opt { .. } => {}
                 GetOpt::End | GetOpt::Done => break,
                 GetOpt::Unknown { ch, .. } => {
-                    eprintln!("cherubsh: suspend: -{ch}: invalid option");
+                    report_suspend_error(ctx, &format!("-{ch}: invalid option"));
+                    eprintln!("suspend: usage: {}", self.synopsis());
                     return 2;
                 }
                 GetOpt::Missing { ch, .. } => {
-                    eprintln!("cherubsh: suspend: -{ch}: option requires an argument");
+                    report_suspend_error(ctx, &format!("-{ch}: option requires an argument"));
+                    eprintln!("suspend: usage: {}", self.synopsis());
                     return 2;
                 }
             }
         }
         let env = ctx.env_ref();
+        if !env.job_control_enabled() {
+            report_suspend_error(ctx, "cannot suspend: no job control");
+            return 1;
+        }
         if env.shell_pid() == 1 || (!force && env.get("BASH_LOGIN_SHELL").is_some()) {
-            eprintln!("cherubsh: suspend: cannot suspend a login shell");
+            report_suspend_error(ctx, "cannot suspend a login shell");
             return 1;
         }
         // SIGTSTP (not SIGSTOP) so the parent can catch it and resume us.
@@ -38,5 +44,16 @@ impl Builtin for Suspend {
             libc::kill(libc::getpid(), libc::SIGTSTP);
         }
         0
+    }
+}
+
+fn report_suspend_error(ctx: &BuiltinCtx<'_>, message: &str) {
+    if let (Some(source), Some(line)) = (
+        ctx.env_ref().diagnostic_source_name(),
+        ctx.env_ref().diagnostic_line(),
+    ) {
+        eprintln!("{source}: line {line}: suspend: {message}");
+    } else {
+        eprintln!("cherubsh: suspend: {message}");
     }
 }

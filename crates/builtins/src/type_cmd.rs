@@ -2,7 +2,8 @@ use std::path::PathBuf;
 
 use crate::common::{is_executable, report_diagnostic, search_path};
 use crate::getopt::{GetOpt, OptParser};
-use crate::{lookup_raw, Builtin, BuiltinCtx};
+use crate::{lookup_raw, Builtin, BuiltinCtx, BuiltinFlags};
+use cherubsh_common::VarKind;
 use cherubsh_common::{
     CASEPAT_FALLTHROUGH, CASEPAT_TESTNEXT, CMD_INVERT_RETURN, CMD_TIME_PIPELINE, CMD_TIME_POSIX,
 };
@@ -69,11 +70,7 @@ impl Builtin for Type {
                 found_any = true;
             }
 
-            if ctx.env_ref().aliases_enabled()
-                && !suppress_function_lookup
-                && !force_path
-                && !path_only
-            {
+            if ctx.env_ref().aliases_enabled() && !force_path && !path_only {
                 if let Some(value) = ctx.env_ref().alias_get(name) {
                     if type_only {
                         println!("alias");
@@ -99,6 +96,28 @@ impl Builtin for Type {
                 }
             }
 
+            let posix_special = !force_path
+                && !path_only
+                && ctx.env_ref().option("posix")
+                && lookup_raw(name)
+                    .map(|b| {
+                        ctx.env_ref().builtin_enabled(name)
+                            && b.flags().contains(BuiltinFlags::SPECIAL)
+                    })
+                    .unwrap_or(false);
+
+            if posix_special {
+                if type_only {
+                    println!("builtin");
+                } else {
+                    println!("{name} is a special shell builtin");
+                }
+                found_any = true;
+                if !all_paths {
+                    continue;
+                }
+            }
+
             if !suppress_function_lookup && !force_path && !path_only {
                 if let Some(function) = ctx.shell.function_get(name) {
                     if type_only {
@@ -116,13 +135,21 @@ impl Builtin for Type {
 
             if !force_path
                 && !path_only
+                && !posix_special
                 && lookup_raw(name).is_some()
                 && ctx.env_ref().builtin_enabled(name)
             {
                 if type_only {
                     println!("builtin");
                 } else {
-                    println!("{name} is a shell builtin");
+                    let special = lookup_raw(name)
+                        .map(|b| b.flags().contains(BuiltinFlags::SPECIAL))
+                        .unwrap_or(false);
+                    if ctx.env_ref().option("posix") && special {
+                        println!("{name} is a special shell builtin");
+                    } else {
+                        println!("{name} is a shell builtin");
+                    }
                 }
                 found_any = true;
                 if !all_paths {
@@ -148,6 +175,16 @@ impl Builtin for Type {
                     continue;
                 }
             }
+            if all_paths && force_path {
+                if let Some(path) = hashed {
+                    if type_only {
+                        println!("file");
+                    } else {
+                        println!("{}", path.display());
+                    }
+                    found_any = true;
+                }
+            }
 
             let env_ref: &dyn cherubsh_common::Environment = ctx.env_ref();
             if all_paths {
@@ -170,6 +207,17 @@ impl Builtin for Type {
                     println!("{name} is {}", path.display());
                 }
                 found_any = true;
+            }
+            if !found_any
+                && path_only
+                && !force_path
+                && ctx.env_ref().kind("PATH") == VarKind::Unset
+            {
+                let candidate = PathBuf::from(".").join(name);
+                if is_executable(&candidate) {
+                    println!("{}", candidate.display());
+                    found_any = true;
+                }
             }
 
             if !found_any {
@@ -246,7 +294,11 @@ fn is_keyword(s: &str) -> bool {
 }
 
 pub(crate) fn print_function_definition(name: &str, command: &Command) {
-    println!("{name} () ");
+    if name.contains('=') {
+        println!("function {name} () ");
+    } else {
+        println!("{name} () ");
+    }
     println!("{{ ");
     for line in render_function_body(command) {
         match line {
@@ -387,10 +439,7 @@ fn render_function_body_terminated(command: &Command, terminated: bool) -> Vec<R
             out
         }
         CommandData::If(if_cmd) => {
-            let mut out = vec![RenderLine::Indented(format!(
-                "if {}; then",
-                render_if_test(&if_cmd.test)
-            ))];
+            let mut out = render_compound_test_header("if", &if_cmd.test, "then");
             out.extend(
                 render_function_body_terminated(&if_cmd.true_case, true)
                     .into_iter()
@@ -412,10 +461,7 @@ fn render_function_body_terminated(command: &Command, terminated: bool) -> Vec<R
             out
         }
         CommandData::While(while_cmd) => {
-            let mut out = vec![RenderLine::Indented(format!(
-                "while {}; do",
-                render_loop_test(&while_cmd.test)
-            ))];
+            let mut out = render_compound_test_header("while", &while_cmd.test, "do");
             out.extend(
                 render_function_body_terminated(&while_cmd.action, true)
                     .into_iter()
@@ -429,10 +475,7 @@ fn render_function_body_terminated(command: &Command, terminated: bool) -> Vec<R
             out
         }
         CommandData::Until(until_cmd) => {
-            let mut out = vec![RenderLine::Indented(format!(
-                "until {}; do",
-                render_loop_test(&until_cmd.test)
-            ))];
+            let mut out = render_compound_test_header("until", &until_cmd.test, "do");
             out.extend(
                 render_function_body_terminated(&until_cmd.action, true)
                     .into_iter()
@@ -508,11 +551,7 @@ fn render_function_body_terminated(command: &Command, terminated: bool) -> Vec<R
                 inner.pop();
             }
             out.extend(inner);
-            let close = terminate_compound_line(
-                " )".to_string(),
-                &command.redirects,
-                terminated && !raw_body,
-            );
+            let close = terminate_compound_line(" )".to_string(), &command.redirects, terminated);
             if raw_body {
                 out.push(RenderLine::Raw(close));
             } else if let Some(RenderLine::Indented(last)) = out.last_mut() {
@@ -535,12 +574,12 @@ fn render_function_body_terminated(command: &Command, terminated: bool) -> Vec<R
                         .into_iter()
                         .map(indent_render_line),
                 );
-                let mut close = "}".to_string();
-                append_redirects(&mut close, &command.redirects);
+                let close =
+                    terminate_compound_line("}".to_string(), &command.redirects, terminated);
                 out.push(RenderLine::Indented(close));
                 return out;
             }
-            let mut inner = render_function_body_terminated(&coproc.command, false);
+            let mut inner = render_function_body_terminated(&coproc.command, terminated);
             if inner.is_empty() {
                 return vec![RenderLine::Indented(format!("coproc {name}"))];
             }
@@ -608,18 +647,42 @@ fn render_arith_for_clause(word: Option<&WordDesc>) -> String {
         .unwrap_or_else(|| "1".to_string())
 }
 
-fn render_loop_test(command: &Command) -> String {
+fn render_if_test(command: &Command) -> String {
     render_command_line(command)
         .trim_end_matches(';')
         .trim_end()
         .to_string()
 }
 
-fn render_if_test(command: &Command) -> String {
-    render_command_line(command)
-        .trim_end_matches(';')
-        .trim_end()
-        .to_string()
+fn render_compound_test_header(
+    keyword: &str,
+    command: &Command,
+    terminator: &str,
+) -> Vec<RenderLine> {
+    if !command_contains_heredoc(command) {
+        return vec![RenderLine::Indented(format!(
+            "{keyword} {}; {terminator}",
+            render_if_test(command)
+        ))];
+    }
+
+    let mut lines = render_function_body_terminated(command, false);
+    if matches!(lines.last(), Some(RenderLine::Indented(line)) if line.is_empty()) {
+        lines.pop();
+    }
+    match lines.first_mut() {
+        Some(RenderLine::Indented(line)) => {
+            *line = format!("{keyword} {line}");
+        }
+        Some(RenderLine::Raw(_)) => {
+            lines.insert(0, RenderLine::Indented(keyword.to_string()));
+        }
+        None => {
+            lines.push(RenderLine::Indented(format!("{keyword} :")));
+        }
+    }
+    lines.push(RenderLine::Indented(terminator.to_string()));
+    lines
 }
 
 fn render_case_clause(clause: &PatternList) -> Vec<RenderLine> {
@@ -728,6 +791,17 @@ fn render_command_line(command: &Command) -> String {
             });
             out.push(' ');
             out.push_str(&render_command_line(&conn.second));
+        }
+        CommandData::Coproc(coproc) => {
+            if !out.is_empty() {
+                out.push(' ');
+            }
+            out.push_str("coproc ");
+            if let Some(name) = &coproc.name {
+                out.push_str(&name.text);
+                out.push(' ');
+            }
+            out.push_str(&render_command_line(&coproc.command));
         }
         _ => {
             if out.is_empty() {

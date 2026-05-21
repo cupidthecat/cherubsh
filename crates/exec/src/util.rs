@@ -28,7 +28,12 @@ pub(crate) fn try_expand_words(
     words: &[WordDesc],
     ctx: &mut ExecContext<'_>,
 ) -> Result<Vec<String>, ExpandError> {
-    let mut runner = ExecRunner::with_functions(&ctx.functions, &ctx.function_sources);
+    let mut runner = ExecRunner::with_functions_mut_at_depth(
+        &mut ctx.functions,
+        &mut ctx.function_sources,
+        ctx.function_depth,
+        ctx.source_depth,
+    );
     let out = expand_word_list_with_proc_subst(
         words,
         ctx.env,
@@ -84,7 +89,12 @@ pub(crate) fn try_expand_one(
     word: &WordDesc,
     ctx: &mut ExecContext<'_>,
 ) -> Result<String, ExpandError> {
-    let mut runner = ExecRunner::with_functions(&ctx.functions, &ctx.function_sources);
+    let mut runner = ExecRunner::with_functions_mut_at_depth(
+        &mut ctx.functions,
+        &mut ctx.function_sources,
+        ctx.function_depth,
+        ctx.source_depth,
+    );
     let out = expand_word_list_with_proc_subst(
         std::slice::from_ref(word),
         ctx.env,
@@ -101,7 +111,12 @@ pub(crate) fn try_expand_one(
 }
 
 pub(crate) fn expand_herestring_word(word: &WordDesc, ctx: &mut ExecContext<'_>) -> String {
-    let mut runner = ExecRunner::with_functions(&ctx.functions, &ctx.function_sources);
+    let mut runner = ExecRunner::with_functions_mut_at_depth(
+        &mut ctx.functions,
+        &mut ctx.function_sources,
+        ctx.function_depth,
+        ctx.source_depth,
+    );
     match expand_word_list_with_proc_subst(
         std::slice::from_ref(word),
         ctx.env,
@@ -126,7 +141,12 @@ pub(crate) fn expand_herestring_word(word: &WordDesc, ctx: &mut ExecContext<'_>)
 }
 
 pub(crate) fn expand_heredoc_body(body: &str, ctx: &mut ExecContext<'_>) -> String {
-    let mut runner = ExecRunner::with_functions(&ctx.functions, &ctx.function_sources);
+    let mut runner = ExecRunner::with_functions_mut_at_depth(
+        &mut ctx.functions,
+        &mut ctx.function_sources,
+        ctx.function_depth,
+        ctx.source_depth,
+    );
     expand_heredoc_string(body, ctx.env, &mut runner).unwrap_or_else(|err| {
         report_expand_error(ctx.env, err, None);
         String::new()
@@ -592,7 +612,12 @@ pub(crate) fn tcsetpgrp_blocked(fd: i32, pgrp: i32) {
     }
 }
 
-pub(crate) fn execv_or_script(path: &str, argv: &[String], fallback_globskipdots_off: bool) -> i32 {
+pub(crate) fn execv_or_script(
+    path: &str,
+    argv: &[String],
+    fallback_globskipdots_off: bool,
+    env: &dyn Environment,
+) -> i32 {
     let cstrings = argv
         .iter()
         .map(|arg| {
@@ -612,6 +637,24 @@ pub(crate) fn execv_or_script(path: &str, argv: &[String], fallback_globskipdots
         .raw_os_error()
         .unwrap_or_default();
     if errno != libc::ENOEXEC {
+        if errno == libc::ENOENT {
+            if let Some(interpreter) = shebang_interpreter(path) {
+                let source = env
+                    .diagnostic_source_name()
+                    .unwrap_or_else(|| "cherubsh".to_string());
+                eprintln!(
+                    "{source}: {path}: {interpreter}: bad interpreter: No such file or directory"
+                );
+                return 126;
+            }
+            if let (Some(source), Some(line)) =
+                (env.diagnostic_source_name(), env.diagnostic_line())
+            {
+                eprintln!("{source}: line {line}: {path}: No such file or directory");
+            } else {
+                eprintln!("{path}: No such file or directory");
+            }
+        }
         return if errno == libc::ENOENT { 127 } else { 126 };
     }
     if !is_text_script(path) {
@@ -662,6 +705,14 @@ fn is_text_script(path: &str) -> bool {
         .iter()
         .take(80)
         .all(|byte| matches!(*byte, b'\n' | b'\r' | b'\t' | 0x20..=0x7e))
+}
+
+fn shebang_interpreter(path: &str) -> Option<String> {
+    let bytes = std::fs::read(path).ok()?;
+    let first_line = bytes.split(|byte| *byte == b'\n').next()?;
+    let rest = first_line.strip_prefix(b"#!")?;
+    let text = String::from_utf8_lossy(rest).trim().to_string();
+    text.split_whitespace().next().map(ToOwned::to_owned)
 }
 
 pub(crate) fn search_path(name: &str, env: &dyn Environment) -> Option<PathBuf> {

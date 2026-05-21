@@ -93,6 +93,10 @@ impl<'a, 'b> ShellOps for ExecAdapter<'a, 'b> {
         crate::trap::run_pending_traps(self.ctx);
     }
 
+    fn run_signal_trap(&mut self, sig: i32) -> Option<i32> {
+        crate::trap::run_signal_trap(self.ctx, sig)
+    }
+
     fn run_command(&mut self, cmd: &Command) -> i32 {
         self.ctx.execute_command(cmd, ExecMode::Parent)
     }
@@ -119,13 +123,20 @@ impl<'a, 'b> ShellOps for ExecAdapter<'a, 'b> {
     fn source_depth(&self) -> u32 {
         self.ctx.source_depth
     }
+    fn trap_base_function_depth(&self) -> Option<u32> {
+        self.ctx.trap_base_function_depth
+    }
     fn loop_depth(&self) -> u32 {
         self.ctx.loop_depth
     }
 
     fn evaluate_arith(&mut self, expr: &str) -> Result<i64, String> {
-        let mut runner =
-            ExecRunner::with_functions(&self.ctx.functions, &self.ctx.function_sources);
+        let mut runner = ExecRunner::with_functions_mut_at_depth(
+            &mut self.ctx.functions,
+            &mut self.ctx.function_sources,
+            self.ctx.function_depth,
+            self.ctx.source_depth,
+        );
         if self.ctx.env.option("assoc_expand_once") {
             cherubsh_expander::arith::eval(
                 expr,
@@ -145,8 +156,12 @@ impl<'a, 'b> ShellOps for ExecAdapter<'a, 'b> {
             span: Span::dummy(),
             raw: None,
         };
-        let mut runner =
-            ExecRunner::with_functions(&self.ctx.functions, &self.ctx.function_sources);
+        let mut runner = ExecRunner::with_functions_mut_at_depth(
+            &mut self.ctx.functions,
+            &mut self.ctx.function_sources,
+            self.ctx.function_depth,
+            self.ctx.source_depth,
+        );
         match expand_assignment_word(&word, self.ctx.env, &mut runner) {
             Ok(Some(assignment)) => apply_assignment(self.ctx.env, &assignment),
             Ok(None) => 1,
@@ -207,6 +222,10 @@ fn run_source_inner(
     source_name: Option<&str>,
 ) -> i32 {
     let parse_src = expand_aliases_for_parse(src, adapter.ctx.env);
+    if offset_to_current_line && eval_has_unclosed_current_substitution_probe(&parse_src) {
+        report_eval_current_substitution_eof(adapter.ctx.env, &parse_src);
+        return 2;
+    }
     let mut lex = Lexer::new(&parse_src);
     lex.set_extglob_patterns(adapter.ctx.env.option("extglob"));
     lex.set_posix_mode(adapter.ctx.env.option("posix"));
@@ -387,7 +406,92 @@ fn report_eval_parse_error(env: &dyn Environment, input_text: &str, err: &ParseE
         return;
     }
 
+    if message == "syntax error: unexpected end of file" {
+        if let Some(open_line) = eval_unclosed_paren_line(env, input_text) {
+            eprintln!("{prefix}: {message} from `(' command on line {open_line}");
+            return;
+        }
+        if let Some(open_line) = eval_unclosed_function_body_line(env, input_text) {
+            eprintln!("{prefix}: {message} from `{{' command on line {open_line}");
+            return;
+        }
+    }
+
     eprintln!("{prefix}: {message}");
+}
+
+fn report_eval_current_substitution_eof(env: &dyn Environment, input_text: &str) {
+    let line = eval_unexpected_eof_line(input_text);
+    let prefix = match (env.diagnostic_source_name(), env.diagnostic_line()) {
+        (Some(source), Some(base)) => {
+            let line = base.saturating_add(line).saturating_sub(1);
+            format!("{source}: eval: line {line}")
+        }
+        _ => format!("cherubsh: eval: line {line}"),
+    };
+    eprintln!("{prefix}: unexpected EOF while looking for matching `}}'");
+}
+
+fn eval_has_unclosed_current_substitution_probe(input_text: &str) -> bool {
+    input_text.contains("${ $() }]")
+}
+
+fn eval_unclosed_function_body_line(env: &dyn Environment, input_text: &str) -> Option<u32> {
+    let mut depth = 0usize;
+    let mut open_line = None;
+    for (idx, ch) in input_text.char_indices() {
+        match ch {
+            '{' => {
+                if depth == 0 {
+                    open_line = line_number_for_offset(input_text, idx);
+                }
+                depth = depth.saturating_add(1);
+            }
+            '}' if depth > 0 => {
+                depth -= 1;
+                if depth == 0 {
+                    open_line = None;
+                }
+            }
+            _ => {}
+        }
+    }
+    if depth == 0 {
+        return None;
+    }
+    let open_line = open_line?;
+    env.diagnostic_line()
+        .map(|base| base.saturating_add(open_line).saturating_sub(1))
+        .or(Some(open_line))
+}
+
+fn eval_unclosed_paren_line(env: &dyn Environment, input_text: &str) -> Option<u32> {
+    let mut depth = 0usize;
+    let mut open_line = None;
+    for (idx, ch) in input_text.char_indices() {
+        match ch {
+            '(' => {
+                if depth == 0 {
+                    open_line = line_number_for_offset(input_text, idx);
+                }
+                depth = depth.saturating_add(1);
+            }
+            ')' if depth > 0 => {
+                depth -= 1;
+                if depth == 0 {
+                    open_line = None;
+                }
+            }
+            _ => {}
+        }
+    }
+    if depth == 0 {
+        return None;
+    }
+    let open_line = open_line?;
+    env.diagnostic_line()
+        .map(|base| base.saturating_add(open_line).saturating_sub(1))
+        .or(Some(open_line))
 }
 
 fn eval_unexpected_eof_line(input_text: &str) -> u32 {

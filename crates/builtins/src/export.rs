@@ -30,6 +30,9 @@ impl Builtin for Export {
         for (key, value) in ctx.assignments {
             if ctx.env().is_readonly(key) {
                 report_diagnostic(ctx.env_ref(), key, "readonly variable");
+                if posix_special_error_is_fatal(ctx) {
+                    ctx.shell.request_exit(1);
+                }
                 return 1;
             }
             let _ = ctx.env().assign(key, value.clone());
@@ -88,6 +91,10 @@ impl Builtin for Export {
             if let Some((name, value, append)) = parse_assignment_op(arg) {
                 if ctx.env().is_readonly(&name) {
                     report_diagnostic(ctx.env_ref(), &name, "readonly variable");
+                    if posix_special_error_is_fatal(ctx) {
+                        ctx.shell.request_exit(1);
+                        return 1;
+                    }
                     status = 1;
                     continue;
                 }
@@ -122,6 +129,10 @@ impl Builtin for Export {
                         Ok(()) => 0,
                         Err(err) => {
                             report_assign_error(ctx.env_ref(), &err);
+                            if posix_special_error_is_fatal(ctx) {
+                                ctx.shell.request_exit(1);
+                                return 1;
+                            }
                             1
                         }
                     }
@@ -152,7 +163,9 @@ impl Builtin for Export {
                     }
                     ctx.env().export(&export_name);
                     ctx.env().set_attr(&export_name, VarAttrs::EXPORT, true);
-                    ctx.shell.note_exported(&export_name);
+                    if !ctx.shell.current_function_prefix_assignment(&export_name) {
+                        ctx.shell.note_exported(&export_name);
+                    }
                 }
             } else {
                 report_diagnostic(
@@ -160,11 +173,21 @@ impl Builtin for Export {
                     "export",
                     &format!("`{arg}': not a valid identifier"),
                 );
+                if posix_special_error_is_fatal(ctx) {
+                    ctx.shell.request_exit(1);
+                    return 1;
+                }
                 status = 1;
             }
         }
         status
     }
+}
+
+fn posix_special_error_is_fatal(ctx: &BuiltinCtx<'_>) -> bool {
+    ctx.env_ref().option("posix")
+        && !ctx.env_ref().option("interactive")
+        && !ctx.invoked_via_command
 }
 
 fn export_target_name(ctx: &BuiltinCtx<'_>, name: &str) -> String {

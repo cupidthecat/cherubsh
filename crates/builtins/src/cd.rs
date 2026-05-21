@@ -1,8 +1,9 @@
 use std::path::{Path, PathBuf};
 
-use crate::common::{diagnostic_subject, errno_message, report_diagnostic};
+use crate::common::{diagnostic_subject, errno_message, report_assign_error, report_diagnostic};
 use crate::getopt::{GetOpt, OptParser};
 use crate::{Builtin, BuiltinCtx};
+use cherubsh_common::AssignError;
 
 pub struct Cd;
 pub static CD: Cd = Cd;
@@ -44,6 +45,10 @@ impl Builtin for Cd {
         let _ = treat_as_xattr;
 
         let rest = parser.remaining(ctx.args);
+        if rest.len() > 1 {
+            report_diagnostic(ctx.env_ref(), "cd", "too many arguments");
+            return 1;
+        }
         let target_arg = rest.first().cloned();
         let print_after;
         let mut effective_target;
@@ -140,6 +145,15 @@ impl Builtin for Cd {
                     errno_message(&err)
                 ),
             );
+            return 1;
+        }
+
+        if ctx.env_ref().is_readonly("PWD") {
+            report_assign_error(ctx.env_ref(), &AssignError::ReadOnly("PWD".to_string()));
+            return 1;
+        }
+        if ctx.env_ref().is_readonly("OLDPWD") {
+            report_assign_error(ctx.env_ref(), &AssignError::ReadOnly("OLDPWD".to_string()));
             return 1;
         }
 

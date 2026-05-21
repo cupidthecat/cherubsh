@@ -14,8 +14,12 @@ pub(crate) fn trace(ctx: &mut ExecContext<'_>, line: &str) {
 
 pub(crate) fn trace_with_fd_value(ctx: &mut ExecContext<'_>, line: &str, fd_value: Option<&str>) {
     let raw_ps4 = ctx.env.get("PS4").unwrap_or_else(|| "+ ".to_string());
-    let mut runner =
-        crate::runner::ExecRunner::with_functions(&ctx.functions, &ctx.function_sources);
+    let mut runner = crate::runner::ExecRunner::with_functions_mut_at_depth(
+        &mut ctx.functions,
+        &mut ctx.function_sources,
+        ctx.function_depth,
+        ctx.source_depth,
+    );
     let mut ps4 = expand_string_to_string(&raw_ps4, ctx.env, &mut runner).unwrap_or(raw_ps4);
     let extra_prefixes = ctx.source_depth
         + ctx.env.command_substitution_depth()
@@ -37,6 +41,9 @@ pub(crate) fn quote_word(word: &str) -> String {
         return "''".to_string();
     }
     if bytes != word.as_bytes() || std::str::from_utf8(&bytes).is_err() {
+        return cherubsh_builtins::common::ansi_c_quote(word);
+    }
+    if bytes.iter().any(|b| *b < 0x20 || *b == 0x7f) {
         return cherubsh_builtins::common::ansi_c_quote(word);
     }
     if bytes

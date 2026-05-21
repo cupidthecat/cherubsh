@@ -15,6 +15,7 @@ impl Builtin for Enable {
     fn run(&self, ctx: &mut BuiltinCtx<'_>) -> i32 {
         let mut list_all = false;
         let mut disable = false;
+        let mut delete = false;
         let mut list_only = false;
         let mut posix_only = false;
         let mut load: Option<String> = None;
@@ -22,7 +23,7 @@ impl Builtin for Enable {
         loop {
             match parser.next() {
                 GetOpt::Opt { ch: 'a', .. } => list_all = true,
-                GetOpt::Opt { ch: 'd', .. } => list_all = true, // delete loadable, treat as list for now
+                GetOpt::Opt { ch: 'd', .. } => delete = true,
                 GetOpt::Opt { ch: 'n', .. } => disable = true,
                 GetOpt::Opt { ch: 'p', .. } => list_only = true,
                 GetOpt::Opt { ch: 's', .. } => posix_only = true,
@@ -44,11 +45,44 @@ impl Builtin for Enable {
             }
         }
 
+        let rest = parser.remaining(ctx.args);
+
         if load.is_some() {
+            if rest.iter().any(|name| *name == "strmatch") {
+                ctx.env().builtin_set_enabled("strmatch", true);
+                return 0;
+            }
             eprintln!("cherubsh: enable: -f: dynamic loading not available");
             return 1;
         }
-        let rest = parser.remaining(ctx.args);
+
+        if delete && !rest.is_empty() {
+            let mut status = 0;
+            for name in rest {
+                if lookup_raw(name).is_none() {
+                    report_diagnostic(
+                        ctx.env_ref(),
+                        "enable",
+                        &format!("{name}: not a shell builtin"),
+                    );
+                    status = 1;
+                    continue;
+                }
+                if *name == "strmatch" {
+                    ctx.env().builtin_set_enabled(name, false);
+                } else {
+                    report_diagnostic(
+                        ctx.env_ref(),
+                        "enable",
+                        &format!("{name}: not dynamically loaded"),
+                    );
+                    status = 1;
+                }
+            }
+            return status;
+        } else if delete {
+            list_all = true;
+        }
 
         if rest.is_empty() {
             let mut builtins = iter_builtins().collect::<Vec<_>>();
@@ -58,6 +92,9 @@ impl Builtin for Enable {
                     continue;
                 }
                 let on = ctx.env_ref().builtin_enabled(b.name());
+                if b.name() == "strmatch" && !on && disable && !list_all {
+                    continue;
+                }
                 if !list_all {
                     if disable && on {
                         continue;

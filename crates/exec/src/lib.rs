@@ -9,9 +9,9 @@ use cherubsh_common::{
 use cherubsh_expander::{ExpandError, ProcSubstHandle};
 use cherubsh_lexer::{Lexer, TokenKind};
 use cherubsh_parser::{
-    Ast, Command, CommandData, Parser, Redirect, RedirectInstruction, Redirectee, Redirector,
-    SimpleCommand, WordDesc, CONN_AMP, CONN_AND_AND, CONN_BAR_AND, CONN_NEWLINE, CONN_OR_OR,
-    CONN_PIPE, CONN_SEMI,
+    Ast, Command, CommandData, CondCommand, CondType, Parser, Redirect, RedirectInstruction,
+    Redirectee, Redirector, SimpleCommand, WordDesc, CONN_AMP, CONN_AND_AND, CONN_BAR_AND,
+    CONN_NEWLINE, CONN_OR_OR, CONN_PIPE, CONN_SEMI,
 };
 
 mod controlflow;
@@ -41,6 +41,8 @@ pub struct ExecState {
     function_traced: HashSet<String>,
     suppress_err_traps: bool,
     suppress_debug_traps: bool,
+    function_depth: u32,
+    source_depth: u32,
 }
 
 impl ExecState {
@@ -134,6 +136,7 @@ pub(crate) struct ExecContext<'a> {
     pub(crate) function_prefix_assignment_stack: Vec<Vec<String>>,
     pub(crate) debug_trap_scopes: Vec<bool>,
     pub(crate) source_depth: u32,
+    pub(crate) trap_base_function_depth: Option<u32>,
     pub(crate) errexit_suppressed: u32,
     pub(crate) abort_line_depth: u32,
     pub(crate) proc_subst: Vec<ProcSubstHandle>,
@@ -159,6 +162,8 @@ pub fn execute_with_state(
     ctx.function_traced = std::mem::take(&mut state.function_traced);
     ctx.suppress_err_traps = state.suppress_err_traps;
     ctx.suppress_debug_traps = state.suppress_debug_traps;
+    ctx.function_depth = state.function_depth;
+    ctx.source_depth = state.source_depth;
     let status = ctx.execute_command(&ast.root, ExecMode::Parent);
     let (final_status, exit_shell) = match ctx.pending.take() {
         Some(Unwind::Exit(n)) => (n, true),
@@ -175,7 +180,7 @@ pub fn execute_with_state(
 }
 
 impl<'a> ExecContext<'a> {
-    fn new(env: &'a mut (dyn Environment + 'a)) -> Self {
+    pub(crate) fn new(env: &'a mut (dyn Environment + 'a)) -> Self {
         let last = env.last_status();
         let funcnest_max = env
             .get("FUNCNEST")
@@ -198,6 +203,7 @@ impl<'a> ExecContext<'a> {
             function_prefix_assignment_stack: Vec::new(),
             debug_trap_scopes: Vec::new(),
             source_depth: 0,
+            trap_base_function_depth: None,
             errexit_suppressed: 0,
             abort_line_depth: 0,
             proc_subst: Vec::new(),
@@ -217,6 +223,23 @@ impl<'a> ExecContext<'a> {
     }
 
     pub(crate) fn execute_command(&mut self, command: &Command, mode: ExecMode) -> i32 {
+        self.execute_command_inner(command, mode, false)
+    }
+
+    pub(crate) fn execute_function_body_command(
+        &mut self,
+        command: &Command,
+        mode: ExecMode,
+    ) -> i32 {
+        self.execute_command_inner(command, mode, true)
+    }
+
+    fn execute_command_inner(
+        &mut self,
+        command: &Command,
+        mode: ExecMode,
+        suppress_own_err_trap: bool,
+    ) -> i32 {
         if self.pending.is_some() {
             return self.last_status;
         }
@@ -244,10 +267,22 @@ impl<'a> ExecContext<'a> {
                 if command.redirects.is_empty() {
                     self.dispatch(command, mode)
                 } else {
-                    match redirect::apply_redirects_to_parent(self, &command.redirects) {
+                    let adjusted_line = redirection_error_report_line(command, self.env);
+                    if let Some(line) = adjusted_line {
+                        self.env.push_diagnostic_line(line);
+                    }
+                    let redirects = redirect::apply_redirects_to_parent(self, &command.redirects);
+                    if adjusted_line.is_some() {
+                        self.env.pop_diagnostic_line();
+                    }
+                    match redirects {
                         Ok(_guard) => self.dispatch(command, mode),
                         Err(err) => {
                             err.report_with_env(self.env);
+                            if mode == ExecMode::Parent && redirection_error_runs_err_trap(command)
+                            {
+                                crate::trap::run_err_trap(self);
+                            }
                             if self.env.option("posix")
                                 && redirection_error_exits_for_command(command)
                             {
@@ -295,7 +330,9 @@ impl<'a> ExecContext<'a> {
         if !is_pipeline_command(command) {
             self.env.set_array("PIPESTATUS", vec![inverted.to_string()]);
         }
-        self.maybe_run_err_trap(command, mode, inverted);
+        if !suppress_own_err_trap {
+            self.maybe_run_err_trap(command, mode, inverted);
+        }
         crate::trap::run_pending_traps(self);
         self.maybe_errexit(command);
         self.close_proc_subst_since(proc_subst_mark);
@@ -401,6 +438,13 @@ impl<'a> ExecContext<'a> {
         match &command.data {
             CommandData::Subshell(_) => {}
             CommandData::Arith(_) | CommandData::Cond(_) => {}
+            CommandData::For(_)
+            | CommandData::While(_)
+            | CommandData::Until(_)
+            | CommandData::ArithFor(_)
+            | CommandData::Select(_)
+            | CommandData::Case(_)
+            | CommandData::Group(_) => {}
             CommandData::Connection(conn) if matches!(conn.connector, CONN_PIPE | CONN_BAR_AND) => {
             }
             _ => return,
@@ -451,18 +495,30 @@ impl<'a> ExecContext<'a> {
                 self.run_debug_trap_for_command(mode);
                 let expr = c.expression.text.as_str();
                 let trimmed = expr.trim();
-                if self.env.option("xtrace") {
-                    xtrace::trace(self, &format!("(( {} ))", trimmed));
-                }
                 if trimmed.is_empty() {
                     return 1;
                 }
-                use cherubsh_expander::expand_for_arith;
-                let mut runner = crate::runner::ExecRunner::with_functions(
-                    &self.functions,
-                    &self.function_sources,
+                let mut runner = crate::runner::ExecRunner::with_functions_mut_at_depth(
+                    &mut self.functions,
+                    &mut self.function_sources,
+                    self.function_depth,
+                    self.source_depth,
                 );
-                match expand_for_arith(expr, self.env, &mut runner) {
+                let result = if self.env.option("xtrace") {
+                    let expanded_result =
+                        cherubsh_expander::expand_for_arith_with_text(expr, self.env, &mut runner);
+                    drop(runner);
+                    match expanded_result {
+                        Ok((expanded, value)) => {
+                            xtrace::trace(self, &format!("(( {} ))", expanded));
+                            Ok(value)
+                        }
+                        Err(err) => Err(err),
+                    }
+                } else {
+                    cherubsh_expander::expand_for_arith(expr, self.env, &mut runner)
+                };
+                match result {
                     Ok(v) => {
                         if v == 0 {
                             1
@@ -484,13 +540,15 @@ impl<'a> ExecContext<'a> {
             }
             CommandData::Cond(c) => {
                 self.run_debug_trap_for_command(mode);
-                let mut runner = crate::runner::ExecRunner::with_functions(
-                    &self.functions,
-                    &self.function_sources,
+                let mut runner = crate::runner::ExecRunner::with_functions_mut_at_depth(
+                    &mut self.functions,
+                    &mut self.function_sources,
+                    self.function_depth,
+                    self.source_depth,
                 );
                 let status = if self.env.option("xtrace") {
                     let mut traces = Vec::new();
-                    let status = cherubsh_builtins::cond::evaluate_with_runner_and_tracer(
+                    let result = cherubsh_builtins::cond::evaluate_with_runner_and_tracer_result(
                         c,
                         self.env,
                         &mut runner,
@@ -499,7 +557,14 @@ impl<'a> ExecContext<'a> {
                     for line in traces {
                         xtrace::trace(self, &line);
                     }
-                    status
+                    match result {
+                        Ok(true) => 0,
+                        Ok(false) => 1,
+                        Err(msg) => {
+                            cherubsh_builtins::cond::report_cond_error(self.env, &msg);
+                            2
+                        }
+                    }
                 } else {
                     cherubsh_builtins::cond::evaluate_with_runner(c, self.env, &mut runner)
                 };
@@ -518,6 +583,7 @@ impl<'a> ExecContext<'a> {
         let debug_trap_in_scope = mode == ExecMode::Parent
             && !self.suppress_debug_traps
             && ((self.function_depth == 0 && self.source_depth == 0)
+                || self.env.option("functrace")
                 || self.debug_trap_scopes.last().copied().unwrap_or(false));
         if !debug_trap_in_scope {
             return None;
@@ -529,6 +595,40 @@ impl<'a> ExecContext<'a> {
         ExecError::new(format!("unsupported: {feature}")).report();
         self.last_status = 2;
         2
+    }
+}
+
+fn redirection_error_runs_err_trap(command: &Command) -> bool {
+    matches!(
+        &command.data,
+        CommandData::For(_)
+            | CommandData::While(_)
+            | CommandData::Until(_)
+            | CommandData::ArithFor(_)
+            | CommandData::Select(_)
+            | CommandData::Case(_)
+            | CommandData::Group(_)
+            | CommandData::Subshell(_)
+    )
+}
+
+fn redirection_error_report_line(
+    command: &Command,
+    env: &dyn cherubsh_common::Environment,
+) -> Option<u32> {
+    if env.subshell_level() == 0 {
+        return None;
+    }
+    if matches!(
+        &command.data,
+        CommandData::For(_)
+            | CommandData::While(_)
+            | CommandData::Until(_)
+            | CommandData::ArithFor(_)
+    ) {
+        env.diagnostic_line().map(|line| line.saturating_add(1))
+    } else {
+        None
     }
 }
 
@@ -547,7 +647,7 @@ pub(crate) fn command_label(command: &Command) -> String {
             line
         }
         CommandData::Arith(arith) => format!("(( {} ))", arith.expression.text.trim()),
-        CommandData::Cond(_) => "[[ ... ]]".to_string(),
+        CommandData::Cond(cond) => format!("[[ {} ]]", render_cond_command(cond)),
         CommandData::Subshell(_) => "( ... )".to_string(),
         CommandData::Group(_) => "{ ...; }".to_string(),
         CommandData::FunctionDef(function) => format!("{} ()", raw_word(&function.name)),
@@ -591,6 +691,55 @@ fn render_simple_command(simple: &SimpleCommand, trailing_redirects: &[Redirect]
     parts.extend(simple.redirects.iter().map(render_redirect));
     parts.extend(trailing_redirects.iter().map(render_redirect));
     parts.join(" ")
+}
+
+fn render_cond_command(cmd: &CondCommand) -> String {
+    match cmd.cond_type {
+        CondType::And => format!(
+            "{} && {}",
+            render_cond_command(cmd.left.as_deref().unwrap()),
+            render_cond_command(cmd.right.as_deref().unwrap())
+        ),
+        CondType::Or => format!(
+            "{} || {}",
+            render_cond_command(cmd.left.as_deref().unwrap()),
+            render_cond_command(cmd.right.as_deref().unwrap())
+        ),
+        CondType::Unary => {
+            let op = cmd.op.as_ref().map(raw_word).unwrap_or_default();
+            let arg = cmd
+                .left
+                .as_deref()
+                .and_then(|left| left.term.as_ref())
+                .map(raw_word)
+                .unwrap_or_default();
+            format!("{op} {arg}")
+        }
+        CondType::Binary => {
+            let lhs = cmd
+                .left
+                .as_deref()
+                .and_then(|left| left.term.as_ref())
+                .map(raw_word)
+                .unwrap_or_default();
+            let op = cmd.op.as_ref().map(raw_word).unwrap_or_default();
+            let rhs = cmd
+                .right
+                .as_deref()
+                .and_then(|right| right.term.as_ref())
+                .map(raw_word)
+                .unwrap_or_default();
+            format!("{lhs} {op} {rhs}")
+        }
+        CondType::Term => {
+            if let Some(inner) = cmd.left.as_deref() {
+                format!("! {}", render_cond_command(inner))
+            } else {
+                cmd.term.as_ref().map(raw_word).unwrap_or_default()
+            }
+        }
+        CondType::Expr => format!("( {} )", render_cond_command(cmd.left.as_deref().unwrap())),
+    }
 }
 
 fn raw_word(word: &WordDesc) -> String {
@@ -717,10 +866,66 @@ pub(crate) fn report_arith_command_error(env: &dyn Environment, err: ExpandError
     } else {
         message
     };
+    let message = normalize_bash53_arith_error(expr, message);
+    let repeat = if expr.contains("[$") && message.ends_with(": bad array subscript") {
+        2
+    } else {
+        1
+    };
     match (env.diagnostic_source_name(), env.diagnostic_line()) {
-        (Some(source), Some(line)) => eprintln!("{source}: line {line}: {message}"),
-        _ => eprintln!("cherubsh: {message}"),
+        (Some(source), Some(line)) => {
+            for _ in 0..repeat {
+                eprintln!("{source}: line {line}: {message}");
+            }
+        }
+        _ => {
+            for _ in 0..repeat {
+                eprintln!("cherubsh: {message}");
+            }
+        }
     }
+}
+
+fn normalize_bash53_arith_error(expr: &str, message: String) -> String {
+    let trimmed = expr.trim();
+    if expr.trim_end().len() != expr.len()
+        && message.contains("attempted assignment to non-variable")
+    {
+        return message
+            .replace(&format!("((: {trimmed}:"), &format!("((: {trimmed} :"))
+            .replace(
+                &format!("(error token is \"{}\")", assignment_error_token(trimmed)),
+                &format!("(error token is \"{} \")", assignment_error_token(trimmed)),
+            );
+    }
+    if trimmed.ends_with("++") || trimmed.ends_with("--") {
+        let mut normalized =
+            message.replace(&format!("((: {trimmed}:"), &format!("((: {trimmed} :"));
+        if !normalized.contains("arithmetic syntax error: operand expected") {
+            normalized = normalized.replace(
+                "syntax error: operand expected",
+                "arithmetic syntax error: operand expected",
+            );
+        }
+        return normalized
+            .replace("(error token is \"+\")", "(error token is \"+ \")")
+            .replace("(error token is \"-\")", "(error token is \"- \")");
+    }
+    if trimmed.ends_with('=') {
+        let mut normalized = message;
+        if !normalized.contains("arithmetic syntax error: operand expected") {
+            normalized = normalized.replace(
+                "syntax error: operand expected",
+                "arithmetic syntax error: operand expected",
+            );
+        }
+        return normalized.replace("(error token is \"\")", "(error token is \"=\")");
+    }
+    message
+}
+
+fn assignment_error_token(expr: &str) -> &str {
+    expr.find('=').map(|idx| &expr[idx..]).unwrap_or("")
 }
 
 fn normalize_quoted_assoc_arith_error(message: String) -> String {
@@ -738,6 +943,7 @@ fn arith_command_error_is_for_outer_expr(expr: &str, message: &str) -> bool {
     !expr.is_empty()
         && (message.starts_with(expr)
             || message.starts_with(expr.trim_end())
+            || (expr.contains('"') && message.contains("arithmetic syntax error"))
             || (expr.starts_with('\'') && message.starts_with('\''))
             || (expr.starts_with('"') && message.starts_with('"')))
 }

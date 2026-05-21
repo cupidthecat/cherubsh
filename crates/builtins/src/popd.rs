@@ -18,12 +18,15 @@ impl Builtin for Popd {
         let mut skip_cd = false;
         let mut selected: Option<(String, StackIndex)> = None;
         for arg in ctx.args {
+            if arg == "--" {
+                break;
+            }
             if arg == "-n" {
                 skip_cd = true;
                 continue;
             }
             let Some(index) = parse_stack_index(arg) else {
-                report_diagnostic(ctx.env_ref(), "popd", &format!("{arg}: invalid number"));
+                report_diagnostic(ctx.env_ref(), "popd", &format!("{arg}: invalid argument"));
                 usage("popd", "popd [-n] [+N | -N]");
                 return 2;
             };

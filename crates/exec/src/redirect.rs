@@ -238,7 +238,10 @@ fn build_plans<'a>(
                 };
             let target = target.unwrap_or(default_target);
             let source_label = redirectee_label(&r.redirectee);
-            let word = redirectee_word(&r.redirectee, ctx)?;
+            let mut word = redirectee_word(&r.redirectee, ctx)?;
+            if word.is_empty() && source_label.ends_with('-') {
+                word = "-".to_string();
+            }
             if word == "-" {
                 if let Redirector::Var(var) = &r.redirector {
                     return Ok(vec![Plan::CloseVar { var: var.clone() }]);
@@ -263,7 +266,8 @@ fn build_plans<'a>(
                 }]);
             }
             let source: i32 = match word.parse() {
-                Ok(source) => source,
+                Ok(source) if source >= 0 => source,
+                Ok(_) => return Err(ExecError::new(format!("{word}: ambiguous redirect"))),
                 Err(_)
                     if matches!(r.instruction, RedirectInstruction::DuplicatingOutputWord)
                         && target == 1 =>
@@ -323,10 +327,19 @@ fn build_plans<'a>(
             let target = target.unwrap_or(default_target);
             let source_label = redirectee_label(&r.redirectee);
             let word = redirectee_word(&r.redirectee, ctx)?;
+            if word == "-" || word.is_empty() && source_label.ends_with('-') {
+                if let Redirector::Var(var) = &r.redirector {
+                    return Ok(vec![Plan::CloseVar { var: var.clone() }]);
+                }
+                return Ok(vec![Plan::Close { target }]);
+            }
             let source_text = word.strip_suffix('-').unwrap_or(&word);
             let source: i32 = source_text
                 .parse()
                 .map_err(|_| ExecError::new(format!("{source_label}: ambiguous redirect")))?;
+            if source < 0 {
+                return Err(ExecError::new(format!("{word}: ambiguous redirect")));
+            }
             if let Redirector::Var(var) = &r.redirector {
                 return Ok(vec![Plan::AssignFd {
                     source,
@@ -457,7 +470,12 @@ fn expand_redirect_word(
     ctx: &mut ExecContext<'_>,
     expand_glob: bool,
 ) -> Result<String, ExecError> {
-    let mut runner = ExecRunner::with_functions(&ctx.functions, &ctx.function_sources);
+    let mut runner = ExecRunner::with_functions_mut_at_depth(
+        &mut ctx.functions,
+        &mut ctx.function_sources,
+        ctx.function_depth,
+        ctx.source_depth,
+    );
     let mut flags = ExpandFlags::SPLIT_FIELDS | ExpandFlags::QUOTE_REMOVAL | ExpandFlags::FOR_REDIR;
     if expand_glob {
         flags |= ExpandFlags::EXPAND_GLOB;
@@ -466,6 +484,9 @@ fn expand_redirect_word(
         expand_word_list_with_proc_subst(std::slice::from_ref(word), ctx.env, &mut runner, flags)
             .map_err(|err| ExecError::new(err.into_shell_error(Some(word.span)).message))?;
     ctx.register_proc_subst(expanded.proc_subst);
+    if expanded.words.is_empty() && word.text.ends_with('-') {
+        return Ok("-".to_string());
+    }
     if expanded.words.len() != 1 {
         return Err(ExecError::new(format!("{}: ambiguous redirect", word.text)));
     }
@@ -582,6 +603,18 @@ impl RedirGuard {
         if self.close_var_fds {
             self.assigned_var_fds.push(fd);
         }
+    }
+
+    pub(crate) fn persist(mut self) {
+        for (_target, saved) in self.saved_fd.drain(..) {
+            if saved >= 0 {
+                unsafe {
+                    libc::close(saved);
+                }
+            }
+        }
+        self.saved_var.clear();
+        self.assigned_var_fds.clear();
     }
 }
 
@@ -888,7 +921,10 @@ fn errno_message(err: &std::io::Error) -> String {
     match err.raw_os_error() {
         Some(libc::EINVAL) => "Invalid argument".to_string(),
         Some(libc::EBADF) => "Bad file descriptor".to_string(),
+        Some(libc::EACCES) => "Permission denied".to_string(),
+        Some(libc::EPERM) => "Permission denied".to_string(),
         Some(libc::ENOENT) => "No such file or directory".to_string(),
+        Some(libc::EISDIR) => "Is a directory".to_string(),
         Some(libc::EMFILE) => "Too many open files".to_string(),
         _ => err.to_string(),
     }
@@ -896,7 +932,13 @@ fn errno_message(err: &std::io::Error) -> String {
 
 fn fd_from_var(ctx: &mut ExecContext<'_>, var: &str) -> Result<RawFd, ExecError> {
     let value = match parse_var_target(var)? {
-        VarTarget::Scalar(name) => ctx.env.get(name),
+        VarTarget::Scalar(name) => {
+            let target = ctx
+                .env
+                .resolve_nameref(name)
+                .unwrap_or_else(|| name.to_string());
+            ctx.env.get(&target)
+        }
         VarTarget::Indexed { name, index } => ctx.env.get_array_indexed(name, index),
     };
     value

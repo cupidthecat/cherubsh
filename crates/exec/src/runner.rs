@@ -1,31 +1,61 @@
 //! `CommandRunner` implementation. Bridges the expander back into exec so
 //! `$(cmd)`, backticks, and `<(cmd)` can fork+exec sub-shells.
 
-use std::io::Read;
-use std::os::unix::io::{FromRawFd, RawFd};
+use std::io::{Read, Seek, SeekFrom, Write};
+use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
 use std::sync::OnceLock;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use cherubsh_common::signals::TrapKind;
 use cherubsh_common::{expand_aliases_for_parse, Environment, ProcSubstDir};
-use cherubsh_expander::{CommandRunner, ExpandError, ProcSubstHandle};
+use cherubsh_expander::{CommandRunner, CurrentSubstMode, ExpandError, ProcSubstHandle};
 use cherubsh_lexer::{Lexer, TokenKind};
 use cherubsh_parser::{Command, CommandData, Parser};
 
-use crate::{execute_with_state, ExecState, FunctionMap, FunctionSourceMap};
+use crate::{execute_with_state, ExecContext, ExecState, FunctionMap, FunctionSourceMap, Unwind};
 
 pub struct ExecRunner<'a> {
-    functions: &'a FunctionMap,
-    function_sources: &'a FunctionSourceMap,
+    functions: FunctionAccess<'a>,
+    function_depth: u32,
+    source_depth: u32,
+}
+
+enum FunctionAccess<'a> {
+    Shared(&'a FunctionMap, &'a FunctionSourceMap),
+    Mutable(&'a mut FunctionMap, &'a mut FunctionSourceMap),
+}
+
+impl FunctionAccess<'_> {
+    fn clone_maps(&self) -> (FunctionMap, FunctionSourceMap) {
+        match self {
+            FunctionAccess::Shared(functions, sources) => {
+                ((**functions).clone(), (**sources).clone())
+            }
+            FunctionAccess::Mutable(functions, sources) => {
+                ((**functions).clone(), (**sources).clone())
+            }
+        }
+    }
+
+    fn replace_maps(&mut self, functions: FunctionMap, sources: FunctionSourceMap) {
+        if let FunctionAccess::Mutable(target_functions, target_sources) = self {
+            **target_functions = functions;
+            **target_sources = sources;
+        }
+    }
 }
 
 impl<'a> ExecRunner<'a> {
-    pub(crate) fn with_functions(
-        functions: &'a FunctionMap,
-        function_sources: &'a FunctionSourceMap,
+    pub(crate) fn with_functions_mut_at_depth(
+        functions: &'a mut FunctionMap,
+        function_sources: &'a mut FunctionSourceMap,
+        function_depth: u32,
+        source_depth: u32,
     ) -> Self {
         Self {
-            functions,
-            function_sources,
+            functions: FunctionAccess::Mutable(functions, function_sources),
+            function_depth,
+            source_depth,
         }
     }
 }
@@ -35,8 +65,12 @@ impl Default for ExecRunner<'static> {
         static EMPTY_FUNCTIONS: OnceLock<FunctionMap> = OnceLock::new();
         static EMPTY_FUNCTION_SOURCES: OnceLock<FunctionSourceMap> = OnceLock::new();
         Self {
-            functions: EMPTY_FUNCTIONS.get_or_init(Default::default),
-            function_sources: EMPTY_FUNCTION_SOURCES.get_or_init(Default::default),
+            functions: FunctionAccess::Shared(
+                EMPTY_FUNCTIONS.get_or_init(Default::default),
+                EMPTY_FUNCTION_SOURCES.get_or_init(Default::default),
+            ),
+            function_depth: 0,
+            source_depth: 0,
         }
     }
 }
@@ -52,6 +86,15 @@ impl CommandRunner for ExecRunner<'_> {
         src: &str,
     ) -> Result<Vec<u8>, ExpandError> {
         self.run_subst_with_mode(env, src, SubstMode::Backquote)
+    }
+
+    fn run_current_subst(
+        &mut self,
+        env: &mut dyn Environment,
+        src: &str,
+        mode: CurrentSubstMode,
+    ) -> Result<(Vec<u8>, i32), ExpandError> {
+        self.run_current_subst_with_mode(env, src, mode)
     }
 
     fn spawn_proc_subst(
@@ -87,12 +130,15 @@ impl CommandRunner for ExecRunner<'_> {
             env.enter_command_substitution();
             env.suppress_inherited_exit_trap();
             clear_inherited_signal_traps_for_proc_subst(env);
+            let (functions, function_sources) = self.functions.clone_maps();
             let mut status = run_inner(
                 env,
                 src,
-                (*self.functions).clone(),
-                (*self.function_sources).clone(),
+                functions,
+                function_sources,
                 SubstMode::DollarParen,
+                self.function_depth,
+                self.source_depth,
             );
             env.set_last_status(status);
             if let Some(trap_status) = env.run_exit_trap_hook() {
@@ -184,12 +230,15 @@ impl ExecRunner<'_> {
             if !env.option("inherit_errexit") && !env.option("posix") {
                 env.set_option("errexit", false);
             }
+            let (functions, function_sources) = self.functions.clone_maps();
             let mut status = run_inner(
                 env,
                 src,
-                (*self.functions).clone(),
-                (*self.function_sources).clone(),
+                functions,
+                function_sources,
                 mode,
+                self.function_depth,
+                self.source_depth,
             );
             env.set_last_status(status);
             if let Some(trap_status) = env.run_exit_trap_hook() {
@@ -218,6 +267,113 @@ impl ExecRunner<'_> {
         env.set_last_status(code);
         Ok(out)
     }
+
+    fn run_current_subst_with_mode(
+        &mut self,
+        env: &mut dyn Environment,
+        src: &str,
+        mode: CurrentSubstMode,
+    ) -> Result<(Vec<u8>, i32), ExpandError> {
+        let saved_reply = if mode == CurrentSubstMode::Reply {
+            env.get("REPLY")
+        } else {
+            None
+        };
+        let (mut functions, mut function_sources) = self.functions.clone_maps();
+        let result = if mode == CurrentSubstMode::Output {
+            run_current_with_stdout_capture(env, src, &mut functions, &mut function_sources)
+        } else {
+            run_current_inner(env, src, &mut functions, &mut function_sources, true)
+        };
+        self.functions.replace_maps(functions, function_sources);
+        match result {
+            Ok(CurrentSubstResult {
+                bytes,
+                status,
+                exit_shell: false,
+            }) => {
+                if mode == CurrentSubstMode::Reply {
+                    match saved_reply {
+                        Some(value) => env.set("REPLY", value),
+                        None => env.unset("REPLY"),
+                    }
+                }
+                env.set_last_status(status);
+                Ok((bytes, status))
+            }
+            Ok(CurrentSubstResult {
+                status,
+                exit_shell: true,
+                ..
+            }) => {
+                env.set_last_status(status);
+                Err(ExpandError::ExitShell(status))
+            }
+            Err(err) => Err(err),
+        }
+    }
+}
+
+struct CurrentSubstResult {
+    bytes: Vec<u8>,
+    status: i32,
+    exit_shell: bool,
+}
+
+fn run_current_with_stdout_capture(
+    env: &mut dyn Environment,
+    src: &str,
+    functions: &mut FunctionMap,
+    function_sources: &mut FunctionSourceMap,
+) -> Result<CurrentSubstResult, ExpandError> {
+    std::io::stdout().flush().ok();
+    let mut file = create_capture_file()?;
+    let saved_stdout = unsafe { libc::dup(1) };
+    if saved_stdout < 0 {
+        return Err(ExpandError::Io("dup stdout failed".into()));
+    }
+    if unsafe { libc::dup2(file.as_raw_fd(), 1) } < 0 {
+        unsafe {
+            libc::close(saved_stdout);
+        }
+        return Err(ExpandError::Io("redirect stdout failed".into()));
+    }
+    let result = run_current_inner(env, src, functions, function_sources, false);
+    std::io::stdout().flush().ok();
+    unsafe {
+        libc::dup2(saved_stdout, 1);
+        libc::close(saved_stdout);
+    }
+    let mut result = result?;
+    file.seek(SeekFrom::Start(0))?;
+    file.read_to_end(&mut result.bytes)?;
+    Ok(result)
+}
+
+fn create_capture_file() -> Result<std::fs::File, ExpandError> {
+    let pid = unsafe { libc::getpid() };
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or(0);
+    for attempt in 0..128u32 {
+        let mut path = std::env::temp_dir();
+        path.push(format!("cherubsh-current-subst-{pid}-{nanos}-{attempt}"));
+        match std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create_new(true)
+            .open(&path)
+        {
+            Ok(file) => {
+                let _ = std::fs::remove_file(path);
+                return Ok(file);
+            }
+            Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(err) => return Err(ExpandError::Io(err.to_string())),
+        }
+    }
+    Err(ExpandError::Io("create temp file failed".into()))
 }
 
 fn run_inner(
@@ -226,6 +382,8 @@ fn run_inner(
     functions: FunctionMap,
     function_sources: FunctionSourceMap,
     mode: SubstMode,
+    function_depth: u32,
+    source_depth: u32,
 ) -> i32 {
     let src = subst_parse_source(src);
     let parse_src = expand_aliases_for_parse(&src, env);
@@ -263,11 +421,97 @@ fn run_inner(
                     && !env.option("errtrace")
                     && !env.option("extdebug"),
                 suppress_debug_traps: !env.option("functrace"),
+                function_depth,
+                source_depth,
             };
             let result = execute_with_state(&ast, env, &mut state);
             result.status
         }
         Err(_e) => 2,
+    }
+}
+
+fn run_current_inner(
+    env: &mut dyn Environment,
+    src: &str,
+    functions: &mut FunctionMap,
+    function_sources: &mut FunctionSourceMap,
+    collect_reply: bool,
+) -> Result<CurrentSubstResult, ExpandError> {
+    let src = subst_parse_source(src);
+    let parse_src = expand_aliases_for_parse(&src, env);
+    let mut lex = Lexer::new(&parse_src);
+    lex.set_extglob_patterns(env.option("extglob"));
+    lex.set_posix_mode(env.option("posix"));
+    let mut tokens = Vec::new();
+    loop {
+        match lex.next_token() {
+            Some(tok) => {
+                if tok.kind == TokenKind::End {
+                    tokens.push(tok);
+                    break;
+                }
+                tokens.push(tok);
+            }
+            None => break,
+        }
+    }
+    let mut parser = Parser::new(tokens, &parse_src);
+    match parser.parse() {
+        Ok(mut ast) => {
+            if let Some(base) = env.diagnostic_line() {
+                if let Some(first_line) = first_command_line(&ast.root) {
+                    let anchor = if src.contains('\n') {
+                        base.saturating_add(1)
+                    } else {
+                        base
+                    };
+                    offset_dollar_paren_command_lines(&mut ast.root, anchor, first_line);
+                }
+            }
+            let mut ctx = ExecContext::new(env);
+            ctx.functions = std::mem::take(functions);
+            ctx.function_sources = std::mem::take(function_sources);
+            ctx.function_depth += 1;
+            ctx.env.push_local_scope();
+            let saved_errexit = ctx.env.option("errexit");
+            if !ctx.env.option("posix") {
+                ctx.env.set_option("errexit", false);
+            }
+            let status = ctx.execute_command(&ast.root, crate::ExecMode::Parent);
+            let (status, exit_shell) = match ctx.pending.take() {
+                Some(Unwind::Return { status, .. }) => (status, false),
+                Some(Unwind::Exit(status)) => (status, true),
+                Some(Unwind::AbortLine(status)) => (status, false),
+                Some(other) => {
+                    ctx.pending = Some(other);
+                    (status, false)
+                }
+                None => (status, false),
+            };
+            let bytes = if collect_reply {
+                ctx.env.get("REPLY").unwrap_or_default().into_bytes()
+            } else {
+                Vec::new()
+            };
+            if !ctx.env.option("posix") {
+                ctx.env.set_option("errexit", saved_errexit);
+            }
+            ctx.env.pop_local_scope();
+            ctx.function_depth = ctx.function_depth.saturating_sub(1);
+            *functions = ctx.functions;
+            *function_sources = ctx.function_sources;
+            Ok(CurrentSubstResult {
+                bytes,
+                status,
+                exit_shell,
+            })
+        }
+        Err(_) => Ok(CurrentSubstResult {
+            bytes: Vec::new(),
+            status: 2,
+            exit_shell: false,
+        }),
     }
 }
 
@@ -469,6 +713,6 @@ fn offset_backquote_line(line: &mut u32, base: u32) {
     *line = if *line == 1 {
         base
     } else {
-        base.saturating_add(*line)
+        base.saturating_add((*line).saturating_sub(1))
     };
 }

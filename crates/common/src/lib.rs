@@ -808,13 +808,13 @@ fn expand_aliases_once(input: &str, env: &dyn Environment) -> (String, bool) {
             continue;
         }
 
-        if eligible && !skip_redir_target {
+        if eligible && !skip_redir_target && !(env.option("posix") && is_reserved_word(word)) {
             if let Some(alias) = expand_alias_chain(word, env) {
                 changed = true;
                 open_alias_quote = unclosed_alias_quote(&alias);
                 alias_blank_next =
                     open_alias_quote.is_none() && alias.ends_with(char::is_whitespace);
-                command_position = false;
+                command_position = alias_leaves_command_position(&alias, command_position);
                 out.push_str(&alias);
                 if alias_ends_with_number(&alias)
                     && chars
@@ -830,6 +830,10 @@ fn expand_aliases_once(input: &str, env: &dyn Environment) -> (String, bool) {
         out.push_str(word);
         if command_position && word == "case" {
             case_pending_in = true;
+        } else if command_position && matches!(word, "do" | "then" | "else" | "elif") {
+            command_position = true;
+            alias_blank_next = false;
+            continue;
         } else if case_pending_in && word == "in" {
             case_pending_in = false;
             case_patterns = true;
@@ -1040,6 +1044,35 @@ fn alias_ends_with_number(alias: &str) -> bool {
         .rev()
         .find(|ch| !ch.is_whitespace())
         .is_some_and(|ch| ch.is_ascii_digit())
+}
+
+fn alias_leaves_command_position(alias: &str, prior_command_position: bool) -> bool {
+    match alias.chars().rev().find(|ch| !ch.is_whitespace()) {
+        None => prior_command_position,
+        Some(ch) => is_command_separator(ch),
+    }
+}
+
+fn is_reserved_word(word: &str) -> bool {
+    matches!(
+        word,
+        "if" | "then"
+            | "else"
+            | "elif"
+            | "fi"
+            | "case"
+            | "esac"
+            | "for"
+            | "select"
+            | "while"
+            | "until"
+            | "do"
+            | "done"
+            | "in"
+            | "function"
+            | "time"
+            | "coproc"
+    )
 }
 
 fn copy_separator_tail(
@@ -1272,6 +1305,18 @@ pub trait Environment {
     }
     fn prompt_command_number(&self) -> u64 {
         0
+    }
+    fn prompt_history_number(&self) -> u64 {
+        self.get("HISTCMD")
+            .and_then(|value| value.parse::<u64>().ok())
+            .filter(|value| *value > 0)
+            .unwrap_or(1)
+    }
+    fn prompt_job_count(&self) -> usize {
+        0
+    }
+    fn prompt_shell_name(&self) -> Option<String> {
+        self.get("BASH").or_else(|| self.positional(0))
     }
     fn logical_pwd(&self) -> Option<String> {
         self.get("PWD").filter(|pwd| !pwd.is_empty())
@@ -1567,6 +1612,11 @@ pub trait Environment {
     /// Variables declared in the innermost active local frame.
     fn iter_local_vars(&self) -> Vec<VarSnapshot> {
         Vec::new()
+    }
+    /// Whether the innermost active local frame has an option snapshot from
+    /// `local -`.
+    fn local_options_active(&self) -> bool {
+        false
     }
     fn make_options_local(&mut self) {}
 
@@ -1963,6 +2013,36 @@ mod tests {
         assert_eq!(
             expand_aliases_for_parse(r#"echo "$( short ""#, &env),
             r#"echo "$( echo ok ) ""#
+        );
+    }
+
+    #[test]
+    fn alias_expansion_separator_alias_resets_command_position() {
+        let mut env = AliasEnv::default();
+        env.aliases.insert("a1".into(), "echo ".into());
+        env.aliases.insert("a2".into(), "a1".into());
+        env.aliases.insert("foo".into(), "bar ".into());
+        env.aliases.insert("c".into(), ";".into());
+        env.aliases.insert("e".into(), "echo".into());
+
+        assert_eq!(
+            expand_aliases_for_parse("a2 foo c e x\n", &env),
+            "echo  bar  ; echo x\n"
+        );
+    }
+
+    #[test]
+    fn alias_expansion_posix_keeps_reserved_words() {
+        let mut env = AliasEnv {
+            posix: true,
+            ..Default::default()
+        };
+        env.aliases.insert("al".into(), " ".into());
+        env.aliases.insert("for".into(), "echo".into());
+
+        assert_eq!(
+            expand_aliases_for_parse("al for foo in v\n", &env),
+            "  for foo in v\n"
         );
     }
 }

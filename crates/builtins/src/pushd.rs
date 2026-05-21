@@ -19,6 +19,9 @@ impl Builtin for Pushd {
         let mut target: Option<String> = None;
         let mut rotate: Option<(String, StackIndex)> = None;
         for arg in ctx.args {
+            if arg == "--" {
+                break;
+            }
             if arg == "-n" {
                 skip_cd = true;
                 continue;
@@ -101,7 +104,7 @@ fn swap_top(ctx: &mut BuiltinCtx<'_>, skip_cd: bool) -> i32 {
 }
 
 fn push_dir(ctx: &mut BuiltinCtx<'_>, dir: &str, skip_cd: bool) -> i32 {
-    let cur = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let cur = current_logical_dir(ctx);
     let old_saved = ctx.env_ref().dirs_iter().into_iter().skip(1);
     let target = absolutize(dir);
     if skip_cd {
@@ -130,7 +133,7 @@ fn install_stack(ctx: &mut BuiltinCtx<'_>, stack: Vec<PathBuf>, skip_cd: bool) -
         return 1;
     }
     let new_top = stack[0].clone();
-    let old_top = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let old_top = current_logical_dir(ctx);
     let saved = stack.into_iter().skip(1).collect();
     ctx.env().dirs_set_stack(saved);
     if !skip_cd {
@@ -161,4 +164,12 @@ fn absolutize(dir: &str) -> PathBuf {
             .unwrap_or_else(|_| PathBuf::from("."))
             .join(target)
     }
+}
+
+fn current_logical_dir(ctx: &BuiltinCtx<'_>) -> PathBuf {
+    ctx.env_ref()
+        .get("PWD")
+        .filter(|pwd| PathBuf::from(pwd).is_absolute())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")))
 }

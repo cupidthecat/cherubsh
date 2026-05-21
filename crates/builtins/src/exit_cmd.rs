@@ -14,8 +14,10 @@ impl Builtin for Exit {
         "exit [n]"
     }
     fn run(&self, ctx: &mut BuiltinCtx<'_>) -> i32 {
-        let status = parse_status(ctx);
-        ctx.shell.request_exit(status);
+        let (status, should_exit) = parse_status(ctx, "exit");
+        if should_exit {
+            ctx.shell.request_exit(status);
+        }
         status
     }
 }
@@ -34,25 +36,36 @@ impl Builtin for Logout {
             report_diagnostic(ctx.env_ref(), "logout", "not login shell: use `exit'");
             return 1;
         }
-        let status = parse_status(ctx);
-        ctx.shell.request_exit(status);
+        let (status, should_exit) = parse_status(ctx, "logout");
+        if should_exit {
+            ctx.shell.request_exit(status);
+        }
         status
     }
 }
 
-fn parse_status(ctx: &mut BuiltinCtx<'_>) -> i32 {
+fn parse_status(ctx: &mut BuiltinCtx<'_>, diagnostic_name: &str) -> (i32, bool) {
+    if ctx.args.len() > 1 {
+        report_diagnostic(ctx.env_ref(), diagnostic_name, "too many arguments");
+        return (2, false);
+    }
     match ctx.args.first() {
         Some(arg) => match arg.parse::<i64>() {
-            Ok(n) => ((n % 256 + 256) % 256) as i32,
+            Ok(n) => (((n % 256 + 256) % 256) as i32, true),
             Err(_) => {
                 report_diagnostic(
                     ctx.env_ref(),
-                    "exit",
+                    diagnostic_name,
                     &format!("{arg}: numeric argument required"),
                 );
-                2
+                (
+                    2,
+                    ctx.env_ref().option("posix")
+                        && !ctx.env_ref().option("interactive")
+                        && !ctx.invoked_via_command,
+                )
             }
         },
-        None => ctx.env_ref().last_status(),
+        None => (ctx.env_ref().last_status(), true),
     }
 }

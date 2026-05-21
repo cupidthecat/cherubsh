@@ -86,7 +86,7 @@ impl Builtin for Shopt {
                 } else if set_o_mode {
                     println!("{:<15}\t{}", name, if on { "on" } else { "off" });
                 } else {
-                    println!("{:<15}\t{}", name, if on { "on" } else { "off" });
+                    println!("{:<20}\t{}", name, if on { "on" } else { "off" });
                 }
             }
             return 0;
@@ -126,9 +126,9 @@ impl Builtin for Shopt {
                     } else if print_form {
                         println!("shopt {}{}", if on { "-s " } else { "-u " }, name);
                     } else if set_o_mode {
-                        println!("{:<15}\t{}", name, if on { "on" } else { "off" });
+                        println!("{:<20}\t{}", name, if on { "on" } else { "off" });
                     } else {
-                        println!("{:<15}\t{}", name, if on { "on" } else { "off" });
+                        println!("{:<20}\t{}", name, if on { "on" } else { "off" });
                     }
                 }
             }

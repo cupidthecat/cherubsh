@@ -28,8 +28,7 @@ pub fn evaluate_with_runner_and_tracer(
     runner: &mut dyn CommandRunner,
     tracer: Option<&mut dyn FnMut(String)>,
 ) -> i32 {
-    let mut tracer = tracer;
-    match eval_inner(cmd, env, runner, &mut tracer) {
+    match evaluate_with_runner_and_tracer_result(cmd, env, runner, tracer) {
         Ok(true) => 0,
         Ok(false) => 1,
         Err(msg) => {
@@ -37,6 +36,16 @@ pub fn evaluate_with_runner_and_tracer(
             2
         }
     }
+}
+
+pub fn evaluate_with_runner_and_tracer_result(
+    cmd: &CondCommand,
+    env: &mut dyn Environment,
+    runner: &mut dyn CommandRunner,
+    tracer: Option<&mut dyn FnMut(String)>,
+) -> Result<bool, String> {
+    let mut tracer = tracer;
+    eval_inner(cmd, env, runner, &mut tracer)
 }
 
 fn eval_inner(
@@ -96,6 +105,12 @@ fn eval_inner(
                         }
                         'o' => {
                             return Ok(env.option(&val));
+                        }
+                        't' => {
+                            if val.trim().parse::<i32>().is_err() {
+                                return Err(format!("{val}: integer expected"));
+                            }
+                            return Ok(unary_test(ch, &val));
                         }
                         _ => {
                             return Ok(unary_test(ch, &val));
@@ -159,12 +174,32 @@ fn eval_inner(
                     trace_cond_binary(tracer, &lhs, &op, &rhs);
                     regex_match(&lhs, &rhs, env)
                 }
-                "-eq" => arithmetic_binary(&lhs_word, &rhs_word, env, runner, |l, r| l == r),
-                "-ne" => arithmetic_binary(&lhs_word, &rhs_word, env, runner, |l, r| l != r),
-                "-lt" => arithmetic_binary(&lhs_word, &rhs_word, env, runner, |l, r| l < r),
-                "-le" => arithmetic_binary(&lhs_word, &rhs_word, env, runner, |l, r| l <= r),
-                "-gt" => arithmetic_binary(&lhs_word, &rhs_word, env, runner, |l, r| l > r),
-                "-ge" => arithmetic_binary(&lhs_word, &rhs_word, env, runner, |l, r| l >= r),
+                "-eq" => {
+                    arithmetic_binary(&lhs_word, &rhs_word, &op, env, runner, tracer, |l, r| {
+                        l == r
+                    })
+                }
+                "-ne" => {
+                    arithmetic_binary(&lhs_word, &rhs_word, &op, env, runner, tracer, |l, r| {
+                        l != r
+                    })
+                }
+                "-lt" => {
+                    arithmetic_binary(&lhs_word, &rhs_word, &op, env, runner, tracer, |l, r| l < r)
+                }
+                "-le" => {
+                    arithmetic_binary(&lhs_word, &rhs_word, &op, env, runner, tracer, |l, r| {
+                        l <= r
+                    })
+                }
+                "-gt" => {
+                    arithmetic_binary(&lhs_word, &rhs_word, &op, env, runner, tracer, |l, r| l > r)
+                }
+                "-ge" => {
+                    arithmetic_binary(&lhs_word, &rhs_word, &op, env, runner, tracer, |l, r| {
+                        l >= r
+                    })
+                }
                 "-nt" | "-ot" | "-ef" => {
                     let lhs = expand_operand_word(&lhs_word, env, runner)?;
                     let rhs = expand_operand_word(&rhs_word, env, runner)?;
@@ -197,17 +232,29 @@ fn eval_inner(
 
 fn trace_cond_binary(tracer: &mut Option<&mut dyn FnMut(String)>, lhs: &str, op: &str, rhs: &str) {
     if let Some(tracer) = tracer.as_deref_mut() {
-        tracer(format!("[[ {lhs} {op} {rhs} ]]"));
+        tracer(format!(
+            "[[ {} {op} {} ]]",
+            trace_cond_value(lhs),
+            trace_cond_value(rhs)
+        ));
     }
 }
 
 fn trace_cond_unary(tracer: &mut Option<&mut dyn FnMut(String)>, op: &str, value: &str) {
     if let Some(tracer) = tracer.as_deref_mut() {
-        tracer(format!("[[ {op} {value} ]]"));
+        tracer(format!("[[ {op} {} ]]", trace_cond_value(value)));
     }
 }
 
-fn report_cond_error(env: &dyn Environment, msg: &str) {
+fn trace_cond_value(value: &str) -> String {
+    if value.is_empty() {
+        "''".to_string()
+    } else {
+        value.to_string()
+    }
+}
+
+pub fn report_cond_error(env: &dyn Environment, msg: &str) {
     match (env.diagnostic_source_name(), env.diagnostic_line()) {
         (Some(source), Some(line)) => eprintln!("{source}: line {line}: [[: {msg}"),
         _ => eprintln!("cherubsh: [[: {msg}"),
@@ -540,8 +587,10 @@ fn push_regex_literal_byte(out: &mut Vec<u8>, b: u8, bracket: bool) {
 fn arithmetic_binary<F>(
     lhs: &WordDesc,
     rhs: &WordDesc,
+    op: &str,
     env: &mut dyn Environment,
     runner: &mut dyn CommandRunner,
+    tracer: &mut Option<&mut dyn FnMut(String)>,
     cmp: F,
 ) -> Result<bool, String>
 where
@@ -563,6 +612,7 @@ where
             return Ok(false);
         }
     };
+    trace_cond_binary(tracer, &lhs.to_string(), op, &rhs.to_string());
     Ok(cmp(lhs, rhs))
 }
 
@@ -629,7 +679,11 @@ fn format_arithmetic_error(expr: &str, err: ExpandError) -> String {
     match err {
         ExpandError::ArithSyntax(message) => {
             if expr.trim_end().ends_with('+') {
-                format!("{expr}: syntax error: operand expected (error token is \"+\")")
+                format!("{expr}: arithmetic syntax error: operand expected (error token is \"+\")")
+            } else if message.contains(": arithmetic syntax error")
+                || message.contains(": syntax error")
+            {
+                message
             } else {
                 format!("{expr}: arithmetic syntax error: {message}")
             }
@@ -653,7 +707,7 @@ fn unary_test(ch: char, arg: &str) -> bool {
         'z' => arg.is_empty(),
         'n' => !arg.is_empty(),
         't' => {
-            let fd: i32 = arg.parse().unwrap_or(-1);
+            let fd: i32 = arg.trim().parse().unwrap_or(-1);
             unsafe { libc::isatty(fd) == 1 }
         }
         _ => {

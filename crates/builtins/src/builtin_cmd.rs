@@ -18,10 +18,21 @@ impl Builtin for BuiltinDispatcher {
         if ctx.args.is_empty() {
             return 0;
         }
-        let target_name = ctx.args[0].clone();
-        let rest = ctx.args[1..].to_vec();
+        let mut target_index = 0;
+        if ctx.args[0] == "--" {
+            target_index = 1;
+        } else if ctx.args[0].starts_with('-') && ctx.args[0] != "-" {
+            let opt = ctx.args[0].chars().nth(1).unwrap_or('-');
+            report_diagnostic(ctx.env_ref(), "builtin", &format!("-{opt}: invalid option"));
+            eprintln!("builtin: usage: {}", self.synopsis());
+            return 2;
+        }
+        let Some(target_name) = ctx.args.get(target_index).cloned() else {
+            return 0;
+        };
+        let rest = ctx.args[target_index + 1..].to_vec();
         let rest_flags = if ctx.arg_flags.len() >= ctx.args.len() {
-            ctx.arg_flags[1..].to_vec()
+            ctx.arg_flags[target_index + 1..].to_vec()
         } else {
             vec![0; rest.len()]
         };

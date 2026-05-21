@@ -139,11 +139,20 @@ impl Builtin for Unset {
                     "unset",
                     &format!("`{name}': not a valid identifier"),
                 );
+                if posix_special_error_is_fatal(ctx) {
+                    ctx.shell.request_exit(1);
+                    return 1;
+                }
                 status = 1;
                 continue;
             }
             match kind {
                 Kind::Default => {
+                    if is_non_unsettable_variable(name) {
+                        report_diagnostic(ctx.env_ref(), "unset", &format!("{name}: cannot unset"));
+                        status = 1;
+                        continue;
+                    }
                     if ctx.env_ref().kind(name) == VarKind::Unset
                         && ctx.shell.function_get(name).is_some()
                     {
@@ -167,6 +176,10 @@ impl Builtin for Unset {
                             "unset",
                             &format!("{target}: cannot unset: readonly variable"),
                         );
+                        if posix_special_error_is_fatal(ctx) {
+                            ctx.shell.request_exit(1);
+                            return 1;
+                        }
                         status = 1;
                         continue;
                     }
@@ -200,6 +213,11 @@ impl Builtin for Unset {
                     std::env::remove_var(format!("BASH_FUNC_{name}%%"));
                 }
                 Kind::Var => {
+                    if is_non_unsettable_variable(name) {
+                        report_diagnostic(ctx.env_ref(), "unset", &format!("{name}: cannot unset"));
+                        status = 1;
+                        continue;
+                    }
                     let target = unset_variable_target(ctx, name);
                     if ctx.env().is_readonly(&target) {
                         report_diagnostic(
@@ -207,6 +225,10 @@ impl Builtin for Unset {
                             "unset",
                             &format!("{target}: cannot unset: readonly variable"),
                         );
+                        if posix_special_error_is_fatal(ctx) {
+                            ctx.shell.request_exit(1);
+                            return 1;
+                        }
                         status = 1;
                         continue;
                     }
@@ -246,6 +268,16 @@ impl Builtin for Unset {
         }
         status
     }
+}
+
+fn is_non_unsettable_variable(name: &str) -> bool {
+    matches!(name, "BASH_LINENO" | "BASH_SOURCE")
+}
+
+fn posix_special_error_is_fatal(ctx: &BuiltinCtx<'_>) -> bool {
+    ctx.env_ref().option("posix")
+        && !ctx.env_ref().option("interactive")
+        && !ctx.invoked_via_command
 }
 
 fn unset_variable_target(ctx: &BuiltinCtx<'_>, name: &str) -> String {

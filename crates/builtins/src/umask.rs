@@ -1,5 +1,4 @@
 use crate::common::report_diagnostic;
-use crate::getopt::{GetOpt, OptParser};
 use crate::{Builtin, BuiltinCtx};
 
 pub struct Umask;
@@ -15,30 +14,45 @@ impl Builtin for Umask {
     fn run(&self, ctx: &mut BuiltinCtx<'_>) -> i32 {
         let mut symbolic = false;
         let mut print_form = false;
-        let mut parser = OptParser::new(ctx.args, "pS");
-        loop {
-            match parser.next() {
-                GetOpt::Opt { ch: 'S', .. } => symbolic = true,
-                GetOpt::Opt { ch: 'p', .. } => print_form = true,
-                GetOpt::Opt { .. } => {}
-                GetOpt::End | GetOpt::Done => break,
-                GetOpt::Unknown { ch, .. } => {
-                    report_diagnostic(ctx.env_ref(), "umask", &format!("-{ch}: invalid option"));
-                    eprintln!("umask: usage: {}", self.synopsis());
-                    return 2;
-                }
-                GetOpt::Missing { ch, .. } => {
-                    report_diagnostic(
-                        ctx.env_ref(),
-                        "umask",
-                        &format!("-{ch}: option requires an argument"),
-                    );
-                    eprintln!("umask: usage: {}", self.synopsis());
-                    return 2;
-                }
+        let mut index = 0;
+        while let Some(arg) = ctx.args.get(index) {
+            if arg == "--" {
+                index += 1;
+                break;
             }
+            if arg == "-p" {
+                print_form = true;
+                index += 1;
+                continue;
+            }
+            if arg == "-S" {
+                symbolic = true;
+                index += 1;
+                continue;
+            }
+            if arg.starts_with('-')
+                && arg.len() > 2
+                && arg[1..].chars().all(|ch| matches!(ch, 'p' | 'S'))
+            {
+                for ch in arg[1..].chars() {
+                    match ch {
+                        'p' => print_form = true,
+                        'S' => symbolic = true,
+                        _ => {}
+                    }
+                }
+                index += 1;
+                continue;
+            }
+            if arg.starts_with('-') && arg != "-" {
+                let opt = arg.chars().nth(1).unwrap_or('-');
+                report_diagnostic(ctx.env_ref(), "umask", &format!("-{opt}: invalid option"));
+                eprintln!("umask: usage: {}", self.synopsis());
+                return 2;
+            }
+            break;
         }
-        let rest = parser.remaining(ctx.args);
+        let rest = &ctx.args[index..];
 
         if rest.is_empty() {
             let mask = ctx.env_ref().umask_get();
@@ -76,7 +90,6 @@ impl Builtin for Umask {
             );
             1
         } else {
-            // Symbolic mode: parse minimal subset (u/g/o/a with +, -, =, rwx).
             let cur = ctx.env_ref().umask_get();
             match apply_symbolic(arg, cur) {
                 Ok(new_mask) => {
@@ -140,8 +153,7 @@ enum SymbolicError {
 }
 
 fn apply_symbolic(spec: &str, current: u32) -> Result<u32, SymbolicError> {
-    // current is a "deny" mask; toggle bits clause by clause.
-    let mut deny = current & 0o777;
+    let mut allowed = !current & 0o777;
     for clause in spec.split(',') {
         if clause.is_empty() {
             return Err(SymbolicError::Character('\0'));
@@ -172,30 +184,67 @@ fn apply_symbolic(spec: &str, current: u32) -> Result<u32, SymbolicError> {
         if who == 0 {
             who = 0o777;
         }
-        let op = chars.next().ok_or(SymbolicError::Operator('\0'))?;
-        if !matches!(op, '+' | '-' | '=') {
-            return Err(SymbolicError::Operator(op));
-        }
-        let mut perm_bits: u32 = 0;
-        while let Some(&p) = chars.peek() {
-            match p {
-                'r' => perm_bits |= 0o444,
-                'w' => perm_bits |= 0o222,
-                'x' => perm_bits |= 0o111,
-                _ => return Err(SymbolicError::Character(p)),
+        loop {
+            let op = chars.next().ok_or(SymbolicError::Operator('\0'))?;
+            if !matches!(op, '+' | '-' | '=') {
+                return Err(SymbolicError::Operator(op));
             }
-            chars.next();
-        }
-        let mask_bits = perm_bits & who;
-        match op {
-            '+' => deny &= !mask_bits,
-            '-' => deny |= mask_bits,
-            '=' => {
-                deny |= who;
-                deny &= !mask_bits;
+            let mut perm_bits: u32 = 0;
+            while let Some(&p) = chars.peek() {
+                if matches!(p, '+' | '-' | '=') {
+                    break;
+                }
+                perm_bits |= symbolic_perm_bits(p, allowed, who)?;
+                chars.next();
             }
-            _ => return Err(SymbolicError::Operator(op)),
+            let mask_bits = perm_bits & who;
+            match op {
+                '+' => allowed |= mask_bits,
+                '-' => allowed &= !mask_bits,
+                '=' => {
+                    allowed &= !who;
+                    allowed |= mask_bits;
+                }
+                _ => return Err(SymbolicError::Operator(op)),
+            }
+            if chars.peek().is_none() {
+                break;
+            }
         }
     }
-    Ok(deny & 0o777)
+    Ok(!allowed & 0o777)
+}
+
+fn symbolic_perm_bits(ch: char, allowed: u32, who: u32) -> Result<u32, SymbolicError> {
+    let bits = match ch {
+        'r' => 0o444,
+        'w' => 0o222,
+        'x' => 0o111,
+        'X' => {
+            if allowed & 0o111 != 0 {
+                0o111
+            } else {
+                0
+            }
+        }
+        'u' => copy_class_bits((allowed >> 6) & 0o7, who),
+        'g' => copy_class_bits((allowed >> 3) & 0o7, who),
+        'o' => copy_class_bits(allowed & 0o7, who),
+        _ => return Err(SymbolicError::Character(ch)),
+    };
+    Ok(bits)
+}
+
+fn copy_class_bits(class_bits: u32, who: u32) -> u32 {
+    let mut bits = 0;
+    if who & 0o700 != 0 {
+        bits |= class_bits << 6;
+    }
+    if who & 0o070 != 0 {
+        bits |= class_bits << 3;
+    }
+    if who & 0o007 != 0 {
+        bits |= class_bits;
+    }
+    bits
 }

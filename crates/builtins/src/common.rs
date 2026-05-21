@@ -343,6 +343,10 @@ fn assign_direct_target_impl(
         env.set_array_assoc(name, subscript, value);
         return Ok(());
     }
+    if let Some(message) = array_expand_once_subscript_message(env, subscript) {
+        report_bare_diagnostic(env, &message);
+        return Err(AssignError::CircularNameReference(String::new()));
+    }
     let index = resolve_indexed_subscript(env, name, subscript)
         .map_err(|_| AssignError::BadArraySubscript(target.to_string()))?;
     env.set_array_indexed(name, index, value);
@@ -362,6 +366,10 @@ pub fn assign_direct_target_op(
             if env.kind(name) == VarKind::Assoc {
                 env.get_array_assoc(name, subscript).unwrap_or_default()
             } else {
+                if let Some(message) = array_expand_once_subscript_message(env, subscript) {
+                    report_bare_diagnostic(env, &message);
+                    return Err(AssignError::CircularNameReference(String::new()));
+                }
                 match resolve_indexed_subscript(env, name, subscript) {
                     Ok(index) => env.get_array_indexed(name, index).unwrap_or_default(),
                     Err(()) => String::new(),
@@ -438,7 +446,8 @@ fn resolve_indexed_subscript(
         return Err(());
     }
     let mut runner = NullRunner;
-    let index = cherubsh_expander::arith::eval(subscript, &mut ExpCtx::new(env, &mut runner))
+    let eval_subscript = dequote_indexed_subscript(subscript);
+    let index = cherubsh_expander::arith::eval(&eval_subscript, &mut ExpCtx::new(env, &mut runner))
         .map_err(|_| ())?;
     if index >= 0 {
         return Ok(index);
@@ -455,6 +464,134 @@ fn resolve_indexed_subscript(
     } else {
         Ok(resolved)
     }
+}
+
+fn dequote_indexed_subscript(subscript: &str) -> String {
+    let bytes = subscript.as_bytes();
+    let mut out = String::with_capacity(subscript.len());
+    let mut i = 0usize;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'\'' => {
+                i += 1;
+                while i < bytes.len() && bytes[i] != b'\'' {
+                    out.push(bytes[i] as char);
+                    i += 1;
+                }
+                if i < bytes.len() {
+                    i += 1;
+                }
+            }
+            b'"' => {
+                i += 1;
+                while i < bytes.len() && bytes[i] != b'"' {
+                    if bytes[i] == b'\\' && i + 1 < bytes.len() {
+                        i += 1;
+                    }
+                    out.push(bytes[i] as char);
+                    i += 1;
+                }
+                if i < bytes.len() {
+                    i += 1;
+                }
+            }
+            b'\\' if i + 1 < bytes.len() => {
+                i += 1;
+                out.push(bytes[i] as char);
+                i += 1;
+            }
+            other => {
+                out.push(other as char);
+                i += 1;
+            }
+        }
+    }
+    out
+}
+
+pub fn array_expand_once_subscript_message(
+    env: &dyn Environment,
+    subscript: &str,
+) -> Option<String> {
+    if !env.option("array_expand_once") {
+        return None;
+    }
+    let expanded = expand_indexed_subscript_once(subscript, env)?;
+    if !(expanded.contains("$(") || expanded.contains('`')) {
+        return None;
+    }
+    let token = expanded.replace('\\', "\\\\");
+    Some(format!(
+        "{expanded}: arithmetic syntax error: operand expected (error token is \"{token}\")"
+    ))
+}
+
+pub fn indexed_target_array_expand_once_message(
+    env: &dyn Environment,
+    target: &str,
+) -> Option<String> {
+    let (name, subscript) = array_reference(target)?;
+    if env.kind(name) == VarKind::Assoc {
+        return None;
+    }
+    array_expand_once_subscript_message(env, subscript)
+}
+
+fn expand_indexed_subscript_once(subscript: &str, env: &dyn Environment) -> Option<String> {
+    if !subscript.is_ascii() {
+        return None;
+    }
+    let bytes = subscript.as_bytes();
+    let body = if bytes.len() >= 2 && bytes.first() == Some(&b'"') && bytes.last() == Some(&b'"') {
+        &subscript[1..subscript.len() - 1]
+    } else {
+        subscript
+    };
+    let body_bytes = body.as_bytes();
+    let mut out = String::with_capacity(body.len());
+    let mut i = 0usize;
+    while i < body_bytes.len() {
+        match body_bytes[i] {
+            b'\\' if i + 1 < body_bytes.len() => {
+                i += 1;
+                out.push(body_bytes[i] as char);
+                i += 1;
+            }
+            b'$' if body_bytes.get(i + 1) == Some(&b'(') => {
+                out.push('$');
+                i += 1;
+            }
+            b'$' => {
+                let Some(next) = body_bytes.get(i + 1).copied() else {
+                    out.push('$');
+                    i += 1;
+                    continue;
+                };
+                if !(next == b'_' || next.is_ascii_alphabetic()) {
+                    out.push('$');
+                    i += 1;
+                    continue;
+                }
+                let start = i + 1;
+                let mut end = start + 1;
+                while end < body_bytes.len()
+                    && (body_bytes[end] == b'_' || body_bytes[end].is_ascii_alphanumeric())
+                {
+                    end += 1;
+                }
+                let name = &body[start..end];
+                if let Some(value) = env.get(name) {
+                    out.push_str(&value);
+                }
+                i = end;
+            }
+            other => {
+                out.push(other as char);
+                i += 1;
+            }
+        }
+    }
+    Some(out)
 }
 
 pub fn unset_array_reference(env: &mut dyn Environment, target: &str) -> Result<bool, String> {
@@ -516,12 +653,20 @@ fn unset_array_reference_with_options(
                 env.set_attr(name, VarAttrs::ARRAY, true);
                 return Ok(true);
             }
+            if let Some(message) = array_expand_once_subscript_message(env, subscript) {
+                report_bare_diagnostic(env, &message);
+                return Ok(true);
+            }
             let index = resolve_indexed_subscript(env, name, subscript)
                 .map_err(|_| format!("[{subscript}]: bad array subscript"))?;
             env.unset_array_elem(name, &index.to_string());
             Ok(true)
         }
         VarKind::Scalar => {
+            if let Some(message) = array_expand_once_subscript_message(env, subscript) {
+                report_bare_diagnostic(env, &message);
+                return Ok(true);
+            }
             let index = resolve_indexed_subscript(env, name, subscript)
                 .map_err(|_| format!("{name}: not an array variable"))?;
             if index == 0 {
@@ -635,6 +780,14 @@ pub fn diagnostic_label(env: &dyn Environment, subject: &str) -> String {
 
 pub fn report_diagnostic(env: &dyn Environment, subject: &str, message: &str) {
     eprintln!("{}: {message}", diagnostic_label(env, subject));
+}
+
+pub fn report_bare_diagnostic(env: &dyn Environment, message: &str) {
+    if let (Some(source), Some(line)) = (env.diagnostic_source_name(), env.diagnostic_line()) {
+        eprintln!("{source}: line {line}: {message}");
+    } else {
+        eprintln!("cherubsh: {message}");
+    }
 }
 
 pub fn diagnostic_subject(value: &str) -> String {
@@ -1324,12 +1477,12 @@ pub fn search_path(name: &str, env: &dyn Environment) -> Option<PathBuf> {
         }
         return None;
     }
-    let path = env.get("PATH").unwrap_or_default();
+    let Some(path) = env.get("PATH") else {
+        let candidate = PathBuf::from(".").join(name);
+        return is_executable(&candidate).then_some(candidate);
+    };
     for dir in path.split(':') {
-        if dir.is_empty() {
-            continue;
-        }
-        let mut candidate = PathBuf::from(dir);
+        let mut candidate = PathBuf::from(if dir.is_empty() { "." } else { dir });
         candidate.push(name);
         if is_executable(&candidate) {
             return Some(candidate);

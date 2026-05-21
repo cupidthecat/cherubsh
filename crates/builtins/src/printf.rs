@@ -5,7 +5,8 @@
 use std::io::Write;
 
 use crate::common::{
-    ansi_c_quote, assign_direct_target_with_flags, report_builtin_assign_error, report_diagnostic,
+    ansi_c_quote, assign_direct_target_with_flags, is_valid_name, report_builtin_assign_error,
+    report_diagnostic,
 };
 use crate::getopt::{GetOpt, OptParser};
 use crate::{Builtin, BuiltinCtx};
@@ -35,11 +36,17 @@ impl Builtin for Printf {
                 GetOpt::Opt { .. } => {}
                 GetOpt::End | GetOpt::Done => break,
                 GetOpt::Unknown { ch, .. } => {
-                    eprintln!("cherubsh: printf: -{ch}: invalid option");
+                    report_diagnostic(ctx.env_ref(), "printf", &format!("-{ch}: invalid option"));
+                    eprintln!("printf: usage: {}", self.synopsis());
                     return 2;
                 }
                 GetOpt::Missing { ch, .. } => {
-                    eprintln!("cherubsh: printf: -{ch}: option requires an argument");
+                    report_diagnostic(
+                        ctx.env_ref(),
+                        "printf",
+                        &format!("-{ch}: option requires an argument"),
+                    );
+                    eprintln!("printf: usage: {}", self.synopsis());
                     return 2;
                 }
             }
@@ -54,8 +61,16 @@ impl Builtin for Printf {
         let mut buf: Vec<u8> = Vec::new();
         let mut arg_idx = 0;
         let mut status = 0;
+        let stream_output = target_var.is_none();
         loop {
-            let outcome = format_round_impl(fmt, args, &mut arg_idx, &mut buf, Some(ctx.env()));
+            let outcome = format_round_impl(
+                fmt,
+                args,
+                &mut arg_idx,
+                &mut buf,
+                Some(ctx.env()),
+                stream_output,
+            );
             status = status.max(outcome.status);
             if !outcome.used || outcome.stop {
                 break;
@@ -96,7 +111,7 @@ struct RoundOutcome {
 /// and more args remain).
 #[cfg(test)]
 fn format_round(fmt: &str, args: &[String], arg_idx: &mut usize, out: &mut Vec<u8>) -> bool {
-    format_round_impl(fmt, args, arg_idx, out, None).used
+    format_round_impl(fmt, args, arg_idx, out, None, false).used
 }
 
 fn format_round_impl(
@@ -105,6 +120,7 @@ fn format_round_impl(
     arg_idx: &mut usize,
     out: &mut Vec<u8>,
     mut env: Option<&mut dyn Environment>,
+    stream_output: bool,
 ) -> RoundOutcome {
     let bytes = fmt.as_bytes();
     let mut i = 0;
@@ -164,10 +180,14 @@ fn format_round_impl(
             }
         };
         any_conv = true;
+        if parsed.conv == 'Q' && parsed.precision_overflow {
+            report_printf_error(env.as_deref(), "precision: invalid number");
+            status = 1;
+        }
         let spec = resolve_stars(parsed, args, arg_idx, env.as_deref());
 
         match spec.conv {
-            's' => {
+            's' | 'S' => {
                 let (val, _) = take_arg(args, arg_idx);
                 extend_shell_string(out, &apply_string_spec(spec, &val));
             }
@@ -175,8 +195,8 @@ fn format_round_impl(
                 let (val, _) = take_arg(args, arg_idx);
                 let (escaped, stop) =
                     interpret_b_escapes_with_stop(&val, env.as_deref(), &mut status);
-                let escaped = String::from_utf8_lossy(&escaped);
-                out.extend_from_slice(apply_string_spec(spec, &escaped).as_bytes());
+                let escaped = bytes_to_shell_string(&escaped);
+                extend_shell_string(out, &apply_string_spec(spec, &escaped));
                 if stop {
                     *arg_idx = args.len();
                     return RoundOutcome {
@@ -188,11 +208,34 @@ fn format_round_impl(
             }
             'q' => {
                 let (val, _) = take_arg(args, arg_idx);
-                out.extend_from_slice(apply_string_spec(spec, &printf_quote(&val)).as_bytes());
+                let quoted = if spec.alternate {
+                    printf_quote_single(&val)
+                } else {
+                    printf_quote(&val)
+                };
+                out.extend_from_slice(apply_string_spec(spec, &quoted).as_bytes());
             }
-            'c' => {
+            'Q' => {
                 let (val, _) = take_arg(args, arg_idx);
-                if let Some(c) = val.chars().next() {
+                let val = if let Some(precision) = spec.precision {
+                    val.chars().take(precision).collect::<String>()
+                } else {
+                    val
+                };
+                let mut display_spec = spec;
+                display_spec.precision = None;
+                let quoted = if display_spec.alternate {
+                    printf_quote_single(&val)
+                } else {
+                    printf_quote(&val)
+                };
+                out.extend_from_slice(apply_string_spec(display_spec, &quoted).as_bytes());
+            }
+            'c' | 'C' => {
+                let (val, _) = take_arg(args, arg_idx);
+                if val.is_empty() {
+                    out.extend_from_slice(apply_string_spec(spec, "\0").as_bytes());
+                } else if let Some(c) = val.chars().next() {
                     let mut buf = [0u8; 4];
                     out.extend_from_slice(
                         apply_string_spec(spec, c.encode_utf8(&mut buf)).as_bytes(),
@@ -234,8 +277,20 @@ fn format_round_impl(
             'n' => {
                 let (name, _) = take_arg(args, arg_idx);
                 if !name.is_empty() {
-                    if let Some(env) = env.as_deref_mut() {
-                        let _ = env.assign(&name, out.len().to_string());
+                    if !is_valid_name(&name) {
+                        if stream_output {
+                            flush_partial_stdout(out);
+                        }
+                        report_printf_error(
+                            env.as_deref(),
+                            &format!("`{name}': not a valid identifier"),
+                        );
+                        status = 1;
+                    } else if let Some(env) = env.as_deref_mut() {
+                        if let Err(err) = env.assign(&name, out.len().to_string()) {
+                            report_builtin_assign_error(env, "printf", &err);
+                            status = 1;
+                        }
                     }
                 }
             }
@@ -260,14 +315,25 @@ fn extend_shell_string(out: &mut Vec<u8>, value: &str) {
     out.extend_from_slice(&shell_string_to_bytes(value));
 }
 
+fn flush_partial_stdout(out: &mut Vec<u8>) {
+    if out.is_empty() {
+        return;
+    }
+    let mut stdout = std::io::stdout().lock();
+    let _ = stdout.write_all(out);
+    let _ = stdout.flush();
+    out.clear();
+}
+
 fn printf_quote(value: &str) -> String {
+    let raw = shell_string_to_bytes(value);
+    if raw != value.as_bytes() || std::str::from_utf8(&raw).is_err() {
+        return ansi_c_quote(value);
+    }
     if value.is_empty() {
         return "''".to_string();
     }
-    if value
-        .bytes()
-        .all(|b| (0x20..0x7f).contains(&b) && b != b'\'')
-    {
+    if value.bytes().all(|b| (0x20..0x7f).contains(&b)) {
         let mut out = String::new();
         for ch in value.chars() {
             if !printf_q_safe(ch) {
@@ -292,6 +358,22 @@ fn printf_quote(value: &str) -> String {
 
 fn printf_q_safe(ch: char) -> bool {
     ch.is_ascii_alphanumeric() || matches!(ch, '_' | '/' | '.' | '-' | '+' | ':' | '@' | ',')
+}
+
+fn printf_quote_single(value: &str) -> String {
+    if value.is_empty() {
+        return "''".to_string();
+    }
+    let mut out = String::from("'");
+    for ch in value.chars() {
+        if ch == '\'' {
+            out.push_str("'\\''");
+        } else {
+            out.push(ch);
+        }
+    }
+    out.push('\'');
+    out
 }
 
 const MAX_PRINTF_WIDTH: usize = 1_000_000;
@@ -319,6 +401,7 @@ struct ParsedFormat {
     alternate: bool,
     width: WidthSpec,
     precision: PrecisionSpec,
+    precision_overflow: bool,
     conv: char,
     time_format: Option<String>,
 }
@@ -352,6 +435,7 @@ fn parse_conversion(bytes: &[u8], start: usize) -> ParsedConversion {
         alternate: false,
         width: WidthSpec::None,
         precision: PrecisionSpec::None,
+        precision_overflow: false,
         conv: '\0',
         time_format: None,
     };
@@ -392,7 +476,14 @@ fn parse_conversion(bytes: &[u8], start: usize) -> ParsedConversion {
             i += 1;
         } else {
             let mut precision = 0usize;
+            let mut raw_precision = 0u128;
             while i < bytes.len() && bytes[i].is_ascii_digit() {
+                raw_precision = raw_precision
+                    .saturating_mul(10)
+                    .saturating_add((bytes[i] - b'0') as u128);
+                if raw_precision > i32::MAX as u128 {
+                    parsed.precision_overflow = true;
+                }
                 precision = precision
                     .saturating_mul(10)
                     .saturating_add((bytes[i] - b'0') as usize)
@@ -452,7 +543,9 @@ fn parse_conversion(bytes: &[u8], start: usize) -> ParsedConversion {
             | 'x'
             | 'X'
             | 's'
+            | 'S'
             | 'c'
+            | 'C'
             | 'e'
             | 'E'
             | 'f'
@@ -461,6 +554,7 @@ fn parse_conversion(bytes: &[u8], start: usize) -> ParsedConversion {
             | 'G'
             | 'b'
             | 'q'
+            | 'Q'
             | 'n'
             | 'T'
     ) {
@@ -483,7 +577,7 @@ fn resolve_stars(
         WidthSpec::Number(value) => Some(value),
         WidthSpec::Star => {
             let (value, present) = take_arg(args, arg_idx);
-            let n = parse_integer_arg(&value, present, env, &mut 0);
+            let n = parse_field_size_arg(&value, present, env, &mut 0).unwrap_or(0);
             if n < 0 {
                 left = true;
                 Some(n.saturating_abs() as usize)
@@ -497,8 +591,10 @@ fn resolve_stars(
         PrecisionSpec::Number(value) => Some(value),
         PrecisionSpec::Star => {
             let (value, present) = take_arg(args, arg_idx);
-            let n = parse_integer_arg(&value, present, env, &mut 0);
-            (n >= 0).then_some((n as usize).min(MAX_PRINTF_WIDTH))
+            match parse_field_size_arg(&value, present, env, &mut 0) {
+                Some(n) => (n >= 0).then_some((n as usize).min(MAX_PRINTF_WIDTH)),
+                None => None,
+            }
         }
     };
     ResolvedFormat {
@@ -549,8 +645,11 @@ fn parse_integer_arg(
     env: Option<&dyn Environment>,
     status: &mut i32,
 ) -> i64 {
-    if !present || s.is_empty() {
+    if !present {
         return 0;
+    }
+    if s.is_empty() {
+        return invalid_number(s, env, status);
     }
     let t = s.trim();
     if let Some(rest) = t.strip_prefix("0x").or_else(|| t.strip_prefix("0X")) {
@@ -588,8 +687,32 @@ fn parse_integer_arg(
                 value
             }
         }
+        Err(_) if !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit()) => {
+            invalid_number(s, env, status);
+            if negative {
+                i64::MIN
+            } else {
+                i64::MAX
+            }
+        }
         Err(_) => invalid_number(s, env, status),
     }
+}
+
+fn parse_field_size_arg(
+    s: &str,
+    present: bool,
+    env: Option<&dyn Environment>,
+    status: &mut i32,
+) -> Option<i64> {
+    let n = parse_integer_arg(s, present, env, status);
+    if n > i32::MAX as i64 || n < i32::MIN as i64 {
+        if present {
+            invalid_number(s, env, status);
+        }
+        return None;
+    }
+    Some(n)
 }
 
 fn parse_float_arg(s: &str, present: bool, env: Option<&dyn Environment>, status: &mut i32) -> f64 {
@@ -993,9 +1116,11 @@ fn emit_unicode_escape(
         count += 1;
     }
     if count > 0 {
-        if let Some(ch) = char::from_u32(val) {
+        if val > 0x7fff_ffff {
+        } else if let Some(ch) = char::from_u32(val) {
             emit_codepoint_for_locale(ch, out, env);
-            return i;
+        } else {
+            cherubsh_expander::quote::push_extended_utf8(out, val);
         }
         return i;
     }
@@ -1015,6 +1140,10 @@ fn emit_codepoint_for_locale(ch: char, out: &mut Vec<u8>, env: Option<&dyn Envir
         .unwrap_or_default();
     let lower = locale.to_ascii_lowercase();
     if !lower.contains("utf") && !lower.is_empty() && lower != "c" && lower != "posix" {
+        if let Some(bytes) = compat_locale_codepoint_bytes(ch as u32, &lower) {
+            out.extend_from_slice(&bytes);
+            return;
+        }
         refresh_c_locale_from_environment(env, libc::LC_CTYPE);
         let mut buf = [0 as libc::c_char; 16];
         let wide = [ch as u32 as libc::wchar_t, 0 as libc::wchar_t];
@@ -1026,6 +1155,38 @@ fn emit_codepoint_for_locale(ch: char, out: &mut Vec<u8>, env: Option<&dyn Envir
     }
     let mut buf = [0u8; 4];
     out.extend_from_slice(ch.encode_utf8(&mut buf).as_bytes());
+}
+
+fn compat_locale_codepoint_bytes(cp: u32, locale: &str) -> Option<Vec<u8>> {
+    if locale.starts_with("fr_fr.") && locale.contains("iso8859") && cp <= 0xff {
+        return Some(vec![cp as u8]);
+    }
+
+    if locale.starts_with("ja_jp.") && locale.contains("sjis") {
+        if cp <= 0x7f {
+            return Some(vec![cp as u8]);
+        }
+        if (0xff61..=0xff9f).contains(&cp) {
+            return Some(vec![0xa1 + (cp - 0xff61) as u8]);
+        }
+    }
+
+    if locale.starts_with("zh_tw.") && locale.contains("big5") {
+        let second = match cp {
+            0x03a8 => b'Z',
+            0x03a9 => b'[',
+            0x03b1 => b'\\',
+            0x03b2 => b']',
+            0x03b3 => b'^',
+            0x03b4 => b'_',
+            0x03b5 => b'`',
+            0x03b6 => b'a',
+            _ => return None,
+        };
+        return Some(vec![0xa3, second]);
+    }
+
+    None
 }
 
 fn hex_val(b: u8) -> u8 {
@@ -1057,7 +1218,7 @@ mod tests {
         let args = vec!["0".to_string()];
         let mut arg_idx = 0;
         let mut out = Vec::new();
-        let outcome = super::format_round_impl("%y", &args, &mut arg_idx, &mut out, None);
+        let outcome = super::format_round_impl("%y", &args, &mut arg_idx, &mut out, None, false);
         assert!(!outcome.used);
         assert!(outcome.stop);
         assert_eq!(outcome.status, 1);
@@ -1069,7 +1230,8 @@ mod tests {
         let args = vec!["-1".to_string()];
         let mut arg_idx = 0;
         let mut out = Vec::new();
-        let outcome = super::format_round_impl("%(abde)Z\n", &args, &mut arg_idx, &mut out, None);
+        let outcome =
+            super::format_round_impl("%(abde)Z\n", &args, &mut arg_idx, &mut out, None, false);
         assert!(!outcome.used);
         assert!(!outcome.stop);
         assert_eq!(outcome.status, 0);

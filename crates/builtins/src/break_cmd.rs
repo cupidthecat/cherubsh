@@ -16,6 +16,9 @@ impl Builtin for Break {
     }
     fn run(&self, ctx: &mut BuiltinCtx<'_>) -> i32 {
         if ctx.shell.loop_depth() == 0 {
+            if ctx.env_ref().option("posix") {
+                return 0;
+            }
             report_diagnostic(
                 ctx.env_ref(),
                 "break",
@@ -23,7 +26,16 @@ impl Builtin for Break {
             );
             return 0;
         }
-        let n: i64 = match ctx.args.first() {
+        if positional_args_after_separator(ctx.args).len() > 1 {
+            report_diagnostic(ctx.env_ref(), "break", "too many arguments");
+            return 2;
+        }
+        let level_arg = match ctx.args.first().map(String::as_str) {
+            Some("--") => ctx.args.get(1),
+            _ => ctx.args.first(),
+        };
+
+        let n: i64 = match level_arg {
             Some(arg) => match arg.parse::<i64>() {
                 Ok(v) => v,
                 Err(_) => {
@@ -40,7 +52,7 @@ impl Builtin for Break {
                 "break",
                 &format!(
                     "{}: loop count out of range",
-                    ctx.args.first().map(|s| s.as_str()).unwrap_or("")
+                    level_arg.map(|s| s.as_str()).unwrap_or("")
                 ),
             );
             ctx.shell.request_break(1);
@@ -52,7 +64,7 @@ impl Builtin for Break {
                 "break",
                 &format!(
                     "{}: loop count out of range",
-                    ctx.args.first().map(|s| s.as_str()).unwrap_or("")
+                    level_arg.map(|s| s.as_str()).unwrap_or("")
                 ),
             );
             ctx.shell.request_break(1);
@@ -69,11 +81,6 @@ fn report_break_numeric_required(ctx: &BuiltinCtx<'_>, arg: &str) {
         ctx.env_ref().diagnostic_source_name(),
         ctx.env_ref().diagnostic_line(),
     ) {
-        let line = if ctx.shell.loop_depth() > 0 {
-            line.saturating_sub(3).max(1)
-        } else {
-            line
-        };
         eprintln!("{source}: line {line}: break: {arg}: numeric argument required");
     } else {
         report_diagnostic(
@@ -81,5 +88,13 @@ fn report_break_numeric_required(ctx: &BuiltinCtx<'_>, arg: &str) {
             "break",
             &format!("{arg}: numeric argument required"),
         );
+    }
+}
+
+fn positional_args_after_separator(args: &[String]) -> &[String] {
+    if args.first().map(String::as_str) == Some("--") {
+        &args[1..]
+    } else {
+        args
     }
 }

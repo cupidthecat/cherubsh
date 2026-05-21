@@ -54,6 +54,10 @@ impl Builtin for Hash {
 
         let rest = parser.remaining(ctx.args);
         if rest.is_empty() {
+            if delete {
+                report_diagnostic(ctx.env_ref(), "hash", "-d: option requires an argument");
+                return 1;
+            }
             let mut entries = ctx.env_ref().hash_iter_with_hits();
             entries.sort_by_key(|(name, _, _)| bash_command_bucket(name));
             if entries.is_empty() {
@@ -77,6 +81,10 @@ impl Builtin for Hash {
         if let Some(forced) = force_path {
             if !ctx.env_ref().option("hashall") {
                 report_diagnostic(ctx.env_ref(), "hash", "hashing disabled");
+                return 1;
+            }
+            if PathBuf::from(&forced).is_dir() {
+                report_diagnostic(ctx.env_ref(), "hash", &format!("{forced}: Is a directory"));
                 return 1;
             }
             if ctx.env_ref().option("restricted") {

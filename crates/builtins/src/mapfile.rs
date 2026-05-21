@@ -61,9 +61,10 @@ fn run_mapfile(ctx: &mut BuiltinCtx<'_>) -> i32 {
                 count = match parse_nonnegative(arg.as_deref()) {
                     Some(n) => Some(n),
                     None => {
-                        eprintln!(
-                            "cherubsh: mapfile: {}: invalid line count",
-                            arg.unwrap_or_default()
+                        report_diagnostic(
+                            ctx.env_ref(),
+                            "mapfile",
+                            &format!("{}: invalid line count", arg.unwrap_or_default()),
                         );
                         return 1;
                     }
@@ -73,9 +74,10 @@ fn run_mapfile(ctx: &mut BuiltinCtx<'_>) -> i32 {
                 origin = match parse_nonnegative(arg.as_deref()) {
                     Some(n) => n as i64,
                     None => {
-                        eprintln!(
-                            "cherubsh: mapfile: {}: invalid array origin",
-                            arg.unwrap_or_default()
+                        report_diagnostic(
+                            ctx.env_ref(),
+                            "mapfile",
+                            &format!("{}: invalid array origin", arg.unwrap_or_default()),
                         );
                         return 1;
                     }
@@ -86,9 +88,10 @@ fn run_mapfile(ctx: &mut BuiltinCtx<'_>) -> i32 {
                 skip = match parse_nonnegative(arg.as_deref()) {
                     Some(n) => n,
                     None => {
-                        eprintln!(
-                            "cherubsh: mapfile: {}: invalid line count",
-                            arg.unwrap_or_default()
+                        report_diagnostic(
+                            ctx.env_ref(),
+                            "mapfile",
+                            &format!("{}: invalid line count", arg.unwrap_or_default()),
                         );
                         return 1;
                     }
@@ -99,9 +102,13 @@ fn run_mapfile(ctx: &mut BuiltinCtx<'_>) -> i32 {
                 fd = match arg.as_deref().and_then(|s| s.parse::<i32>().ok()) {
                     Some(n) if n >= 0 => n,
                     _ => {
-                        eprintln!(
-                            "cherubsh: mapfile: {}: invalid file descriptor specification",
-                            arg.unwrap_or_default()
+                        report_diagnostic(
+                            ctx.env_ref(),
+                            "mapfile",
+                            &format!(
+                                "{}: invalid file descriptor specification",
+                                arg.unwrap_or_default()
+                            ),
                         );
                         return 1;
                     }
@@ -114,9 +121,10 @@ fn run_mapfile(ctx: &mut BuiltinCtx<'_>) -> i32 {
                 callback_quantum = match parse_positive(arg.as_deref()) {
                     Some(n) => n,
                     None => {
-                        eprintln!(
-                            "cherubsh: mapfile: {}: invalid callback quantum",
-                            arg.unwrap_or_default()
+                        report_diagnostic(
+                            ctx.env_ref(),
+                            "mapfile",
+                            &format!("{}: invalid callback quantum", arg.unwrap_or_default()),
                         );
                         return 1;
                     }
@@ -125,17 +133,25 @@ fn run_mapfile(ctx: &mut BuiltinCtx<'_>) -> i32 {
             GetOpt::Opt { .. } => {}
             GetOpt::End | GetOpt::Done => break,
             GetOpt::Unknown { ch, .. } => {
-                eprintln!("cherubsh: mapfile: -{ch}: invalid option");
+                report_diagnostic(ctx.env_ref(), "mapfile", &format!("-{ch}: invalid option"));
                 return 2;
             }
             GetOpt::Missing { ch, .. } => {
-                eprintln!("cherubsh: mapfile: -{ch}: option requires an argument");
+                report_diagnostic(
+                    ctx.env_ref(),
+                    "mapfile",
+                    &format!("-{ch}: option requires an argument"),
+                );
                 return 2;
             }
         }
     }
     let rest = parser.remaining(ctx.args);
     let requested_array_name = rest.first().map(String::as_str).unwrap_or("MAPFILE");
+    if requested_array_name.is_empty() {
+        report_diagnostic(ctx.env_ref(), "mapfile", "empty array variable name");
+        return 1;
+    }
     let resolved_array_name = mapfile_array_target(ctx, requested_array_name);
     let array_name = resolved_array_name
         .as_deref()
@@ -149,7 +165,11 @@ fn run_mapfile(ctx: &mut BuiltinCtx<'_>) -> i32 {
         return 1;
     }
     if ctx.env_ref().is_readonly(array_name) {
-        eprintln!("cherubsh: mapfile: {array_name}: readonly variable");
+        report_diagnostic(
+            ctx.env_ref(),
+            "mapfile",
+            &format!("{array_name}: readonly variable"),
+        );
         return 1;
     }
     if matches!(ctx.env_ref().kind(array_name), VarKind::Assoc)
@@ -170,7 +190,14 @@ fn run_mapfile(ctx: &mut BuiltinCtx<'_>) -> i32 {
     let dup_fd = unsafe { libc::dup(fd) };
     if dup_fd < 0 {
         let err = std::io::Error::last_os_error();
-        eprintln!("cherubsh: mapfile: {fd}: invalid file descriptor: {err}");
+        report_diagnostic(
+            ctx.env_ref(),
+            "mapfile",
+            &format!(
+                "{fd}: invalid file descriptor: {}",
+                crate::common::errno_message(&err)
+            ),
+        );
         return 1;
     }
 

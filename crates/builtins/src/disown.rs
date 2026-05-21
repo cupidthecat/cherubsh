@@ -63,6 +63,12 @@ impl Builtin for Disown {
                             report_disown_error(ctx, &format!("{s}: no such job"));
                         }
                     } else {
+                        if s.starts_with('@') {
+                            report_disown_error(
+                                ctx,
+                                &format!("warning: {s}: job specification requires leading `%'",),
+                            );
+                        }
                         report_disown_error(ctx, &format!("{s}: no such job"));
                     }
                 }

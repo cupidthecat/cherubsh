@@ -1,5 +1,8 @@
 //! `ulimit` builtin.
 
+use cherubsh_common::Environment;
+
+use crate::common::report_diagnostic;
 use crate::{Builtin, BuiltinCtx};
 
 const LIMIT_HARD: u8 = 0x01;
@@ -34,11 +37,12 @@ impl Builtin for Ulimit {
     }
 
     fn run(&self, ctx: &mut BuiltinCtx<'_>) -> i32 {
-        run_ulimit(ctx.args)
+        run_ulimit(ctx)
     }
 }
 
-fn run_ulimit(args: &[String]) -> i32 {
+fn run_ulimit(ctx: &BuiltinCtx<'_>) -> i32 {
+    let args = ctx.args;
     let mut mode: u8 = 0;
     let mut all_limits = false;
     let mut commands: Vec<(char, Option<String>)> = Vec::new();
@@ -63,7 +67,12 @@ fn run_ulimit(args: &[String]) -> i32 {
                 'a' => all_limits = true,
                 opt => {
                     if find_limit(opt).is_none() {
-                        eprintln!("cherubsh: ulimit: -{opt}: invalid option");
+                        report_diagnostic(
+                            ctx.env_ref(),
+                            "ulimit",
+                            &format!("-{opt}: invalid option"),
+                        );
+                        eprintln!("ulimit: usage: {}", ULIMIT.synopsis());
                         return 2;
                     }
                     let attached: String = chars[pos + 1..].iter().collect();
@@ -101,17 +110,24 @@ fn run_ulimit(args: &[String]) -> i32 {
     let multiple = commands.len() > 1;
     for (opt, arg) in commands {
         let Some(spec) = find_limit(opt) else {
-            eprintln!("cherubsh: ulimit: -{opt}: invalid option");
+            report_diagnostic(ctx.env_ref(), "ulimit", &format!("-{opt}: invalid option"));
+            eprintln!("ulimit: usage: {}", ULIMIT.synopsis());
             return 2;
         };
-        if ulimit_one(spec, arg.as_deref(), mode, multiple) != 0 {
+        if ulimit_one(ctx.env_ref(), spec, arg.as_deref(), mode, multiple) != 0 {
             return 1;
         }
     }
     0
 }
 
-fn ulimit_one(spec: LimitSpec, arg: Option<&str>, mut mode: u8, multiple: bool) -> i32 {
+fn ulimit_one(
+    env: &dyn Environment,
+    spec: LimitSpec,
+    arg: Option<&str>,
+    mut mode: u8,
+    multiple: bool,
+) -> i32 {
     let setting = arg.is_some();
     if mode == 0 {
         mode = if setting {
@@ -123,9 +139,14 @@ fn ulimit_one(spec: LimitSpec, arg: Option<&str>, mut mode: u8, multiple: bool) 
     let (soft, hard) = match get_limit(spec) {
         Ok(v) => v,
         Err(err) => {
-            eprintln!(
-                "cherubsh: ulimit: {}: cannot get limit: {err}",
-                spec.description
+            report_diagnostic(
+                env,
+                "ulimit",
+                &format!(
+                    "{}: cannot get limit: {}",
+                    spec.description,
+                    os_message(&err)
+                ),
             );
             return 1;
         }
@@ -143,19 +164,35 @@ fn ulimit_one(spec: LimitSpec, arg: Option<&str>, mut mode: u8, multiple: bool) 
     let real_limit = match parse_limit_value(arg, spec, soft, hard) {
         Ok(v) => v,
         Err(msg) => {
-            eprintln!("cherubsh: ulimit: {arg}: {msg}");
+            report_diagnostic(env, "ulimit", &format!("{arg}: {msg}"));
             return 1;
         }
     };
 
     if let Err(err) = set_limit(spec, real_limit, mode) {
-        eprintln!(
-            "cherubsh: ulimit: {}: cannot modify limit: {err}",
-            spec.description
+        report_diagnostic(
+            env,
+            "ulimit",
+            &format!(
+                "{}: cannot modify limit: {}",
+                spec.description,
+                os_message(&err)
+            ),
         );
         return 1;
     }
     0
+}
+
+fn os_message(err: &std::io::Error) -> String {
+    let text = err
+        .raw_os_error()
+        .map(|code| std::io::Error::from_raw_os_error(code).to_string())
+        .unwrap_or_else(|| err.to_string());
+    text.split(" (os error")
+        .next()
+        .unwrap_or(text.as_str())
+        .to_string()
 }
 
 fn parse_limit_value(

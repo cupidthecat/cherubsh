@@ -61,6 +61,10 @@ impl Builtin for Set {
                     idx += 1;
                     if idx < ctx.args.len() {
                         let name = ctx.args[idx].clone();
+                        if name.starts_with('-') || name.starts_with('+') {
+                            list_set_options(ctx, false);
+                            return 0;
+                        }
                         if !apply_long(ctx, &name, true) {
                             return 2;
                         }
@@ -81,6 +85,10 @@ impl Builtin for Set {
                     idx += 1;
                     if idx < ctx.args.len() {
                         let name = ctx.args[idx].clone();
+                        if name.starts_with('-') || name.starts_with('+') {
+                            list_set_options(ctx, true);
+                            return 0;
+                        }
                         if !apply_long(ctx, &name, false) {
                             return 2;
                         }

@@ -8,20 +8,29 @@ struct PrefixAssignmentSnapshot {
     key: String,
     value: Option<String>,
     exported: bool,
+    attrs: cherubsh_common::VarAttrs,
 }
 
 pub(crate) fn definition_source(env: &dyn cherubsh_common::Environment) -> String {
-    env.call_stack_source_name()
+    if env.option("interactive") {
+        return env
+            .call_stack_source_name()
+            .or_else(|| env.diagnostic_source_name())
+            .unwrap_or_else(|| "main".to_string());
+    }
+    env.diagnostic_source_name()
+        .or_else(|| env.call_stack_source_name())
         .unwrap_or_else(|| "main".to_string())
 }
 
 pub(crate) fn define<'a>(ctx: &mut ExecContext<'a>, def: &FunctionDef) -> i32 {
-    if ctx.env.option("posix") && !cherubsh_builtins::common::is_valid_name(&def.name.text) {
-        cherubsh_builtins::common::report_diagnostic(
-            ctx.env,
-            &format!("`{}'", def.name.text),
-            "not a valid identifier",
-        );
+    if !valid_bash_function_name(&def.name.text) {
+        report_function_definition_error(ctx, def, "not a valid identifier");
+        return 2;
+    }
+
+    if ctx.env.option("posix") && cherubsh_builtins::is_special(&def.name.text) {
+        report_function_definition_error(ctx, def, "is a special builtin");
         ctx.pending = Some(Unwind::Exit(2));
         return 2;
     }
@@ -70,6 +79,25 @@ pub(crate) fn define<'a>(ctx: &mut ExecContext<'a>, def: &FunctionDef) -> i32 {
     0
 }
 
+fn valid_bash_function_name(name: &str) -> bool {
+    !name.is_empty()
+        && !name.chars().any(|ch| {
+            matches!(ch, '$' | '<' | '>' | '(' | ')' | ';' | '&' | '|') || ch.is_whitespace()
+        })
+}
+
+fn report_function_definition_error(ctx: &mut ExecContext<'_>, def: &FunctionDef, message: &str) {
+    let name = def.name.raw.as_deref().unwrap_or(def.name.text.as_str());
+    if let Some(current_line) = ctx.env.diagnostic_line() {
+        ctx.env
+            .push_diagnostic_line(current_line.saturating_add(def.line));
+        cherubsh_builtins::common::report_diagnostic(ctx.env, &format!("`{name}'"), message);
+        ctx.env.pop_diagnostic_line();
+    } else {
+        cherubsh_builtins::common::report_diagnostic(ctx.env, &format!("`{name}'"), message);
+    }
+}
+
 pub(crate) fn call<'a>(
     ctx: &mut ExecContext<'a>,
     name: &str,
@@ -108,6 +136,7 @@ pub(crate) fn call<'a>(
             assignment_snapshot.push(PrefixAssignmentSnapshot {
                 value: ctx.env.get(&key),
                 exported: ctx.env.exported(&key),
+                attrs: ctx.env.attrs(&key),
                 key,
             });
         }
@@ -137,12 +166,12 @@ pub(crate) fn call<'a>(
         ExecMode::Parent => {
             if redirects.is_empty() {
                 apply_assignments(ctx, assignments);
-                ctx.execute_command(&body, ExecMode::Parent)
+                ctx.execute_function_body_command(&body, ExecMode::Parent)
             } else {
                 match redirect::apply_redirects_to_parent(ctx, redirects) {
                     Ok(_guard) => {
                         apply_assignments(ctx, assignments);
-                        ctx.execute_command(&body, ExecMode::Parent)
+                        ctx.execute_function_body_command(&body, ExecMode::Parent)
                     }
                     Err(err) => {
                         err.report_with_env(ctx.env);
@@ -157,7 +186,7 @@ pub(crate) fn call<'a>(
                 1
             } else {
                 apply_assignments(ctx, assignments);
-                ctx.execute_command(&body, ExecMode::Child)
+                ctx.execute_function_body_command(&body, ExecMode::Child)
             }
         }
     });
@@ -217,7 +246,14 @@ pub(crate) fn call<'a>(
         }
         match snapshot.value {
             Some(v) => {
+                ctx.env
+                    .set_attr(&snapshot.key, cherubsh_common::VarAttrs::READONLY, false);
                 ctx.env.set(&snapshot.key, v);
+                ctx.env.set_attr(
+                    &snapshot.key,
+                    cherubsh_common::VarAttrs::READONLY,
+                    snapshot.attrs.contains(cherubsh_common::VarAttrs::READONLY),
+                );
                 if snapshot.exported {
                     ctx.env.export(&snapshot.key);
                 } else {
@@ -226,7 +262,11 @@ pub(crate) fn call<'a>(
                     std::env::remove_var(&snapshot.key);
                 }
             }
-            None => ctx.env.unset(&snapshot.key),
+            None => {
+                ctx.env
+                    .set_attr(&snapshot.key, cherubsh_common::VarAttrs::READONLY, false);
+                ctx.env.unset(&snapshot.key);
+            }
         }
     }
     if !ctx.posix_special_assignment_persisted.is_empty() {

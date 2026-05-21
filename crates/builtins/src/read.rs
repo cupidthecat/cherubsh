@@ -5,12 +5,12 @@ use std::io::{Read, Write};
 use std::os::unix::io::FromRawFd;
 
 use crate::common::{
-    array_reference, assign_direct_target_with_flags, is_valid_name, report_builtin_assign_error,
-    report_diagnostic,
+    array_reference, assign_direct_target_with_flags, errno_message, is_valid_name,
+    report_builtin_assign_error, report_diagnostic,
 };
 use crate::getopt::{GetOpt, OptParser};
 use crate::{Builtin, BuiltinCtx};
-use cherubsh_common::{Environment, VarAttrs};
+use cherubsh_common::{AssignError, Environment, VarAttrs, VarKind};
 use cherubsh_expander::quote::{bytes_to_shell_string, shell_string_to_bytes};
 
 pub struct ReadBuiltin;
@@ -23,7 +23,7 @@ impl Builtin for ReadBuiltin {
         "read"
     }
     fn synopsis(&self) -> &'static str {
-        "read [-ers] [-a array] [-d delim] [-i initial] [-n nchars] [-N nchars] [-p prompt] [-t timeout] [-u fd] [name ...]"
+        "read [-Eers] [-a array] [-d delim] [-i text] [-n nchars] [-N nchars] [-p prompt] [-t timeout] [-u fd] [name ...]"
     }
     fn run(&self, ctx: &mut BuiltinCtx<'_>) -> i32 {
         let mut raw = false;
@@ -35,12 +35,14 @@ impl Builtin for ReadBuiltin {
         let mut edit_mode = false;
         let mut timeout: Option<f64> = None;
         let mut fd: i32 = 0;
+        let mut fd_arg: Option<String> = None;
         let mut into_array: Option<String> = None;
         let mut into_assoc: Option<String> = None;
         let mut initial: Option<String> = None;
-        let mut parser = OptParser::new(ctx.args, "ersa:A:d:i:n:N:p:t:u:");
+        let mut parser = OptParser::new(ctx.args, "Eersa:A:d:i:n:N:p:t:u:");
         loop {
             match parser.next() {
+                GetOpt::Opt { ch: 'E', .. } => edit_mode = false,
                 GetOpt::Opt { ch: 'r', .. } => raw = true,
                 GetOpt::Opt { ch: 'e', .. } => edit_mode = true,
                 GetOpt::Opt { ch: 's', .. } => silent = true,
@@ -49,7 +51,7 @@ impl Builtin for ReadBuiltin {
                 GetOpt::Opt { ch: 'd', arg, .. } => {
                     delim = match arg {
                         Some(s) if s.is_empty() => 0,
-                        Some(s) => s.bytes().next().unwrap_or(0),
+                        Some(s) => shell_string_to_bytes(&s).first().copied().unwrap_or(0),
                         None => b'\n',
                     };
                 }
@@ -63,7 +65,7 @@ impl Builtin for ReadBuiltin {
                         report_diagnostic(ctx.env_ref(), "read", &format!("{raw}: invalid number"));
                         return 1;
                     };
-                    if value <= 0 {
+                    if value < 0 {
                         report_diagnostic(ctx.env_ref(), "read", &format!("{raw}: invalid number"));
                         return 1;
                     }
@@ -111,16 +113,36 @@ impl Builtin for ReadBuiltin {
                     timeout = Some(value);
                 }
                 GetOpt::Opt { ch: 'u', arg, .. } => {
-                    fd = arg.and_then(|s| s.parse().ok()).unwrap_or(0);
+                    let raw = arg.unwrap_or_default();
+                    match raw.parse::<i32>() {
+                        Ok(n) if n >= 0 => {
+                            fd = n;
+                            fd_arg = Some(raw);
+                        }
+                        _ => {
+                            report_diagnostic(
+                                ctx.env_ref(),
+                                "read",
+                                &format!("{raw}: invalid file descriptor specification"),
+                            );
+                            return 1;
+                        }
+                    }
                 }
                 GetOpt::Opt { .. } => {}
                 GetOpt::End | GetOpt::Done => break,
                 GetOpt::Unknown { ch, .. } => {
-                    eprintln!("cherubsh: read: -{ch}: invalid option");
+                    report_diagnostic(ctx.env_ref(), "read", &format!("-{ch}: invalid option"));
+                    eprintln!("read: usage: {}", self.synopsis());
                     return 2;
                 }
                 GetOpt::Missing { ch, .. } => {
-                    eprintln!("cherubsh: read: -{ch}: option requires an argument");
+                    report_diagnostic(
+                        ctx.env_ref(),
+                        "read",
+                        &format!("-{ch}: option requires an argument"),
+                    );
+                    eprintln!("read: usage: {}", self.synopsis());
                     return 2;
                 }
             }
@@ -172,7 +194,13 @@ impl Builtin for ReadBuiltin {
         let dup_fd = unsafe { libc::dup(active_fd) };
         if dup_fd < 0 {
             close_optional_fd(readline_tty);
-            eprintln!("cherubsh: read: {active_fd}: invalid file descriptor");
+            let raw = fd_arg.unwrap_or_else(|| active_fd.to_string());
+            let err = std::io::Error::last_os_error();
+            report_diagnostic(
+                ctx.env_ref(),
+                "read",
+                &format!("{raw}: invalid file descriptor: {}", errno_message(&err)),
+            );
             return 1;
         }
         let mut file = unsafe { std::fs::File::from_raw_fd(dup_fd) };
@@ -197,10 +225,12 @@ impl Builtin for ReadBuiltin {
         }
 
         let mut status: i32;
-        let big5_hkscs = is_big5_hkscs_locale(ctx.env_ref());
+        let big5_locale = is_big5_locale(ctx.env_ref());
         let utf8_locale = locale_is_utf8(ctx.env_ref());
         if let Some(n) = nchars {
-            if !nchars_exact && !raw {
+            if n == 0 && !nchars_exact {
+                status = 0;
+            } else if !nchars_exact && !raw {
                 let mut tmp = [0u8; 1];
                 while marked_chars(&marked_line).len() < n {
                     match file.read(&mut tmp) {
@@ -293,7 +323,7 @@ impl Builtin for ReadBuiltin {
                                     break;
                                 }
                             }
-                        } else if big5_hkscs && tmp[0] == 0xa3 {
+                        } else if big5_locale && tmp[0] == 0xa3 {
                             let mut next = [0u8; 1];
                             match file.read(&mut next) {
                                 Ok(0) => push_byte_char(&mut marked_line, tmp[0]),
@@ -332,6 +362,14 @@ impl Builtin for ReadBuiltin {
                     ctx.env_ref(),
                     "read",
                     &format!("`{arr}': not a valid identifier"),
+                );
+                return 1;
+            }
+            if ctx.env_ref().kind(&arr) == VarKind::Assoc {
+                report_diagnostic(
+                    ctx.env_ref(),
+                    "read",
+                    &format!("{arr}: not an indexed array"),
                 );
                 return 1;
             }
@@ -391,8 +429,12 @@ impl Builtin for ReadBuiltin {
                     value,
                     *name_flags.get(i).unwrap_or(&0),
                 ) {
+                    let readonly = matches!(err, AssignError::ReadOnly(_));
                     report_builtin_assign_error(ctx.env_ref(), "read", &err);
-                    status = 1;
+                    status = if readonly { 2 } else { 1 };
+                    if readonly {
+                        break;
+                    }
                 }
             }
         }
@@ -496,11 +538,11 @@ fn dequote_marked(s: &str) -> String {
 }
 
 fn is_ifs_whitespace(c: char, ifs: &str) -> bool {
-    matches!(c, ' ' | '\t' | '\n') && ifs.contains(c)
+    matches!(c, ' ' | '\t' | '\n' | '\r' | '\x0c' | '\x0b') && ifs.contains(c)
 }
 
 fn is_ifs_non_whitespace(c: char, ifs: &str) -> bool {
-    ifs.contains(c) && !matches!(c, ' ' | '\t' | '\n')
+    ifs.contains(c) && !matches!(c, ' ' | '\t' | '\n' | '\r' | '\x0c' | '\x0b')
 }
 
 fn trim_ifs_whitespace_marked(s: &str, ifs: &str, trim_escaped: bool) -> String {
@@ -609,7 +651,7 @@ fn big5_alpha_ifs_bytes(ifs: &str) -> Option<Vec<u8>> {
     (bytes == [0xa3, 0x5c]).then_some(bytes)
 }
 
-fn is_big5_hkscs_locale(env: &dyn cherubsh_common::Environment) -> bool {
+fn is_big5_locale(env: &dyn cherubsh_common::Environment) -> bool {
     let locale = env
         .get("LC_ALL")
         .filter(|v| !v.is_empty())
@@ -617,7 +659,8 @@ fn is_big5_hkscs_locale(env: &dyn cherubsh_common::Environment) -> bool {
         .or_else(|| env.get("LANG").filter(|v| !v.is_empty()))
         .unwrap_or_default();
     let lower = locale.to_ascii_lowercase();
-    lower.starts_with("zh_hk.") && lower.contains("big5hkscs")
+    (lower.starts_with("zh_tw.") && lower.contains("big5"))
+        || (lower.starts_with("zh_hk.") && lower.contains("big5hkscs"))
 }
 
 fn split_ifs_marked(s: &str, ifs: &str) -> Vec<String> {

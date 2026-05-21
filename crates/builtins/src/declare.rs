@@ -195,9 +195,7 @@ fn run_declare(ctx: &mut BuiltinCtx<'_>, force_local: bool, diagnostic_name: &st
     if f.print && !f.function && !rest.is_empty() {
         let mut status = 0;
         for name in rest {
-            if let Some(snap) = ctx
-                .env_ref()
-                .var_snapshot(name)
+            if let Some(snap) = print_lookup_var(ctx, diagnostic_name, name)
                 .filter(|snap| declare_filter_matches(snap, &f))
             {
                 println!("{}", format_var(&snap, Some("declare")));
@@ -213,6 +211,9 @@ fn run_declare(ctx: &mut BuiltinCtx<'_>, force_local: bool, diagnostic_name: &st
         return status;
     }
     if rest.is_empty() && (f.print || !f.set.is_empty() || !f.clear.is_empty()) {
+        if diagnostic_name == "local" && f.print && ctx.env_ref().local_options_active() {
+            println!("local -");
+        }
         for snap in listing_vars(ctx, diagnostic_name) {
             if !declare_filter_matches(&snap, &f) {
                 continue;
@@ -407,6 +408,13 @@ fn run_declare(ctx: &mut BuiltinCtx<'_>, force_local: bool, diagnostic_name: &st
             ctx.env_ref().attrs(&name)
         };
 
+        if (f.clear.contains(VarAttrs::ARRAY) || f.clear.contains(VarAttrs::ASSOC))
+            && declared_attrs.contains(VarAttrs::READONLY)
+        {
+            report_builtin_readonly_error(ctx.env_ref(), diagnostic_name, &name);
+            status = 1;
+            continue;
+        }
         if f.clear.contains(VarAttrs::ARRAY)
             && (declared_attrs.contains(VarAttrs::ARRAY)
                 || matches!(declared_kind, VarKind::Indexed))
@@ -438,6 +446,14 @@ fn run_declare(ctx: &mut BuiltinCtx<'_>, force_local: bool, diagnostic_name: &st
                         &function_name,
                         &format!("{name}: cannot convert indexed to associative array"),
                     );
+                } else {
+                    report_diagnostic(
+                        ctx.env_ref(),
+                        &name,
+                        "cannot convert indexed to associative array",
+                    );
+                    status = 1;
+                    continue;
                 }
             }
             report_diagnostic(
@@ -456,6 +472,14 @@ fn run_declare(ctx: &mut BuiltinCtx<'_>, force_local: bool, diagnostic_name: &st
                         &function_name,
                         &format!("{name}: cannot convert associative to indexed array"),
                     );
+                } else {
+                    report_diagnostic(
+                        ctx.env_ref(),
+                        &name,
+                        "cannot convert associative to indexed array",
+                    );
+                    status = 1;
+                    continue;
                 }
             }
             report_diagnostic(
@@ -986,6 +1010,21 @@ fn listing_vars(ctx: &BuiltinCtx<'_>, diagnostic_name: &str) -> Vec<VarSnapshot>
     } else {
         ctx.env_ref().iter_vars()
     }
+}
+
+fn print_lookup_var(
+    ctx: &BuiltinCtx<'_>,
+    diagnostic_name: &str,
+    name: &str,
+) -> Option<VarSnapshot> {
+    if diagnostic_name == "local" {
+        return ctx
+            .env_ref()
+            .iter_local_vars()
+            .into_iter()
+            .find(|snap| snap.name == name);
+    }
+    ctx.env_ref().var_snapshot(name)
 }
 
 fn handle_function_arg(ctx: &mut BuiltinCtx<'_>, f: &Flags, name: &str) -> i32 {

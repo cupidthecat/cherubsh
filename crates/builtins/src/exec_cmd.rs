@@ -2,6 +2,7 @@ use crate::common::report_diagnostic;
 use crate::getopt::{GetOpt, OptParser};
 use crate::{Builtin, BuiltinCtx, BuiltinFlags};
 use cherubsh_expander::quote::shell_string_to_cstring_bytes;
+use std::path::PathBuf;
 
 pub struct Exec;
 pub static EXEC: Exec = Exec;
@@ -59,7 +60,8 @@ impl Builtin for Exec {
             return 1;
         }
         let name = &rest[0];
-        let Some(path) = ctx.shell.resolve_command(name) else {
+        let path = resolve_exec_operand(ctx, name);
+        let Some(path) = path else {
             if name.contains('/') {
                 if let (Some(source), Some(line)) = (
                     ctx.env_ref().diagnostic_source_name(),
@@ -75,6 +77,12 @@ impl Builtin for Exec {
             request_exit_after_failed_exec(ctx, 127);
             return 127;
         };
+        if path.is_dir() {
+            let err = std::io::Error::from_raw_os_error(libc::EISDIR);
+            report_exec_error(ctx, name, &err);
+            request_exit_after_failed_exec(ctx, 126);
+            return 126;
+        }
         let mut argv: Vec<String> = Vec::with_capacity(rest.len());
         let first_arg = if login_form {
             let base = argv0.unwrap_or_else(|| {
@@ -112,14 +120,65 @@ impl Builtin for Exec {
             }
         }
         let err = std::io::Error::last_os_error();
-        eprintln!("cherubsh: exec: {}: {err}", path.display());
-        request_exit_after_failed_exec(ctx, 127);
-        127
+        let status = if err.raw_os_error() == Some(libc::ENOENT) {
+            127
+        } else {
+            126
+        };
+        report_exec_error(ctx, name, &err);
+        request_exit_after_failed_exec(ctx, status);
+        status
     }
+}
+
+fn resolve_exec_operand(ctx: &mut BuiltinCtx<'_>, name: &str) -> Option<PathBuf> {
+    if name.contains('/') {
+        return Some(PathBuf::from(name));
+    }
+    if let Some(path) = ctx.shell.resolve_command(name) {
+        return Some(path);
+    }
+    let path = ctx.env_ref().get("PATH").unwrap_or_default();
+    for dir in path.split(':') {
+        let mut candidate = PathBuf::from(if dir.is_empty() { "." } else { dir });
+        candidate.push(name);
+        if candidate.is_dir() {
+            return Some(candidate);
+        }
+    }
+    None
 }
 
 fn request_exit_after_failed_exec(ctx: &mut BuiltinCtx<'_>, status: i32) {
     if !ctx.env_ref().option("interactive") && !ctx.env_ref().option("execfail") {
         ctx.shell.request_exit(status);
+    }
+}
+
+fn report_exec_error(ctx: &BuiltinCtx<'_>, name: &str, err: &std::io::Error) {
+    let message = match err.raw_os_error() {
+        Some(libc::EACCES) | Some(libc::EPERM) => "Permission denied".to_string(),
+        Some(libc::E2BIG) => "Argument list too long".to_string(),
+        Some(libc::EISDIR) => "Is a directory".to_string(),
+        Some(libc::ENOENT) => "No such file or directory".to_string(),
+        _ => err.to_string(),
+    };
+    if err.raw_os_error() == Some(libc::EISDIR) {
+        report_diagnostic(
+            ctx.env_ref(),
+            "exec",
+            &format!("{name}: cannot execute: {message}"),
+        );
+    } else if name.contains('/') && err.raw_os_error() == Some(libc::ENOENT) {
+        if let (Some(source), Some(line)) = (
+            ctx.env_ref().diagnostic_source_name(),
+            ctx.env_ref().diagnostic_line(),
+        ) {
+            eprintln!("{source}: line {line}: {name}: {message}");
+        } else {
+            eprintln!("cherubsh: {name}: {message}");
+        }
+    } else {
+        report_diagnostic(ctx.env_ref(), "exec", &format!("{name}: {message}"));
     }
 }

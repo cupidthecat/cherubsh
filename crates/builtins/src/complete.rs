@@ -7,7 +7,7 @@ use cherubsh_common::completion::{CompAction, CompOpts, CompSlot, CompSpec};
 use cherubsh_common::{Environment, VarAttrs, VarKind, W_QUOTED};
 use cherubsh_expander::pattern::{fnmatch, GlobOpts};
 
-use crate::common::report_diagnostic;
+use crate::common::{is_valid_name, report_diagnostic};
 use crate::{Builtin, BuiltinCtx};
 
 #[derive(Default)]
@@ -18,6 +18,7 @@ struct ParsedFlags {
     default: bool,
     initial: bool,
     empty: bool,
+    variable: Option<String>,
 }
 
 fn short_to_action(c: char) -> Option<CompAction> {
@@ -38,7 +39,16 @@ fn short_to_action(c: char) -> Option<CompAction> {
     })
 }
 
-fn parse_complete_flags(args: &[String]) -> Result<(ParsedFlags, Vec<String>, usize), String> {
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CompletionBuiltin {
+    Complete,
+    Compgen,
+}
+
+fn parse_complete_flags(
+    args: &[String],
+    builtin: CompletionBuiltin,
+) -> Result<(ParsedFlags, Vec<String>, usize), String> {
     let mut flags = ParsedFlags::default();
     let mut i = 0;
     while i < args.len() {
@@ -57,15 +67,19 @@ fn parse_complete_flags(args: &[String]) -> Result<(ParsedFlags, Vec<String>, us
             while j < chars.len() {
                 let c = chars[j];
                 match c {
-                    'r' => flags.remove = true,
-                    'p' => flags.print = true,
-                    'D' => flags.default = true,
-                    'I' => flags.initial = true,
-                    'E' => flags.empty = true,
+                    'r' if builtin == CompletionBuiltin::Complete => flags.remove = true,
+                    'p' if builtin == CompletionBuiltin::Complete => flags.print = true,
+                    'D' if builtin == CompletionBuiltin::Complete => flags.default = true,
+                    'I' if builtin == CompletionBuiltin::Complete => flags.initial = true,
+                    'E' if builtin == CompletionBuiltin::Complete => flags.empty = true,
+                    'V' if builtin == CompletionBuiltin::Compgen => {
+                        flags.variable = Some(option_arg(args, &chars, &mut i, j, 'V')?);
+                        break;
+                    }
                     'A' => {
                         let v = option_arg(args, &chars, &mut i, j, 'A')?;
-                        let action =
-                            CompAction::parse(&v).ok_or(format!("invalid action: {}", v))?;
+                        let action = CompAction::parse(&v)
+                            .ok_or_else(|| format!("{v}: invalid action name"))?;
                         flags.spec.actions.push(action);
                         break;
                     }
@@ -99,7 +113,8 @@ fn parse_complete_flags(args: &[String]) -> Result<(ParsedFlags, Vec<String>, us
                     }
                     'o' => {
                         let name = option_arg(args, &chars, &mut i, j, 'o')?;
-                        let bit = CompOpts::parse(&name).ok_or(format!("invalid -o: {}", name))?;
+                        let bit = CompOpts::parse(&name)
+                            .ok_or_else(|| format!("{name}: invalid option name"))?;
                         flags.spec.options |= bit;
                         break;
                     }
@@ -107,7 +122,7 @@ fn parse_complete_flags(args: &[String]) -> Result<(ParsedFlags, Vec<String>, us
                         if let Some(act) = short_to_action(other) {
                             flags.spec.actions.push(act);
                         } else {
-                            return Err(format!("invalid option -{other}"));
+                            return Err(format!("-{other}: invalid option"));
                         }
                     }
                 }
@@ -145,13 +160,16 @@ impl Builtin for Complete {
         "complete"
     }
     fn synopsis(&self) -> &'static str {
-        "complete [-abcdefgjksuv] [-pr] [-o option] [-A action] [-G globpat] [-W wordlist] [-F function] [-C command] [-X filterpat] [-P prefix] [-S suffix] name [name ...]"
+        "complete [-abcdefgjksuv] [-pr] [-DEI] [-o option] [-A action] [-G globpat] [-W wordlist] [-F function] [-C command] [-X filterpat] [-P prefix] [-S suffix] [name ...]"
     }
     fn run(&self, ctx: &mut BuiltinCtx<'_>) -> i32 {
-        let (flags, names, _) = match parse_complete_flags(ctx.args) {
+        let (flags, names, _) = match parse_complete_flags(ctx.args, CompletionBuiltin::Complete) {
             Ok(x) => x,
             Err(e) => {
-                eprintln!("cherubsh: complete: {e}");
+                report_diagnostic(ctx.env_ref(), "complete", &e);
+                if e.starts_with('-') || e.contains("missing arg") {
+                    eprintln!("complete: usage: {}", self.synopsis());
+                }
                 return 2;
             }
         };
@@ -223,6 +241,10 @@ impl Builtin for Complete {
             return 0;
         }
         if names.is_empty() {
+            if !flags.spec.is_empty() {
+                eprintln!("complete: usage: {}", self.synopsis());
+                return 2;
+            }
             for (slot, key, spec) in ctx.env_ref().compspec_iter() {
                 print_one(slot, key.as_deref(), &spec);
             }
@@ -261,22 +283,41 @@ impl Builtin for Compgen {
         "compgen"
     }
     fn synopsis(&self) -> &'static str {
-        "compgen [-abcdefgjksuv] [-o option] [-A action] [-G globpat] [-W wordlist] [-F function] [-C command] [-X filterpat] [-P prefix] [-S suffix] [word]"
+        "compgen [-V varname] [-abcdefgjksuv] [-o option] [-A action] [-G globpat] [-W wordlist] [-F function] [-C command] [-X filterpat] [-P prefix] [-S suffix] [word]"
     }
     fn run(&self, ctx: &mut BuiltinCtx<'_>) -> i32 {
-        let (flags, rest, rest_start) = match parse_complete_flags(ctx.args) {
-            Ok(x) => x,
-            Err(e) => {
-                eprintln!("cherubsh: compgen: {e}");
-                return 2;
+        let (flags, rest, rest_start) =
+            match parse_complete_flags(ctx.args, CompletionBuiltin::Compgen) {
+                Ok(x) => x,
+                Err(e) => {
+                    report_diagnostic(ctx.env_ref(), "compgen", &e);
+                    if e.starts_with('-') || e.contains("missing arg") {
+                        eprintln!("compgen: usage: {}", self.synopsis());
+                    }
+                    return 2;
+                }
+            };
+        if let Some(varname) = flags.variable.as_deref() {
+            if !is_valid_name(varname) {
+                report_diagnostic(
+                    ctx.env_ref(),
+                    "compgen",
+                    &format!("`{varname}': not a valid identifier"),
+                );
+                return 1;
             }
-        };
+        }
         let word = rest.first().cloned().unwrap_or_default();
         let word_quoted = ctx
             .arg_flags
             .get(rest_start)
             .is_some_and(|flags| flags & W_QUOTED != 0);
         let matches = compgen_eval(ctx, &flags.spec, &word, word_quoted);
+        if let Some(varname) = flags.variable.as_deref() {
+            let status = if matches.is_empty() { 1 } else { 0 };
+            ctx.env().set_array(varname, matches);
+            return status;
+        }
         if matches.is_empty() {
             return 1;
         }
@@ -392,11 +433,15 @@ fn action_compgen(
             .filter(|name| name.starts_with(prefix))
             .collect(),
         Binding => static_names(BINDING_NAMES.iter().copied(), prefix),
-        Builtin | Enabled => crate::iter_builtins()
-            .map(|builtin| builtin.name().to_string())
-            .filter(|name| name.starts_with(prefix))
-            .filter(|name| ctx.env_ref().builtin_enabled(name))
-            .collect(),
+        Builtin | Enabled => {
+            let mut names = crate::iter_builtins()
+                .map(|builtin| builtin.name().to_string())
+                .filter(|name| name.starts_with(prefix))
+                .filter(|name| ctx.env_ref().builtin_enabled(name))
+                .collect::<Vec<_>>();
+            names.sort();
+            names
+        }
         Disabled => crate::iter_builtins()
             .map(|builtin| builtin.name().to_string())
             .filter(|name| name.starts_with(prefix))
@@ -431,6 +476,7 @@ fn action_compgen(
             crate::shopt_table::SHOPT_OPTIONS.iter().map(|o| o.name),
             prefix,
         ),
+        HelpTopic => static_names(HELP_TOPICS.iter().copied(), prefix),
         _ => Vec::new(), // richer cases require Environment access; the
                          // runtime engine in crates/shell/src/completion.rs
                          // is the production path.
@@ -518,6 +564,86 @@ static BINDING_NAMES: &[&str] = &[
     "vi-append-eol",
 ];
 
+static HELP_TOPICS: &[&str] = &[
+    "!",
+    "%",
+    "(( ... ))",
+    ".",
+    ":",
+    "[",
+    "[[ ... ]]",
+    "alias",
+    "bg",
+    "bind",
+    "break",
+    "builtin",
+    "caller",
+    "case",
+    "cd",
+    "command",
+    "compgen",
+    "complete",
+    "compopt",
+    "continue",
+    "coproc",
+    "declare",
+    "dirs",
+    "disown",
+    "echo",
+    "enable",
+    "eval",
+    "exec",
+    "exit",
+    "export",
+    "false",
+    "fc",
+    "fg",
+    "for",
+    "for ((",
+    "function",
+    "getopts",
+    "hash",
+    "help",
+    "history",
+    "if",
+    "jobs",
+    "kill",
+    "let",
+    "local",
+    "logout",
+    "mapfile",
+    "popd",
+    "printf",
+    "pushd",
+    "pwd",
+    "read",
+    "readarray",
+    "readonly",
+    "return",
+    "select",
+    "set",
+    "shift",
+    "shopt",
+    "source",
+    "suspend",
+    "test",
+    "time",
+    "times",
+    "trap",
+    "true",
+    "type",
+    "typeset",
+    "ulimit",
+    "umask",
+    "unalias",
+    "unset",
+    "until",
+    "variables",
+    "wait",
+    "while",
+    "{ ... }",
+];
+
 fn path_executables(env: &dyn Environment, prefix: &str) -> Vec<String> {
     let mut out = Vec::new();
     let path = env.get("PATH").unwrap_or_default();
@@ -545,7 +671,7 @@ fn path_executables(env: &dyn Environment, prefix: &str) -> Vec<String> {
 }
 
 fn list_entries(prefix: &str, dirs_only: bool, quoted: bool, home: Option<&str>) -> Vec<String> {
-    let expanded_prefix = expand_tilde_prefix(prefix, quoted, home);
+    let expanded_prefix = expand_completion_prefix(prefix, quoted, home);
     let listing_prefix = expanded_prefix
         .as_ref()
         .map(|expanded| expanded.listing.as_str())
@@ -597,7 +723,11 @@ struct ExpandedPrefix {
     render_dir: String,
 }
 
-fn expand_tilde_prefix(prefix: &str, quoted: bool, home: Option<&str>) -> Option<ExpandedPrefix> {
+fn expand_completion_prefix(
+    prefix: &str,
+    quoted: bool,
+    home: Option<&str>,
+) -> Option<ExpandedPrefix> {
     if quoted && prefix.starts_with("~/") {
         let home = home?;
         let suffix = &prefix[1..];
@@ -606,7 +736,30 @@ fn expand_tilde_prefix(prefix: &str, quoted: bool, home: Option<&str>) -> Option
             render_dir: "~/".to_string(),
         });
     }
+    if quoted && prefix.starts_with("$HOME/") {
+        let home = home?;
+        let suffix = &prefix["$HOME".len()..];
+        return Some(ExpandedPrefix {
+            listing: format!("{home}{suffix}"),
+            render_dir: render_quoted_dir(prefix),
+        });
+    }
+    if quoted && prefix.starts_with("${HOME}/") {
+        let home = home?;
+        let suffix = &prefix["${HOME}".len()..];
+        return Some(ExpandedPrefix {
+            listing: format!("{home}{suffix}"),
+            render_dir: render_quoted_dir(prefix),
+        });
+    }
     None
+}
+
+fn render_quoted_dir(prefix: &str) -> String {
+    prefix
+        .rfind('/')
+        .map(|idx| prefix[..=idx].to_string())
+        .unwrap_or_else(|| prefix.to_string())
 }
 
 fn filter_matches(pat: &str, word: &str, s: &str, extglob: bool) -> bool {
@@ -684,6 +837,13 @@ impl Builtin for Compopt {
                     };
                     if let Some(bit) = CompOpts::parse(name) {
                         set_opts |= bit;
+                    } else {
+                        report_diagnostic(
+                            ctx.env_ref(),
+                            "compopt",
+                            &format!("{name}: invalid option name"),
+                        );
+                        return 1;
                     }
                 }
                 "+o" => {
@@ -694,6 +854,13 @@ impl Builtin for Compopt {
                     };
                     if let Some(bit) = CompOpts::parse(name) {
                         clear_opts |= bit;
+                    } else {
+                        report_diagnostic(
+                            ctx.env_ref(),
+                            "compopt",
+                            &format!("{name}: invalid option name"),
+                        );
+                        return 1;
                     }
                 }
                 _ if a.starts_with('-') => {

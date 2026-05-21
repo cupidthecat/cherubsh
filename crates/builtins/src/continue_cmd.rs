@@ -16,6 +16,9 @@ impl Builtin for Continue {
     }
     fn run(&self, ctx: &mut BuiltinCtx<'_>) -> i32 {
         if ctx.shell.loop_depth() == 0 {
+            if ctx.env_ref().option("posix") {
+                return 0;
+            }
             report_diagnostic(
                 ctx.env_ref(),
                 "continue",
@@ -23,7 +26,16 @@ impl Builtin for Continue {
             );
             return 0;
         }
-        let n: i64 = match ctx.args.first() {
+        if positional_args_after_separator(ctx.args).len() > 1 {
+            report_diagnostic(ctx.env_ref(), "continue", "too many arguments");
+            return 2;
+        }
+        let level_arg = match ctx.args.first().map(String::as_str) {
+            Some("--") => ctx.args.get(1),
+            _ => ctx.args.first(),
+        };
+
+        let n: i64 = match level_arg {
             Some(arg) => match arg.parse::<i64>() {
                 Ok(v) => v,
                 Err(_) => {
@@ -44,7 +56,7 @@ impl Builtin for Continue {
                 "continue",
                 &format!(
                     "{}: loop count out of range",
-                    ctx.args.first().map(|s| s.as_str()).unwrap_or("")
+                    level_arg.map(|s| s.as_str()).unwrap_or("")
                 ),
             );
             ctx.shell.request_break(1);
@@ -53,5 +65,13 @@ impl Builtin for Continue {
         let levels = (n as u32).min(ctx.shell.loop_depth());
         ctx.shell.request_continue(levels);
         0
+    }
+}
+
+fn positional_args_after_separator(args: &[String]) -> &[String] {
+    if args.first().map(String::as_str) == Some("--") {
+        &args[1..]
+    } else {
+        args
     }
 }

@@ -47,11 +47,13 @@ impl Builtin for Jobs {
                 GetOpt::Opt { .. } => {}
                 GetOpt::End | GetOpt::Done => break,
                 GetOpt::Unknown { ch, .. } => {
-                    eprintln!("cherubsh: jobs: -{ch}: invalid option");
+                    report_jobs_error(ctx, &format!("-{ch}: invalid option"));
+                    eprintln!("jobs: usage: {}", self.synopsis());
                     return 2;
                 }
                 GetOpt::Missing { ch, .. } => {
-                    eprintln!("cherubsh: jobs: -{ch}: option requires an argument");
+                    report_jobs_error(ctx, &format!("-{ch}: option requires an argument"));
+                    eprintln!("jobs: usage: {}", self.synopsis());
                     return 2;
                 }
             }
@@ -123,7 +125,7 @@ impl Builtin for Jobs {
             };
             if flags.long {
                 println!(
-                    "[{}]{}  {} {:<23} {}",
+                    "[{}]{}  {} {:<26} {}",
                     job.id.raw(),
                     marker,
                     job.leader_pid,
@@ -131,7 +133,7 @@ impl Builtin for Jobs {
                     command
                 );
             } else {
-                println!("[{}]{}  {:<23} {}", job.id.raw(), marker, label, command);
+                println!("[{}]{}  {:<26} {}", job.id.raw(), marker, label, command);
             }
         }
         let _ = ansi_c_quote;
