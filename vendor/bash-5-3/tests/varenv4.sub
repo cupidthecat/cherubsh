@@ -11,30 +11,61 @@
 #   You should have received a copy of the GNU General Public License
 #   along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
+f()
+{
+	local -a v
+	local -a w
 
-# test varredir_close
+	g
+	echo "f: ${v[@]}, ${w[@]}"
+}
 
-# these should work fine
+g()
+{
+	aux=v
+	declare -ga "$aux=( asdf fdsa )"
+	declare -ga w=( asdf fdsa )
 
-: {fd}<>/dev/null
+	echo "g: ${v[@]}, ${w[@]}"
+}
 
-echo redir 1 >&$fd
-exec {fd}>&-
+f
+echo "FIN: ${v[@]}, ${w[@]}"
 
-: {fd}>&1
-echo redir 2 >&$fd
-exec {fd}>&-
+unset v w
+unset -f f g
 
-shopt -s varredir_close
+f()
+{
+	local  v
+	local  w
 
-: {fd}<>/dev/tty
+	g
+	echo f: v = $v, w = $w
+}
 
-# these should fail with Bad file descriptor errors
-echo redir 3 >&$fd
-exec {fd}>&-
-unset fd
+g()
+{
+	aux=v
+	declare -g w=one
+	declare -g "$aux=two"
 
-: {fd}>&1
-echo redir 4 >&$fd
-unset fd
+	echo g: v = $v, w = $w
+}
 
+f
+echo FIN: v = $v, w = $w
+
+# problem with error return propagation through bash-4.3
+unset -f aaa bbb
+unset unique
+
+aaa() {
+    declare -g -a unique=()
+}
+bbb() {
+    declare -g -A unique=()
+}
+aaa
+bbb
+echo after bbb: $?

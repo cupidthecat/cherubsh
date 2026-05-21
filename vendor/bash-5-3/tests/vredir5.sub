@@ -11,30 +11,26 @@
 #   You should have received a copy of the GNU General Public License
 #   along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
+swizzle()
+{
+exec {fd0}<&0
+exec {fd1}>&1
 
-# test varredir_close
+exec {stdin}<&$fd0-
+exec {stdout}>&$fd1-
+}
 
-# these should work fine
+swizzle
 
-: {fd}<>/dev/null
+echo $stdin $stdout
 
-echo redir 1 >&$fd
-exec {fd}>&-
+read line <&$stdin <<EOF
+a
+EOF
 
-: {fd}>&1
-echo redir 2 >&$fd
-exec {fd}>&-
+echo $line
+echo $line >&$stdout
 
-shopt -s varredir_close
+type swizzle
 
-: {fd}<>/dev/tty
-
-# these should fail with Bad file descriptor errors
-echo redir 3 >&$fd
-exec {fd}>&-
-unset fd
-
-: {fd}>&1
-echo redir 4 >&$fd
-unset fd
-
+exit 0

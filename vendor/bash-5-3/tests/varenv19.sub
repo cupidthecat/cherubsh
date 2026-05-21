@@ -12,29 +12,40 @@
 #   along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 
-# test varredir_close
+# variable attribute inheritance problems without specifying -a or -A
 
-# these should work fine
+function aaa() {
+        local x='1 2 3'
+        echo "aaa ${x}"
+}
 
-: {fd}<>/dev/null
+function bbb {
+        local x
+        x=(4 5 6)
+        echo "bbb ${x[*]}"
+}
 
-echo redir 1 >&$fd
-exec {fd}>&-
+ccc()
+{
+        local x=(7 8 9)
+        echo "ccc ${x[*]}"
+}
 
-: {fd}>&1
-echo redir 2 >&$fd
-exec {fd}>&-
+function ddd
+{
+        local -r x='0'
+        echo "ddd ${x}"
+        aaa
+        bbb
+        ccc
+}
 
-shopt -s varredir_close
+ddd
 
-: {fd}<>/dev/tty
-
-# these should fail with Bad file descriptor errors
-echo redir 3 >&$fd
-exec {fd}>&-
-unset fd
-
-: {fd}>&1
-echo redir 4 >&$fd
-unset fd
-
+f()
+{
+	local x=(one two three)
+	declare -p x
+}
+f
+declare -p x

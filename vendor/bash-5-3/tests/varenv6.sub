@@ -11,30 +11,31 @@
 #   You should have received a copy of the GNU General Public License
 #   along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
+f()
+{
+	local str=F
+	g str
+}
 
-# test varredir_close
+g()
+{
+	local -n ref=$1
+	printf "%s " "$ref"
+	ref=G
+}
 
-# these should work fine
+str=OUTSIDE;
+f
 
-: {fd}<>/dev/null
+printf "%s\n" "$str"
 
-echo redir 1 >&$fd
-exec {fd}>&-
+unset -f f g
+unset str
 
-: {fd}>&1
-echo redir 2 >&$fd
-exec {fd}>&-
+f() { local -a arr=(F); g arr; };
 
-shopt -s varredir_close
+g() { local -n ref=$1; printf "%s " "${ref[0]}"; ref=(G); };
 
-: {fd}<>/dev/tty
-
-# these should fail with Bad file descriptor errors
-echo redir 3 >&$fd
-exec {fd}>&-
-unset fd
-
-: {fd}>&1
-echo redir 4 >&$fd
-unset fd
-
+arr=(OUTSIDE);
+f;
+printf "%s\n" "${arr[0]}"

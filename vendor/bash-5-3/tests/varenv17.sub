@@ -12,29 +12,33 @@
 #   along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 
-# test varredir_close
+# testing -I and local variable inheritance
+var=global
 
-# these should work fine
+f()
+{
+	local $1 var
+	declare -p var
 
-: {fd}<>/dev/null
+	var=local
+	declare -p var
+}
 
-echo redir 1 >&$fd
-exec {fd}>&-
+declare -I var
+declare -p var
 
-: {fd}>&1
-echo redir 2 >&$fd
-exec {fd}>&-
+f
+f -I
+unset var
+f
+f -I
 
-shopt -s varredir_close
+f1()
+{
+	var=$FUNCNAME
 
-: {fd}<>/dev/tty
+	f
+	f -I
+}
 
-# these should fail with Bad file descriptor errors
-echo redir 3 >&$fd
-exec {fd}>&-
-unset fd
-
-: {fd}>&1
-echo redir 4 >&$fd
-unset fd
-
+f1

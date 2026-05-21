@@ -11,30 +11,19 @@
 #   You should have received a copy of the GNU General Public License
 #   along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
+foo()
+{
+	echo
+	cat <<END
+bar
+END
+	cat <<EOF
+qux
+EOF
+}
 
-# test varredir_close
+type foo
+foo
 
-# these should work fine
-
-: {fd}<>/dev/null
-
-echo redir 1 >&$fd
-exec {fd}>&-
-
-: {fd}>&1
-echo redir 2 >&$fd
-exec {fd}>&-
-
-shopt -s varredir_close
-
-: {fd}<>/dev/tty
-
-# these should fail with Bad file descriptor errors
-echo redir 3 >&$fd
-exec {fd}>&-
-unset fd
-
-: {fd}>&1
-echo redir 4 >&$fd
-unset fd
-
+eval "$(type foo | sed 1d)"
+foo

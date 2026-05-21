@@ -11,30 +11,41 @@
 #   You should have received a copy of the GNU General Public License
 #   along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
+# test whether or not temporary environment assignments are exported
+# in posix mode. works now, posix says it will not work in the future
 
-# test varredir_close
+show2()
+{
+        printf %s "foo=${foo-<unset>}"
+        echo -n ' environment foo='
+        printenv foo || echo
+}
 
-# these should work fine
+showfoo()
+{
+	local foo
 
-: {fd}<>/dev/null
+	foo=showfoo show2
+}
 
-echo redir 1 >&$fd
-exec {fd}>&-
+unset foo
+showfoo
+foo=foo showfoo
+showfoo
+echo outside: "foo=${foo-<unset>}"
 
-: {fd}>&1
-echo redir 2 >&$fd
-exec {fd}>&-
+echo ; echo 'posix mode'
+set -o posix
+unset foo
+showfoo
+echo outside 1.0: "foo=${foo-<unset>}"
+foo=foo showfoo
+showfoo
+echo outside 1.1: "foo=${foo-<unset>}"
 
-shopt -s varredir_close
-
-: {fd}<>/dev/tty
-
-# these should fail with Bad file descriptor errors
-echo redir 3 >&$fd
-exec {fd}>&-
-unset fd
-
-: {fd}>&1
-echo redir 4 >&$fd
-unset fd
-
+unset foo
+show2
+echo outside 2.0: "foo=${foo-<unset>}"
+foo=foo show2
+show2
+echo outside 2.1: "foo=${foo-<unset>}"

@@ -11,30 +11,56 @@
 #   You should have received a copy of the GNU General Public License
 #   along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
+bb()
+{
+	(
+	cat << EOF
+foo
+bar
+EOF
+	)
+	echo after subshell
+}
 
-# test varredir_close
+type bb
 
-# these should work fine
 
-: {fd}<>/dev/null
+mkcoprocs()
+{
+	coproc a { cat <<EOF1
+producer 1
+EOF1
+}
+coproc b { cat << EOF2
+producer 2
+EOF2
+}
 
-echo redir 1 >&$fd
-exec {fd}>&-
+echo "coprocs created"
+}
 
-: {fd}>&1
-echo redir 2 >&$fd
-exec {fd}>&-
+type mkcoprocs
 
-shopt -s varredir_close
+unset -f mkcoprocs
 
-: {fd}<>/dev/tty
+mkcoprocs()
+{
+	coproc ( b cat << EOF
+heredoc
+body
+EOF
+	)
+echo "coprocs created"
+}
 
-# these should fail with Bad file descriptor errors
-echo redir 3 >&$fd
-exec {fd}>&-
-unset fd
+type mkcoprocs
 
-: {fd}>&1
-echo redir 4 >&$fd
-unset fd
+unset -f mkcoprocs
 
+# make sure that simple commands are printed without the coproc name
+mkcoprocs ()
+{
+	coproc cat -u - &
+	read -u ${COPROC[0]} msg
+}
+type mkcoprocs

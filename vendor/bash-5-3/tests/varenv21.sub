@@ -11,30 +11,39 @@
 #   You should have received a copy of the GNU General Public License
 #   along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
+# test behavior of `local -' inside shell functions
 
-# test varredir_close
+IGNOREEOF=0
+shopt -o ignoreeof
 
-# these should work fine
+f()
+{
+	local -
+	set +o ignoreeof
+	shopt -o ignoreeof
+}
 
-: {fd}<>/dev/null
+f
+shopt -o ignoreeof
+echo $IGNOREEOF
 
-echo redir 1 >&$fd
-exec {fd}>&-
+unset -f f
 
-: {fd}>&1
-echo redir 2 >&$fd
-exec {fd}>&-
+f()
+{
+	local -
+	set -m -H +B
+	set -u
+	local -p	# make sure it prints `local -'
+}
 
-shopt -s varredir_close
+before="$-|$SHELLOPTS"
+f
+after="$-|$SHELLOPTS"
 
-: {fd}<>/dev/tty
+case "$after" in
+$before)	echo match 1 ;;
+*)		echo bad 1 ;;
+esac
 
-# these should fail with Bad file descriptor errors
-echo redir 3 >&$fd
-exec {fd}>&-
-unset fd
-
-: {fd}>&1
-echo redir 4 >&$fd
-unset fd
-
+unset -f f

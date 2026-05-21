@@ -11,30 +11,37 @@
 #   You should have received a copy of the GNU General Public License
 #   along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
+set -o functrace
+fn() { return; }
 
-# test varredir_close
+trap "echo fn ; fn" RETURN
 
-# these should work fine
+fn
+echo after 1
 
-: {fd}<>/dev/null
+unset -f fn
 
-echo redir 1 >&$fd
-exec {fd}>&-
+fn() { eval return; }
+fn
+echo after 2
 
-: {fd}>&1
-echo redir 2 >&$fd
-exec {fd}>&-
+unset -f fn
 
-shopt -s varredir_close
+# make sure the RETURN trap is run in a command substitution
+foo() { trap 'echo foo' RETURN; /bin/echo bar; }
+baz=$( foo )
+declare -p baz
 
-: {fd}<>/dev/tty
+unset -v baz
+unset -f foo
 
-# these should fail with Bad file descriptor errors
-echo redir 3 >&$fd
-exec {fd}>&-
-unset fd
+# since this sets the exit trap, it has to go last
 
-: {fd}>&1
-echo redir 4 >&$fd
-unset fd
+set +o functrace
+# posix interp 1602
+ReturnFalse()
+{
+	false ; return
+}
 
+trap 'ReturnFalse && echo "woops"' EXIT

@@ -11,30 +11,19 @@
 #   You should have received a copy of the GNU General Public License
 #   along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
+function foobar {
+   declare -rgA FOOBAR=([foo]=bar)
+   declare -p FOOBAR
+}
+foobar
+declare -p FOOBAR
 
-# test varredir_close
+unset -f foobar
 
-# these should work fine
+foobar() {
+   declare -rga FOOBAR2=([foo]=bar)
+   declare -p FOOBAR2
+}
 
-: {fd}<>/dev/null
-
-echo redir 1 >&$fd
-exec {fd}>&-
-
-: {fd}>&1
-echo redir 2 >&$fd
-exec {fd}>&-
-
-shopt -s varredir_close
-
-: {fd}<>/dev/tty
-
-# these should fail with Bad file descriptor errors
-echo redir 3 >&$fd
-exec {fd}>&-
-unset fd
-
-: {fd}>&1
-echo redir 4 >&$fd
-unset fd
-
+foobar
+declare -p FOOBAR2

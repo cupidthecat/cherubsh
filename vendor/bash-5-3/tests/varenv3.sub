@@ -12,29 +12,33 @@
 #   along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 
-# test varredir_close
+oifs=$IFS
 
-# these should work fine
+inner () {
+#recho inner: "$IFS" >&2
+	echo a/b/c/d
+	exit 0
+}
 
-: {fd}<>/dev/null
+outer() {
+#recho outer: "$IFS" >&2
+for i in 1; do
+	IFS=/ read m v k a < <(IFS=$oifs inner)
 
-echo redir 1 >&$fd
-exec {fd}>&-
+echo $m:$v:$k:$a
+done
+}
 
-: {fd}>&1
-echo redir 2 >&$fd
-exec {fd}>&-
+outer
+unset m k v a b c d
 
-shopt -s varredir_close
+for j in 1; do
+	IFS=: read a b c d
+done < <(outer)
 
-: {fd}<>/dev/tty
+echo $a-$b-$c-$d
+unset m k v a b c d
 
-# these should fail with Bad file descriptor errors
-echo redir 3 >&$fd
-exec {fd}>&-
-unset fd
+IFS=: read a b c d < <(outer)
 
-: {fd}>&1
-echo redir 4 >&$fd
-unset fd
-
+echo $a:$b:$c:$d

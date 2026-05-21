@@ -11,30 +11,24 @@
 #   You should have received a copy of the GNU General Public License
 #   along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
+cd ${TMPDIR:-/tmp}
 
-# test varredir_close
+foo() {
+	rm -f a b c
+	for f in a b c; do
+		cat <<-EOF >> ${f}
+		file
+		EOF
+	done
+	grep . a b c
+}
 
-# these should work fine
+type foo
 
-: {fd}<>/dev/null
+eval "$(type foo | sed 1d)"
+foo
 
-echo redir 1 >&$fd
-exec {fd}>&-
+rm -f a b c
 
-: {fd}>&1
-echo redir 2 >&$fd
-exec {fd}>&-
-
-shopt -s varredir_close
-
-: {fd}<>/dev/tty
-
-# these should fail with Bad file descriptor errors
-echo redir 3 >&$fd
-exec {fd}>&-
-unset fd
-
-: {fd}>&1
-echo redir 4 >&$fd
-unset fd
-
+cd $OLDPWD
+exit 0

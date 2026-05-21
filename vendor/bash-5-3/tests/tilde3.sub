@@ -11,30 +11,16 @@
 #   You should have received a copy of the GNU General Public License
 #   along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
+# regression test for tilde expansion following unquoted colons in posix mode
 
-# test varredir_close
+HOME=/home/xyz
 
-# these should work fine
+echo foo=~:~
+foo=~:~
+printf "%s\n" $foo
 
-: {fd}<>/dev/null
+set -o posix
 
-echo redir 1 >&$fd
-exec {fd}>&-
-
-: {fd}>&1
-echo redir 2 >&$fd
-exec {fd}>&-
-
-shopt -s varredir_close
-
-: {fd}<>/dev/tty
-
-# these should fail with Bad file descriptor errors
-echo redir 3 >&$fd
-exec {fd}>&-
-unset fd
-
-: {fd}>&1
-echo redir 4 >&$fd
-unset fd
-
+echo foo=~:~
+foo=~:~
+printf "%s\n" $foo

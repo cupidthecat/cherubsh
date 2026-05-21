@@ -11,30 +11,37 @@
 #   You should have received a copy of the GNU General Public License
 #   along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
+bar()
+{
+exec {v}<<EOF
+line 1
+line 2
+line 3
+EOF
+echo $v
+}
 
-# test varredir_close
+bar
 
-# these should work fine
+cat <&$v
 
-: {fd}<>/dev/null
+type bar
+unset -f bar
 
-echo redir 1 >&$fd
-exec {fd}>&-
+bar()
+{
+exec {v}<<-EOF
+	line 1
+	line 2
+	line 3
+EOF
+echo $v
+}
 
-: {fd}>&1
-echo redir 2 >&$fd
-exec {fd}>&-
+bar
 
-shopt -s varredir_close
+cat <&$v
 
-: {fd}<>/dev/tty
+type bar
 
-# these should fail with Bad file descriptor errors
-echo redir 3 >&$fd
-exec {fd}>&-
-unset fd
-
-: {fd}>&1
-echo redir 4 >&$fd
-unset fd
-
+exit 0

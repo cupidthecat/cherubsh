@@ -11,30 +11,21 @@
 #   You should have received a copy of the GNU General Public License
 #   along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
+# make sure process substitution runs the exit trap
+[[ -n $(< <(trap "cat /dev/fd/0" EXIT)) ]] <<<works && echo works || echo "fail :("
 
-# test varredir_close
+read foo < <(trap "echo bar" EXIT)
+echo $foo
 
-# these should work fine
+cat <(trap "echo bar" EXIT)
 
-: {fd}<>/dev/null
+trap "echo bar" EXIT	#should proc subst inherit this?
+cat <(echo foo ; exit 0;)
 
-echo redir 1 >&$fd
-exec {fd}>&-
+trap - 0
+trap
 
-: {fd}>&1
-echo redir 2 >&$fd
-exec {fd}>&-
+cat <(echo foo; trap "echo bar" EXIT)
 
-shopt -s varredir_close
-
-: {fd}<>/dev/tty
-
-# these should fail with Bad file descriptor errors
-echo redir 3 >&$fd
-exec {fd}>&-
-unset fd
-
-: {fd}>&1
-echo redir 4 >&$fd
-unset fd
-
+trap "echo bar" EXIT	#should proc subst inherit this?
+cat <(echo foo)

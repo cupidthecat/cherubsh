@@ -11,30 +11,55 @@
 #   You should have received a copy of the GNU General Public License
 #   along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
+: ${TMPDIR:=/var/tmp}
+SHELLSFILE=$TMPDIR/shells-$$
 
-# test varredir_close
+cat > $TMPDIR/shells-$$ <<EOF
+/bin/bash
+/bin/csh
+/bin/ksh
+/bin/sh
+/bin/tcsh
+/bin/zsh
+EOF
 
-# these should work fine
+oclosev()
+{
+exec {v}>&-
+}
 
-: {fd}<>/dev/null
+iclosev()
+{
+exec {v}<&-
+}
 
-echo redir 1 >&$fd
-exec {fd}>&-
+exec {v}>&1
+echo $v
 
-: {fd}>&1
-echo redir 2 >&$fd
-exec {fd}>&-
+echo foo 1 >&$v
+echo foo 2 >&$v
+echo foo 3 >&$v
 
-shopt -s varredir_close
+oclosev
 
-: {fd}<>/dev/tty
+exec {v}<$SHELLSFILE
+echo $v
 
-# these should fail with Bad file descriptor errors
-echo redir 3 >&$fd
-exec {fd}>&-
-unset fd
+while read line <&$v
+do
+	echo $line
+done
 
-: {fd}>&1
-echo redir 4 >&$fd
-unset fd
+iclosev
 
+type oclosev
+type iclosev
+
+while read -r -u ${fd}
+do
+	echo $REPLY
+done {fd}<$SHELLSFILE
+
+rm -f $SHELLSFILE
+
+exit 0
