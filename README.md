@@ -1,63 +1,66 @@
 # CherubSH
 
-CherubSH (`cherubsh`), formerly known as cupidshell, is a strict Bash 5.2.21-compatible shell implementation written in Rust. The target is behavioral parity with Bash, not a Bash-like language: parsing, expansion, redirection, builtins, job control, traps, history, completion, and process behavior are tested against a real Bash 5.2.21 oracle and the vendored Brush compatibility corpus.
+CherubSH (`cherubsh`), formerly known as cupidshell, is a strict Bash 5.3-compatible shell implementation written in Rust. The target is behavioral parity with Bash, not a Bash-like language: parsing, expansion, redirection, builtins, job control, traps, history, completion, and process behavior are tested against a real Bash 5.3 oracle and the vendored Brush compatibility corpus.
 
 ## Features
 
-- Bash 5.2.21-compatible parser, lexer, expansion engine, execution model, and shell state.
-- Full standard upstream Bash 5.2.21 test-suite parity: 83 / 83 upstream `run-*` drivers passing.
-- Vendored Brush compatibility corpus parity: 2,067 / 2,067 runnable compat cases passing against the Bash 5.2.21 oracle, with 38 cases skipped by Brush metadata or Bash-version constraints.
-- Differential fixture harness that compares CherubSH behavior directly against a Bash 5.2.21 oracle.
+- Bash 5.3-compatible parser, lexer, expansion engine, execution model, and shell state.
+- Full standard upstream Bash 5.3 test-suite parity: 86 / 86 upstream `run-*` drivers passing.
+- Vendored Brush compatibility corpus parity: 2,077 / 2,077 runnable compat cases passing against the Bash 5.3 oracle, with 28 cases skipped by Brush metadata or Bash-version constraints.
+- Differential fixture harness that compares CherubSH behavior directly against a Bash 5.3 oracle.
 - Bash-compatible parameter expansion, arithmetic expansion, command substitution, process substitution, brace expansion, globbing, word splitting, quote removal, arrays, associative arrays, and namerefs.
 - Core Bash builtins including `alias`, `bind`, `break`, `builtin`, `caller`, `cd`, `command`, `complete`, `compgen`, `compopt`, `continue`, `declare`, `dirs`, `disown`, `echo`, `enable`, `eval`, `exec`, `exit`, `export`, `fc`, `fg`, `bg`, `getopts`, `hash`, `help`, `history`, `jobs`, `kill`, `let`, `local`, `mapfile`, `popd`, `printf`, `pushd`, `pwd`, `read`, `readonly`, `return`, `set`, `shift`, `shopt`, `source`, `suspend`, `test`, `times`, `trap`, `type`, `ulimit`, `umask`, `unalias`, `unset`, and `wait`.
 - Job control, pipelines, subshells, coprocesses, redirections, here-documents, here-strings, traps, `set -e`, `pipefail`, `lastpipe`, and POSIX-mode behavior covered by parity tests.
 - Interactive pieces including prompt decoding, history expansion, line editing scaffolding, completion registration, and completion generation.
-- Vendored Bash 5.2.21 test corpus, so users can run upstream parity without separately checking out Bash source.
+- Vendored Bash 5.3 test corpus, so users can run upstream parity without separately checking out Bash source.
 
-## Bash 5.2.21 Parity
+## Bash 5.3 Parity
 
-CherubSH passes the full standard upstream Bash 5.2.21 test suite: every standalone `run-*` driver that Bash runs through `tests/run-all` / `make tests`.
+CherubSH passes the full standard upstream Bash 5.3 test suite: every standalone `run-*` driver that Bash runs through `tests/run-all` / `make tests`.
 
 Current parity sweep:
 
 | Suite | Result |
 | --- | ---: |
-| Upstream Bash 5.2.21 `run-*` drivers | 83 / 83 passing |
+| Upstream Bash 5.3 `run-*` drivers | 86 / 86 passing |
 | CherubSH fixture parity tests | 99 / 99 passing |
-| Brush compatibility corpus runnable cases | 2,067 / 2,067 passing |
-| Combined Bash, fixture, and Brush runnable parity | 2,249 / 2,249 passing |
+| Brush compatibility corpus runnable cases | 2,077 / 2,077 passing |
+| Combined Bash, fixture, and Brush runnable parity | 2,262 / 2,262 passing |
 
-The upstream tests are run with unmodified Bash 5.2.21 expected outputs. The harness points Bash's own test drivers at `cherubsh`, records per-test artifacts, and fails on any unexpected `FAIL`, `TIMEOUT`, or `XPASS`.
+The upstream tests are run with unmodified Bash 5.3 expected outputs. The harness points Bash's own test drivers at `cherubsh`, records per-test artifacts, and fails on any unexpected `FAIL`, `TIMEOUT`, or `XPASS`.
 
-This puts CherubSH in the same category as projects like [shellgei/rusty_bash](https://github.com/shellgei/rusty_bash): a Rust Bash clone measured against Bash behavior. CherubSH's bar is stricter: full Bash 5.2.21 standard-suite parity is the baseline, not a feature checklist or altered expected-output set.
+This puts CherubSH in the same category as projects like [shellgei/rusty_bash](https://github.com/shellgei/rusty_bash): a Rust Bash clone measured against Bash behavior. CherubSH's bar is stricter: full Bash 5.3 standard-suite parity is the baseline, not a feature checklist or altered expected-output set.
 
 ## Vendored Bash Tests
 
-The Bash 5.2.21 test corpus is vendored in this repository:
+The Bash 5.3 test corpus is vendored in this repository:
 
-- `vendor/bash-5.2.21/tests`: upstream Bash 5.2.21 tests, `.right` files, `run-*` drivers, and misc/manual tests.
-- `vendor/bash-5.2.21/support`: upstream C sources for required test helpers (`recho`, `zecho`, `printenv`, `xcase`).
-- `vendor/bash-5.2.21/y.tab.c`, `config.h`, `version.h`: upstream build-tree inputs used by heredoc size tests.
-- `vendor/bash-5.2.21/COPYING`, `README`, `AUTHORS`, `NEWS`: upstream metadata and license context.
+- `vendor/bash-5.3/tests`: upstream Bash 5.3 tests, `.right` files, `run-*` drivers, and misc/manual tests.
+- `vendor/bash-5.3/support`: upstream C sources for required test helpers (`recho`, `zecho`, `printenv`, `xcase`).
+- `vendor/bash-5.3/examples/loadables`: upstream loadable examples used by selected tests.
+- `vendor/bash-5.3/y.tab.c`, `bashansi.h`, `config.h`, `version.h`: upstream build-tree inputs used by heredoc and parser-sensitive tests.
+- `vendor/bash-5.3/COPYING`, `README`, `AUTHORS`, `NEWS`: upstream metadata and license context.
 
-Users do not need a separate Bash source checkout to run the upstream test corpus. The harness defaults to the vendored tests and compiles the small upstream helper programs into a temporary directory at test time. Set `BASH_521_TESTS_DIR=/path/to/bash-5.2.21/tests` only when intentionally comparing against another Bash test tree.
+Users do not need a separate Bash source checkout to run the upstream test corpus. The harness defaults to the vendored tests and compiles the small upstream helper programs into a temporary directory at test time. Set `BASH_53_TESTS_DIR=/path/to/bash-5.3/tests` only when intentionally comparing against another Bash test tree.
+
+A legacy Bash 5.2.21 vendor tree and oracle builder are retained for regression comparisons. Set `BASH_ORACLE_VERSION=5.2.21` when intentionally running that older gate.
 
 The files under `tests/misc` are vendored too, but they are not part of Bash's normal `make tests` / `tests/run-all` target. They include manual, network, TTY, signal-timing, and performance scripts, so the standard parity gate focuses on the same suite Bash itself runs by default.
 
 ## Vendored Brush Tests
 
-The brush compatibility corpus is vendored under `vendor/brush` from `brush-shell/tests/cases`. The active CherubSH gate runs `vendor/brush/brush-shell/tests/cases/compat` against the same Bash 5.2.21 oracle used by the main parity harness; brush-specific CLI cases under `cases/brush` are retained as source context only.
+The brush compatibility corpus is vendored under `vendor/brush` from `brush-shell/tests/cases`. The active CherubSH gate runs `vendor/brush/brush-shell/tests/cases/compat` against the same Bash 5.3 oracle used by the main parity harness; brush-specific CLI cases under `cases/brush` are retained as source context only.
 
 Current Brush parity status for v0.2.0:
 
 | Brush result | Count |
 | --- | ---: |
-| Passing runnable compat cases | 2,067 |
+| Passing runnable compat cases | 2,077 |
 | Failing runnable compat cases | 0 |
 | Skipped by Brush metadata | 27 |
-| Skipped by Bash-version constraints | 11 |
+| Skipped by Bash-version constraints | 1 |
 
-The skipped cases are not CherubSH-vs-Bash failures. They are excluded before execution because the vendored Brush case metadata marks them as skipped, or because the case requires an oracle version outside the pinned Bash 5.2.21 gate.
+The skipped cases are not CherubSH-vs-Bash failures. They are excluded before execution because the vendored Brush case metadata marks them as skipped, or because the case requires an oracle version outside the pinned Bash 5.3 gate.
 
 The brush sweep is opt-in because it runs thousands of shell invocations:
 
@@ -79,7 +82,7 @@ RUN_BRUSH_PARITY=1 ./tools/run-parity.sh
 
 ## Other Tests
 
-The parity driver also runs CherubSH's own differential fixtures against the Bash 5.2.21 oracle. These cover lifecycle behavior, parser acceptance, expansions, arrays, assignments, builtins, redirections, process substitution, functions, `set -e`, `set -x`, jobs, traps, `read`, `source`, `type`, history, completion, and coprocess behavior.
+The parity driver also runs CherubSH's own differential fixtures against the Bash 5.3 oracle. These cover lifecycle behavior, parser acceptance, expansions, arrays, assignments, builtins, redirections, process substitution, functions, `set -e`, `set -x`, jobs, traps, `read`, `source`, `type`, history, completion, and coprocess behavior.
 
 Regular Cargo unit and integration tests run as part of the same workspace sweep.
 
@@ -178,18 +181,18 @@ cargo run -p cherubsh -- examples/03-traps-coproc-and-jobs.sh
 ./tools/run-parity.sh
 ```
 
-`tools/run-parity.sh` runs the full workspace test suite, the CherubSH fixture parity suite, and the vendored upstream Bash 5.2.21 suite. Set `RUN_BRUSH_PARITY=1` to add the vendored brush compatibility corpus to the same sweep.
+`tools/run-parity.sh` runs the full workspace test suite, the CherubSH fixture parity suite, and the vendored upstream Bash 5.3 suite. Set `RUN_BRUSH_PARITY=1` to add the vendored brush compatibility corpus to the same sweep.
 
-The parity oracle must be Bash 5.2.21:
+The default parity oracle must be Bash 5.3:
 
-- Set `BASH_521_PATH=/path/to/bash-5.2.21` to use an existing oracle binary.
-- Or let `oracle/build-bash-5.2.21.sh` build one under `target/oracle/bash-5.2.21`.
+- Set `BASH_53_PATH=/path/to/bash-5.3` to use an existing oracle binary.
+- Or let `oracle/build-bash-5.3.sh` build one under `target/oracle/bash-5.3`.
 
-The oracle builder can download the Bash 5.2.21 release tarball when no local source tree is supplied. Set `BASH_SRC=/path/to/bash-5.2.21` to build from an existing source tree instead.
+The oracle builder can download the Bash 5.3 release tarball when no local source tree is supplied. Set `BASH_SRC=/path/to/bash-5.3` to build from an existing source tree instead.
 
 ## Benchmarking
 
-Use the benchmark harness to compare CherubSH against the Bash 5.2.21 oracle:
+Use the benchmark harness to compare CherubSH against the Bash 5.3 oracle:
 
 ```sh
 ./tools/bench.sh
@@ -201,9 +204,9 @@ Useful knobs:
 
 ```sh
 RUNS=30 WARMUPS=5 ./tools/bench.sh
-BENCH_BUILD=0 BASH_521_PATH=/path/to/bash-5.2.21 ./tools/bench.sh
+BENCH_BUILD=0 BASH_53_PATH=/path/to/bash-5.3 ./tools/bench.sh
 ```
 
-Results are printed as median/min/max milliseconds with a ratio against Bash 5.2.21. Raw samples are written to `target/bench/raw.tsv`, and the summarized table is written to `target/bench/summary.tsv`.
+Results are printed as median/min/max milliseconds with a ratio against Bash 5.3. Raw samples are written to `target/bench/raw.tsv`, and the summarized table is written to `target/bench/summary.tsv`.
 
 Benchmarks are not parity tests. Run them on an otherwise idle machine, compare medians over multiple runs, and treat external pipeline cases as shell-plus-system measurements rather than pure interpreter speed.
