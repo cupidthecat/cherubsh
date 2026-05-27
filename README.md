@@ -30,7 +30,7 @@ Current parity sweep:
 
 The upstream tests are run with unmodified Bash 5.3 expected outputs. The harness points Bash's own test drivers at `cherubsh`, records per-test artifacts, and fails on any unexpected `FAIL`, `TIMEOUT`, or `XPASS`.
 
-This puts CherubSH in the same category as projects like [shellgei/rusty_bash](https://github.com/shellgei/rusty_bash): a Rust Bash clone measured against Bash behavior. CherubSH's bar is stricter: full Bash 5.3 standard-suite parity is the baseline, not a feature checklist or altered expected-output set.
+This puts CherubSH in the same category as projects like [shellgei/rusty_bash](https://github.com/shellgei/rusty_bash): a Rust Bash clone measured against Bash behavior.
 
 ## Vendored Bash Tests
 
@@ -211,3 +211,13 @@ BENCH_BUILD=0 BASH_53_PATH=/path/to/bash-5.3 ./tools/bench.sh
 Results are printed as median/min/max milliseconds with a ratio against Bash 5.3. Raw samples are written to `target/bench/raw.tsv`, and the summarized table is written to `target/bench/summary.tsv`.
 
 Benchmarks are not parity tests. Run them on an otherwise idle machine, compare medians over multiple runs, and treat external pipeline cases as shell-plus-system measurements rather than pure interpreter speed.
+
+
+## Credits
+
+CherubSH is an independent Rust implementation, but its compatibility target and validation corpus are grounded in upstream shell work:
+
+- [GNU Bash](https://www.gnu.org/software/bash/) is the behavioral oracle and source of the vendored Bash 5.3 and legacy 5.2.21 test corpora, helper sources, and reference metadata. Bash's upstream author records credit Brian Fox, Chet Ramey, the GNU Project, and many other contributors; see `vendor/bash-5-3/AUTHORS` and `vendor/bash-5.2.21/AUTHORS`.
+- [brush](https://github.com/reubeno/brush) by Reuben Olinsky provides the vendored shell compatibility cases used by the optional Brush parity sweep; see `vendor/brush/README.cherubsh.md` and `vendor/brush/LICENSE`.
+- [GNU Readline](https://www.gnu.org/software/readline/) and the GNU History library shape Bash's interactive editing, `bind`, completion, and history behavior, which CherubSH reimplements for compatibility rather than vendoring directly.
+- [shellgei/rusty_bash](https://github.com/shellgei/rusty_bash) is useful adjacent work in the Rust Bash-clone space and is referenced above as a comparison point; CherubSH does not vendor code from it.
