@@ -1,6 +1,6 @@
 # CherubSH Examples
 
-These scripts are ordinary Bash-style shell scripts that run under CherubSH.
+These are regular Bash-style shell scripts that run under CherubSH.
 
 From the repository root:
 
@@ -16,4 +16,4 @@ After installing CherubSH:
 cherubsh examples/01-basics.sh
 ```
 
-Each script uses `#!/usr/bin/env cherubsh`, so it can also be executed directly once `cherubsh` is on `PATH`.
+Each script uses `#!/usr/bin/env cherubsh`. Once `cherubsh` is on `PATH`, you can also run a script directly.
