@@ -35,6 +35,19 @@ while IFS= read -r -d '' file; do
     sed -i 's/\r$//' "${file}"
 done < <(find "${BUILD_ROOT}" -type f \( -name '*.c' -o -name '*.h' -o -name '*.in' -o -name '*.sh' -o -name 'configure' -o -name 'Makefile' \) -print0)
 
+# Windows does not preserve executable bits in the supplied source tree. Restore
+# the modes recorded by the upstream Readline repository before configuring.
+chmod +x \
+    "${BUILD_ROOT}/configure" \
+    "${BUILD_ROOT}/doc/texi2dvi" \
+    "${BUILD_ROOT}/doc/texi2html" \
+    "${BUILD_ROOT}/examples/rlfe/configure" \
+    "${BUILD_ROOT}/support/config.rpath" \
+    "${BUILD_ROOT}/support/install-sh" \
+    "${BUILD_ROOT}/support/mkdirs" \
+    "${BUILD_ROOT}/support/mkinstalldirs" \
+    "${BUILD_ROOT}/support/shlib-install"
+
 for patch_number in 1 2 3; do
     patch_name="$(printf 'readline83-%03d' "${patch_number}")"
     patch -d "${BUILD_ROOT}" -p0 --forward --batch < "${DOWNLOAD_ROOT}/${patch_name}"

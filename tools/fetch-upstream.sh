@@ -23,27 +23,76 @@ done
 
 mkdir -p "${DOWNLOAD_DIR}"
 
+GNU_DOWNLOAD_BASES=(
+    "https://ftpmirror.gnu.org"
+    "https://ftp.gnu.org/gnu"
+    "https://mirrors.kernel.org/gnu"
+)
+GNU_DOWNLOAD_BASE=""
+
 download() {
-    local url=$1
+    local path=$1
     local name=$2
-    if [[ ! -f "${DOWNLOAD_DIR}/${name}" ]]; then
-        curl --fail --location --retry 3 --output "${DOWNLOAD_DIR}/${name}" "${url}"
+    local destination="${DOWNLOAD_DIR}/${name}"
+    local temporary="${destination}.part"
+    local base
+    local -a candidates=("${GNU_DOWNLOAD_BASES[@]}")
+    local -A tried=()
+
+    if [[ -f "${destination}" ]]; then
+        return
     fi
+
+    if [[ -n "${GNU_DOWNLOAD_BASE}" ]]; then
+        candidates=(
+            "${GNU_DOWNLOAD_BASE}"
+            "${GNU_DOWNLOAD_BASES[@]}"
+        )
+    fi
+
+    for base in "${candidates[@]}"; do
+        if [[ -n "${tried[${base}]+present}" ]]; then
+            continue
+        fi
+        tried["${base}"]=1
+        rm -f -- "${temporary}"
+        printf 'downloading %s from %s\n' "${name}" "${base}"
+        if curl \
+            --fail \
+            --location \
+            --silent \
+            --show-error \
+            --retry 2 \
+            --retry-all-errors \
+            --retry-delay 2 \
+            --connect-timeout 15 \
+            --max-time 120 \
+            --output "${temporary}" \
+            "${base}/${path}"; then
+            mv -f -- "${temporary}" "${destination}"
+            GNU_DOWNLOAD_BASE="${base}"
+            return
+        fi
+    done
+
+    rm -f -- "${temporary}"
+    echo "error: could not download ${name} from a GNU mirror" >&2
+    return 1
 }
 
 for patch_number in $(seq 1 "${BASH_PATCHLEVEL}"); do
     patch_name="$(printf 'bash53-%03d' "${patch_number}")"
-    download "https://ftp.gnu.org/gnu/bash/bash-5.3-patches/${patch_name}" "${patch_name}"
-    download "https://ftp.gnu.org/gnu/bash/bash-5.3-patches/${patch_name}.sig" "${patch_name}.sig"
+    download "bash/bash-5.3-patches/${patch_name}" "${patch_name}"
+    download "bash/bash-5.3-patches/${patch_name}.sig" "${patch_name}.sig"
 done
 
 for patch_number in $(seq 1 "${READLINE_PATCHLEVEL}"); do
     patch_name="$(printf 'readline83-%03d' "${patch_number}")"
-    download "https://ftp.gnu.org/gnu/readline/readline-8.3-patches/${patch_name}" "${patch_name}"
-    download "https://ftp.gnu.org/gnu/readline/readline-8.3-patches/${patch_name}.sig" "${patch_name}.sig"
+    download "readline/readline-8.3-patches/${patch_name}" "${patch_name}"
+    download "readline/readline-8.3-patches/${patch_name}.sig" "${patch_name}.sig"
 done
 
-download "https://ftp.gnu.org/gnu/gnu-keyring.gpg" "gnu-keyring.gpg"
+download "gnu-keyring.gpg" "gnu-keyring.gpg"
 
 (
     cd "${DOWNLOAD_DIR}"
