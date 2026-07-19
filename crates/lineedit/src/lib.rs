@@ -1,10 +1,7 @@
-//! Hand-rolled readline-equivalent line editor.
+//! UTF-8 line editor used by interactive CherubSH sessions.
 //!
-//! Strict-parity-max implementation: termcap detection, raw-mode termios
-//! enter/leave, ESC-sequence keyboard input, emacs + vi modes, kill-ring,
-//! history search, programmable completion callback, multi-line redraw.
-//! Bash links to GNU Readline; we re-implement the surface that matters
-//! for shell interaction.
+//! It supports Emacs and Vi keymaps, history search, completion, raw terminal
+//! input, and multi-line redisplay.
 
 mod buffer;
 mod history_search;
@@ -13,8 +10,11 @@ mod key;
 mod killring;
 mod raw_mode;
 mod render;
+mod termcap;
+mod vi;
 
 pub use buffer::EditBuffer;
+pub use input::set_input_deadline;
 pub use key::KeyEvent;
 pub use killring::KillRing;
 pub use raw_mode::RawMode;
@@ -40,16 +40,35 @@ impl From<io::Error> for EditError {
     }
 }
 
-/// Provided by the shell. Invoked when the user presses Tab.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Completion {
+    pub matches: Vec<String>,
+    pub replace_start: usize,
+    pub suppress_append: bool,
+    pub append_character: Option<char>,
+    pub filenames: bool,
+}
+
+/// Supplies candidates when the user presses Tab.
 pub trait CompletionProvider {
-    /// Given the current input + cursor position, return the candidate
-    /// matches for the word under the cursor.
-    fn complete(&mut self, line: &str, point: usize) -> Vec<String>;
+    fn complete(&mut self, line: &str, point: usize) -> Completion;
+
+    fn run_shell_command(
+        &mut self,
+        _command: &str,
+        _line: &str,
+        _point: usize,
+    ) -> Option<(String, usize)> {
+        None
+    }
 }
 
 /// Provided by the shell. Used for Ctrl-P / Ctrl-N / Ctrl-R navigation.
 pub trait HistoryProvider {
     fn len(&self) -> usize;
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
     fn get(&self, idx: usize) -> Option<String>;
     /// Add the just-accepted line (only meaningful if not already in
     /// history via the shell's HISTCONTROL handling).
@@ -62,20 +81,50 @@ pub struct LineEditor {
     pub keymap: Keymap,
     pub last_action: Option<EditAction>,
     pub vi_mode: bool,
+    self_insert_unbound: bool,
+    vi_command_keymap: Keymap,
+    vi_state: vi::ViState,
+    mark: Option<usize>,
+    last_yank: Option<(usize, usize)>,
+    menu: Option<MenuState>,
+    original_line: String,
     pending_history_index: Option<usize>,
     pending_history_entries: Option<Vec<String>>,
 }
 
+#[derive(Clone)]
+struct MenuState {
+    completion: Completion,
+    index: usize,
+}
+
 impl LineEditor {
     pub fn new(keymap: Keymap) -> Self {
+        let mut vi_command_keymap = Keymap::new("vi-command");
+        vi_command_keymap.install_vi_movement_defaults();
         Self {
             kill_ring: KillRing::new(),
             keymap,
             last_action: None,
             vi_mode: false,
+            self_insert_unbound: true,
+            vi_command_keymap,
+            vi_state: vi::ViState::new(),
+            mark: None,
+            last_yank: None,
+            menu: None,
+            original_line: String::new(),
             pending_history_index: None,
             pending_history_entries: None,
         }
+    }
+
+    pub fn set_vi_command_keymap(&mut self, keymap: Keymap) {
+        self.vi_command_keymap = keymap;
+    }
+
+    pub fn set_self_insert_unbound(&mut self, enabled: bool) {
+        self.self_insert_unbound = enabled;
     }
 
     /// Read one line with editing. `history` and `completion` are
@@ -127,6 +176,12 @@ impl LineEditor {
                 }
             }
         }
+        self.original_line = buf.contents();
+        self.mark = Some(buf.char_point());
+        self.last_yank = None;
+        self.menu = None;
+        self.vi_state.reset();
+        self.vi_mode = self.keymap.name == "vi-command";
         let raw = if raw_mode {
             Some(RawMode::enter()?)
         } else {
@@ -139,22 +194,23 @@ impl LineEditor {
         };
         renderer.full_redraw(&buf)?;
         let result = loop {
-            let key = match input::read_key()? {
-                Some(k) => k,
-                None if raw_mode => continue,
-                None if buf.is_empty() => {
-                    if !raw_mode {
-                        renderer.scripted_eof()?;
+            let key =
+                match input::read_key_mode(self.keymap.name.starts_with("vi-") && !self.vi_mode)? {
+                    Some(k) => k,
+                    None if raw_mode => continue,
+                    None if buf.is_empty() => {
+                        if !raw_mode {
+                            renderer.scripted_eof()?;
+                        }
+                        break Err(EditError::Eof);
                     }
-                    break Err(EditError::Eof);
-                }
-                None => {
-                    if !raw_mode {
-                        renderer.scripted_accept(&buf)?;
+                    None => {
+                        if !raw_mode {
+                            renderer.scripted_accept(&buf)?;
+                        }
+                        break Ok(buf.contents());
                     }
-                    break Ok(buf.contents());
-                }
-            };
+                };
             match self.dispatch(
                 key,
                 &mut buf,
@@ -176,8 +232,8 @@ impl LineEditor {
             }
         };
         drop(raw);
-        // Newline terminator after accept; renderer left cursor at end of line.
-        if matches!(&result, Ok(_)) {
+        // Readline leaves the next program output at the start of a fresh line.
+        if matches!(&result, Ok(_) | Err(EditError::Eof)) {
             let _ = io::stderr().write_all(b"\n");
             let _ = io::stderr().flush();
         }
@@ -195,28 +251,67 @@ impl LineEditor {
         completion: &mut dyn CompletionProvider,
         renderer: &mut render::Renderer,
     ) -> Result<LoopOutcome, EditError> {
-        let action = match key.lookup_in(&self.keymap) {
-            Some(a) => a,
-            None => match &key {
-                KeyEvent::Char(_) => EditAction::SelfInsert,
-                _ => EditAction::Noop,
-            },
-        };
+        if key == KeyEvent::Ctrl('c') {
+            self.clear_operate_and_get_next();
+            self.vi_state.reset();
+            return Ok(LoopOutcome::Interrupted);
+        }
+        if let KeyEvent::Paste(text) = key {
+            buf.break_undo_group();
+            buf.insert_str(&text);
+            self.last_action = Some(EditAction::SelfInsert);
+            self.menu = None;
+            renderer.full_redraw(buf)?;
+            return Ok(LoopOutcome::Continue);
+        }
+        if self.vi_mode && self.handle_vi_command(&key, buf, history, history_index, saved_current)
+        {
+            self.menu = None;
+            renderer.full_redraw(buf)?;
+            return Ok(LoopOutcome::Continue);
+        }
+
+        let previous_action = self.last_action;
+        let action = self.resolve_action(&key)?.unwrap_or({
+            if !self.vi_mode && self.self_insert_unbound && matches!(key, KeyEvent::Char(_)) {
+                EditAction::SelfInsert
+            } else {
+                EditAction::Noop
+            }
+        });
         self.last_action = Some(action);
+        if action != EditAction::SelfInsert {
+            buf.break_undo_group();
+        }
+        if !matches!(
+            action,
+            EditAction::MenuComplete | EditAction::MenuCompleteBackward
+        ) {
+            self.menu = None;
+        }
         match action {
             EditAction::SelfInsert => {
                 if let KeyEvent::Char(c) = key {
                     buf.insert(c);
                 }
             }
-            EditAction::BackwardDeleteChar => {
-                buf.backward_delete();
+            EditAction::QuotedInsert => {
+                if let Some(ch) = input::read_literal_char()? {
+                    buf.insert(ch);
+                }
             }
-            EditAction::DeleteChar | EditAction::DeleteCharOrList => {
+            EditAction::TabInsert => buf.insert('\t'),
+            EditAction::BackwardDeleteChar => buf.backward_delete(),
+            EditAction::DeleteChar => buf.delete_forward(),
+            EditAction::DeleteCharOrList => {
                 if buf.is_empty() {
                     return Ok(LoopOutcome::Eof);
                 }
-                buf.delete_forward();
+                if buf.char_point() == buf.len() {
+                    display_completions(&completion.complete(&buf.as_str(), buf.point()))?;
+                } else {
+                    buf.delete_forward();
+                }
             }
             EditAction::ForwardChar => buf.move_right(),
             EditAction::BackwardChar => buf.move_left(),
@@ -224,30 +319,52 @@ impl LineEditor {
             EditAction::BackwardWord => buf.move_word_left(),
             EditAction::BeginningOfLine => buf.move_home(),
             EditAction::EndOfLine => buf.move_end(),
+            EditAction::NextScreenLine => buf.move_visual_line(renderer.columns(), 1),
+            EditAction::PreviousScreenLine => buf.move_visual_line(renderer.columns(), -1),
             EditAction::KillLine => {
                 let killed = buf.kill_to_end();
-                self.kill_ring.push(killed);
+                self.record_kill(killed, false, previous_action);
             }
-            EditAction::UnixLineDiscard => {
+            EditAction::BackwardKillLine | EditAction::UnixLineDiscard => {
                 let killed = buf.kill_to_beginning();
-                self.kill_ring.push(killed);
+                self.record_kill(killed, true, previous_action);
             }
-            EditAction::UnixWordRubout => {
+            EditAction::BackwardKillWord | EditAction::UnixWordRubout => {
                 let killed = buf.backward_kill_word();
-                self.kill_ring.push(killed);
+                self.record_kill(killed, true, previous_action);
             }
             EditAction::KillWord => {
                 let killed = buf.forward_kill_word();
-                self.kill_ring.push(killed);
+                self.record_kill(killed, false, previous_action);
+            }
+            EditAction::KillRegion => {
+                let killed = buf.kill_range(self.mark.unwrap_or(0), buf.char_point());
+                self.record_kill(killed, false, previous_action);
             }
             EditAction::Yank => {
-                if let Some(text) = self.kill_ring.current() {
-                    buf.insert_str(text);
+                if let Some(text) = self.kill_ring.current().map(str::to_string) {
+                    let start = buf.char_point();
+                    buf.insert_str(&text);
+                    self.last_yank = Some((start, buf.char_point()));
                 }
             }
             EditAction::YankPop => {
-                self.kill_ring.rotate();
+                if matches!(
+                    previous_action,
+                    Some(EditAction::Yank | EditAction::YankPop)
+                ) && self.kill_ring.len() > 1
+                {
+                    if let Some((start, end)) = self.last_yank {
+                        self.kill_ring.rotate();
+                        if let Some(text) = self.kill_ring.current().map(str::to_string) {
+                            buf.replace_char_range(start, end, &text);
+                            self.last_yank = Some((start, buf.char_point()));
+                        }
+                    }
+                }
             }
+            EditAction::YankLastArg => yank_history_argument(history, buf, None),
+            EditAction::YankNthArg => yank_history_argument(history, buf, Some(1)),
             EditAction::PreviousHistory => {
                 navigate_history(history, history_index, saved_current, buf, -1);
             }
@@ -258,6 +375,19 @@ impl LineEditor {
                 self.queue_operate_and_get_next(history, *history_index);
                 renderer.full_redraw(buf)?;
                 return Ok(LoopOutcome::Accept);
+            }
+            EditAction::BeginningOfHistory => {
+                if !history.is_empty() {
+                    if history_index.is_none() {
+                        *saved_current = Some(buf.contents());
+                    }
+                    *history_index = Some(0);
+                    buf.replace_all(&history.get(0).unwrap_or_default());
+                }
+            }
+            EditAction::EndOfHistory => {
+                *history_index = Some(history.len());
+                buf.replace_all(saved_current.as_deref().unwrap_or_default());
             }
             EditAction::AcceptLine | EditAction::NewLine => {
                 self.clear_operate_and_get_next();
@@ -271,19 +401,46 @@ impl LineEditor {
             }
             EditAction::Complete => {
                 let line = buf.as_str();
-                let matches = completion.complete(&line, buf.point());
-                buf.apply_completion(&matches);
+                let result = completion.complete(&line, buf.point());
+                buf.apply_completion(&result);
+            }
+            EditAction::PossibleCompletions => {
+                display_completions(&completion.complete(&buf.as_str(), buf.point()))?;
+            }
+            EditAction::InsertCompletions => {
+                let result = completion.complete(&buf.as_str(), buf.point());
+                if !result.matches.is_empty() {
+                    let joined = result.matches.join(" ");
+                    buf.replace_completion(
+                        &Completion {
+                            suppress_append: true,
+                            ..result
+                        },
+                        &joined,
+                    );
+                }
+            }
+            EditAction::MenuComplete => {
+                self.menu_complete(buf, completion, false);
+            }
+            EditAction::MenuCompleteBackward => {
+                self.menu_complete(buf, completion, true);
             }
             EditAction::ClearScreen => {
-                let _ = io::stderr().write_all(b"\x1b[2J\x1b[H");
+                let _ = io::stderr().write_all(termcap::CLEAR_SCREEN.as_bytes());
+                renderer.full_redraw(buf)?;
+                return Ok(LoopOutcome::Continue);
+            }
+            EditAction::Redraw => {
                 renderer.full_redraw(buf)?;
                 return Ok(LoopOutcome::Continue);
             }
             EditAction::TransposeChars => buf.transpose_chars(),
+            EditAction::TransposeWords => buf.transpose_words(),
             EditAction::UpcaseWord => buf.upcase_word(),
             EditAction::DowncaseWord => buf.downcase_word(),
             EditAction::CapitalizeWord => buf.capitalize_word(),
-            EditAction::ReverseSearchHistory => {
+            EditAction::ReverseSearchHistory | EditAction::NonIncrementalReverseSearchHistory => {
                 match history_search::interactive_search(buf, history, true, renderer)? {
                     history_search::SearchOutcome::ContinueEditing => {}
                     history_search::SearchOutcome::AcceptLine(hit) => {
@@ -298,7 +455,7 @@ impl LineEditor {
                     }
                 }
             }
-            EditAction::ForwardSearchHistory => {
+            EditAction::ForwardSearchHistory | EditAction::NonIncrementalForwardSearchHistory => {
                 match history_search::interactive_search(buf, history, false, renderer)? {
                     history_search::SearchOutcome::ContinueEditing => {}
                     history_search::SearchOutcome::AcceptLine(hit) => {
@@ -313,31 +470,409 @@ impl LineEditor {
                     }
                 }
             }
+            EditAction::HistorySearchBackward => {
+                navigate_history_prefix(history, history_index, saved_current, buf, -1);
+            }
+            EditAction::HistorySearchForward => {
+                navigate_history_prefix(history, history_index, saved_current, buf, 1);
+            }
             EditAction::ViMovementMode => {
                 self.vi_mode = true;
+                self.vi_state.reset();
             }
             EditAction::ViInsertionMode => {
                 self.vi_mode = false;
+                self.vi_state.reset();
             }
             EditAction::ViAppendMode => {
                 self.vi_mode = false;
                 buf.move_right();
+                self.vi_state.reset();
             }
             EditAction::ViAppendEol => {
                 self.vi_mode = false;
                 buf.move_end();
+                self.vi_state.reset();
             }
-            EditAction::UndoCmd | EditAction::RevertLine => {
-                buf.undo();
+            EditAction::UndoCmd => buf.undo(),
+            EditAction::RevertLine => {
+                buf.replace_all(&self.original_line);
+            }
+            EditAction::Tilde => expand_tilde_at_point(buf),
+            EditAction::Quit => {
+                if buf.is_empty() {
+                    return Ok(LoopOutcome::Eof);
+                }
+                ring_bell();
             }
             EditAction::Noop => {}
-            _ => {
-                // Unimplemented action - bell.
-                let _ = io::stderr().write_all(b"\x07");
+            EditAction::ShellCommand(index) => {
+                if let Some(command) = self
+                    .active_keymap()
+                    .shell_commands
+                    .get(index as usize)
+                    .cloned()
+                {
+                    if let Some((line, point)) =
+                        completion.run_shell_command(&command, &buf.as_str(), buf.point())
+                    {
+                        buf.replace_all_at_byte(&line, point);
+                    }
+                }
+            }
+            EditAction::Macro(index) => {
+                if let Some(text) = self.active_keymap().macros.get(index as usize).cloned() {
+                    buf.insert_str(&text);
+                }
             }
         }
         renderer.full_redraw(buf)?;
         Ok(LoopOutcome::Continue)
+    }
+
+    fn active_keymap(&self) -> &Keymap {
+        if self.vi_mode {
+            &self.vi_command_keymap
+        } else {
+            &self.keymap
+        }
+    }
+
+    fn resolve_action(&self, key: &KeyEvent) -> io::Result<Option<EditAction>> {
+        let keymap = self.active_keymap();
+        let mut sequence = key.to_sequence();
+        if sequence.is_empty() {
+            return Ok(None);
+        }
+        if matches!(key, KeyEvent::Char('\\')) && keymap.lookup(&sequence).is_none() {
+            return Ok(None);
+        }
+        loop {
+            let exact = keymap.lookup(&sequence);
+            let has_longer = keymap.bindings.keys().any(|candidate| {
+                candidate.starts_with(&sequence) && candidate.len() > sequence.len()
+            });
+            if !has_longer {
+                return Ok(exact);
+            }
+            let Some(next) = input::read_key()? else {
+                return Ok(exact);
+            };
+            sequence.push_str(&next.to_sequence());
+            let still_a_prefix = keymap
+                .bindings
+                .keys()
+                .any(|candidate| candidate.starts_with(&sequence));
+            if !still_a_prefix {
+                ring_bell();
+                return Ok(exact);
+            }
+        }
+    }
+
+    fn record_kill(&mut self, killed: String, backward: bool, previous_action: Option<EditAction>) {
+        if is_kill_action(previous_action) {
+            if backward {
+                self.kill_ring.prepend(&killed);
+            } else {
+                self.kill_ring.append(&killed);
+            }
+        } else {
+            self.kill_ring.push(killed);
+        }
+    }
+
+    fn menu_complete(
+        &mut self,
+        buf: &mut EditBuffer,
+        provider: &mut dyn CompletionProvider,
+        backward: bool,
+    ) {
+        let continuing = self.menu.is_some();
+        let mut state = self.menu.take().unwrap_or_else(|| MenuState {
+            completion: provider.complete(&buf.as_str(), buf.point()),
+            index: if backward { usize::MAX } else { 0 },
+        });
+        let len = state.completion.matches.len();
+        if len == 0 {
+            ring_bell();
+            return;
+        }
+        state.index = if state.index == usize::MAX {
+            len - 1
+        } else if backward {
+            state.index.checked_sub(1).unwrap_or(len - 1)
+        } else if !continuing && state.index == 0 {
+            0
+        } else {
+            (state.index + 1) % len
+        };
+        let choice = state.completion.matches[state.index].clone();
+        let mut replacement = state.completion.clone();
+        replacement.suppress_append = true;
+        buf.replace_completion(&replacement, &choice);
+        self.menu = Some(state);
+    }
+
+    fn handle_vi_command(
+        &mut self,
+        key: &KeyEvent,
+        buf: &mut EditBuffer,
+        history: &mut dyn HistoryProvider,
+        history_index: &mut Option<usize>,
+        saved_current: &mut Option<String>,
+    ) -> bool {
+        if matches!(key, KeyEvent::Esc) {
+            self.vi_state.reset();
+            return true;
+        }
+        let KeyEvent::Char(ch) = *key else {
+            return false;
+        };
+
+        if let Some(pending) = self.vi_state.pending.take() {
+            match pending {
+                vi::Pending::Replace => {
+                    let count = self.vi_state.take_count();
+                    let start = buf.char_point();
+                    let end = start.saturating_add(count).min(buf.len());
+                    if start < end {
+                        let replacement: String = std::iter::repeat_n(ch, end - start).collect();
+                        buf.replace_char_range(start, end, &replacement);
+                        buf.set_char_point(end.saturating_sub(1));
+                    }
+                    return true;
+                }
+                vi::Pending::Find { backward, till } => {
+                    let count = self.vi_state.take_count();
+                    for _ in 0..count {
+                        let found = if backward {
+                            buf.find_backward(ch, !till)
+                        } else {
+                            buf.find_forward(ch, !till)
+                        };
+                        if let Some(point) = found {
+                            buf.set_char_point(point);
+                        } else {
+                            ring_bell();
+                            break;
+                        }
+                    }
+                    return true;
+                }
+                vi::Pending::Operator(op) => {
+                    let count = self.vi_state.take_count();
+                    if matches!(
+                        (op, ch),
+                        (vi::Op::Delete, 'd') | (vi::Op::Change, 'c') | (vi::Op::Yank, 'y')
+                    ) {
+                        self.apply_vi_line_operator(op, buf);
+                        return true;
+                    }
+                    if let Some((start, end)) = vi_motion_range(buf, ch, count) {
+                        self.apply_vi_operator(op, buf, start, end);
+                    } else {
+                        ring_bell();
+                    }
+                    return true;
+                }
+            }
+        }
+
+        if ch.is_ascii_digit() && (ch != '0' || self.vi_state.count.is_some()) {
+            self.vi_state
+                .push_digit(ch.to_digit(10).unwrap_or(0) as usize);
+            return true;
+        }
+        match ch {
+            'd' => {
+                self.vi_state.pending = Some(vi::Pending::Operator(vi::Op::Delete));
+                return true;
+            }
+            'c' => {
+                self.vi_state.pending = Some(vi::Pending::Operator(vi::Op::Change));
+                return true;
+            }
+            'y' => {
+                self.vi_state.pending = Some(vi::Pending::Operator(vi::Op::Yank));
+                return true;
+            }
+            'f' | 'F' | 't' | 'T' => {
+                self.vi_state.pending = Some(vi::Pending::Find {
+                    backward: matches!(ch, 'F' | 'T'),
+                    till: matches!(ch, 't' | 'T'),
+                });
+                return true;
+            }
+            'r' => {
+                self.vi_state.pending = Some(vi::Pending::Replace);
+                return true;
+            }
+            _ => {}
+        }
+        let count = self.vi_state.take_count();
+        match ch {
+            'h' => {
+                buf.set_char_point(buf.char_point().saturating_sub(count));
+                true
+            }
+            'l' | ' ' => {
+                buf.set_char_point(buf.char_point().saturating_add(count).min(buf.len()));
+                true
+            }
+            '0' => {
+                buf.move_home();
+                true
+            }
+            '$' => {
+                buf.move_end();
+                true
+            }
+            'w' => {
+                for _ in 0..count {
+                    buf.move_word_right();
+                }
+                true
+            }
+            'b' => {
+                for _ in 0..count {
+                    buf.move_word_left();
+                }
+                true
+            }
+            'e' => {
+                for _ in 0..count {
+                    buf.move_word_right();
+                }
+                buf.move_left();
+                true
+            }
+            'k' => {
+                for _ in 0..count {
+                    navigate_history(history, history_index, saved_current, buf, -1);
+                }
+                true
+            }
+            'j' => {
+                for _ in 0..count {
+                    navigate_history(history, history_index, saved_current, buf, 1);
+                }
+                true
+            }
+            'i' => {
+                self.vi_mode = false;
+                true
+            }
+            'I' => {
+                buf.move_home();
+                self.vi_mode = false;
+                true
+            }
+            'a' => {
+                buf.move_right();
+                self.vi_mode = false;
+                true
+            }
+            'A' => {
+                buf.move_end();
+                self.vi_mode = false;
+                true
+            }
+            'x' => {
+                let start = buf.char_point();
+                let killed = buf.kill_range(start, start.saturating_add(count));
+                self.kill_ring.push(killed);
+                true
+            }
+            'X' => {
+                let end = buf.char_point();
+                let killed = buf.kill_range(end.saturating_sub(count), end);
+                self.kill_ring.push(killed);
+                true
+            }
+            'D' => {
+                let killed = buf.kill_to_end();
+                self.kill_ring.push(killed);
+                true
+            }
+            'C' => {
+                let killed = buf.kill_to_end();
+                self.kill_ring.push(killed);
+                self.vi_mode = false;
+                true
+            }
+            'S' => {
+                let killed = buf.kill_range(0, buf.len());
+                self.kill_ring.push(killed);
+                self.vi_mode = false;
+                true
+            }
+            's' => {
+                let start = buf.char_point();
+                let killed = buf.kill_range(start, start.saturating_add(count));
+                self.kill_ring.push(killed);
+                self.vi_mode = false;
+                true
+            }
+            'p' | 'P' => {
+                if let Some(text) = self.kill_ring.current().map(str::to_string) {
+                    if ch == 'p' {
+                        buf.move_right();
+                    }
+                    for _ in 0..count {
+                        buf.insert_str(&text);
+                    }
+                }
+                true
+            }
+            '~' => {
+                for _ in 0..count {
+                    let point = buf.char_point();
+                    let Some(current) = buf.char_at(point) else {
+                        break;
+                    };
+                    let replacement = if current.is_lowercase() {
+                        current.to_uppercase().collect::<String>()
+                    } else {
+                        current.to_lowercase().collect::<String>()
+                    };
+                    buf.replace_char_range(point, point + 1, &replacement);
+                }
+                true
+            }
+            'u' => {
+                buf.undo();
+                true
+            }
+            _ => false,
+        }
+    }
+
+    fn apply_vi_line_operator(&mut self, op: vi::Op, buf: &mut EditBuffer) {
+        let text = buf.slice(0, buf.len());
+        match op {
+            vi::Op::Yank => self.kill_ring.push(text),
+            vi::Op::Delete | vi::Op::Change => {
+                self.kill_ring.push(text);
+                buf.clear();
+                if op == vi::Op::Change {
+                    self.vi_mode = false;
+                }
+            }
+        }
+    }
+
+    fn apply_vi_operator(&mut self, op: vi::Op, buf: &mut EditBuffer, start: usize, end: usize) {
+        let text = buf.slice(start, end);
+        match op {
+            vi::Op::Yank => self.kill_ring.push(text),
+            vi::Op::Delete | vi::Op::Change => {
+                self.kill_ring.push(buf.kill_range(start, end));
+                if op == vi::Op::Change {
+                    self.vi_mode = false;
+                }
+            }
+        }
     }
 
     fn queue_operate_and_get_next(
@@ -407,4 +942,201 @@ fn navigate_history(
         history.get(new_idx).unwrap_or_default()
     };
     buf.replace_all(&text);
+}
+
+fn navigate_history_prefix(
+    history: &mut dyn HistoryProvider,
+    history_index: &mut Option<usize>,
+    saved_current: &mut Option<String>,
+    buf: &mut EditBuffer,
+    direction: i32,
+) {
+    if history.is_empty() {
+        return;
+    }
+    if saved_current.is_none() {
+        *saved_current = Some(buf.contents());
+    }
+    let prefix = saved_current.as_deref().unwrap_or_default();
+    let start = history_index.unwrap_or(history.len());
+    if direction < 0 {
+        for index in (0..start.min(history.len())).rev() {
+            if let Some(line) = history.get(index) {
+                if line.starts_with(prefix) {
+                    *history_index = Some(index);
+                    buf.replace_all(&line);
+                    return;
+                }
+            }
+        }
+    } else {
+        for index in start.saturating_add(1)..history.len() {
+            if let Some(line) = history.get(index) {
+                if line.starts_with(prefix) {
+                    *history_index = Some(index);
+                    buf.replace_all(&line);
+                    return;
+                }
+            }
+        }
+        *history_index = Some(history.len());
+        buf.replace_all(prefix);
+    }
+    ring_bell();
+}
+
+fn is_kill_action(action: Option<EditAction>) -> bool {
+    matches!(
+        action,
+        Some(
+            EditAction::KillLine
+                | EditAction::BackwardKillLine
+                | EditAction::KillWord
+                | EditAction::BackwardKillWord
+                | EditAction::UnixWordRubout
+                | EditAction::UnixLineDiscard
+                | EditAction::KillRegion
+        )
+    )
+}
+
+fn vi_motion_range(buf: &EditBuffer, motion: char, count: usize) -> Option<(usize, usize)> {
+    let origin = buf.char_point();
+    let mut probe = buf.clone();
+    match motion {
+        'h' => probe.set_char_point(origin.saturating_sub(count)),
+        'l' | ' ' => probe.set_char_point(origin.saturating_add(count).min(buf.len())),
+        '0' => probe.move_home(),
+        '$' => probe.move_end(),
+        'w' | 'e' => {
+            for _ in 0..count {
+                probe.move_word_right();
+            }
+        }
+        'b' => {
+            for _ in 0..count {
+                probe.move_word_left();
+            }
+        }
+        _ => return None,
+    }
+    let target = probe.char_point();
+    Some(if origin <= target {
+        (origin, target)
+    } else {
+        (target, origin)
+    })
+}
+
+fn display_completions(completion: &Completion) -> io::Result<()> {
+    if completion.matches.is_empty() {
+        ring_bell();
+        return Ok(());
+    }
+    let mut stderr = io::stderr().lock();
+    stderr.write_all(b"\n")?;
+    for candidate in &completion.matches {
+        stderr.write_all(candidate.as_bytes())?;
+        stderr.write_all(b"\n")?;
+    }
+    stderr.flush()
+}
+
+fn ring_bell() {
+    let _ = io::stderr().write_all(&[termcap::BEL]);
+    let _ = io::stderr().flush();
+}
+
+fn yank_history_argument(
+    history: &dyn HistoryProvider,
+    buf: &mut EditBuffer,
+    index: Option<usize>,
+) {
+    let Some(line) = history.len().checked_sub(1).and_then(|i| history.get(i)) else {
+        ring_bell();
+        return;
+    };
+    let words = shell_words(&line);
+    let selected = index
+        .and_then(|i| words.get(i))
+        .or_else(|| words.last())
+        .cloned();
+    if let Some(word) = selected {
+        buf.insert_str(&word);
+    } else {
+        ring_bell();
+    }
+}
+
+fn shell_words(line: &str) -> Vec<String> {
+    let mut words = Vec::new();
+    let mut current = String::new();
+    let mut single = false;
+    let mut double = false;
+    let mut escaped = false;
+    for ch in line.trim_end_matches(['\r', '\n']).chars() {
+        if escaped {
+            current.push(ch);
+            escaped = false;
+        } else if ch == '\\' && !single {
+            escaped = true;
+        } else if ch == '\'' && !double {
+            single = !single;
+        } else if ch == '"' && !single {
+            double = !double;
+        } else if ch.is_whitespace() && !single && !double {
+            if !current.is_empty() {
+                words.push(std::mem::take(&mut current));
+            }
+        } else {
+            current.push(ch);
+        }
+    }
+    if escaped {
+        current.push('\\');
+    }
+    if !current.is_empty() {
+        words.push(current);
+    }
+    words
+}
+
+fn expand_tilde_at_point(buf: &mut EditBuffer) {
+    let point = buf.char_point();
+    let line = buf.contents();
+    let chars: Vec<char> = line.chars().collect();
+    let start = chars[..point]
+        .iter()
+        .rposition(|ch| ch.is_whitespace() || matches!(ch, ':' | '='))
+        .map_or(0, |index| index + 1);
+    let word: String = chars[start..point].iter().collect();
+    if word == "~" || word.starts_with("~/") {
+        if let Some(home) = std::env::var_os("HOME") {
+            let replacement = format!("{}{}", home.to_string_lossy(), &word[1..]);
+            buf.replace_char_range(start, point, &replacement);
+            return;
+        }
+    }
+    ring_bell();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{shell_words, vi_motion_range, EditBuffer};
+
+    #[test]
+    fn history_arguments_follow_shell_quotes() {
+        assert_eq!(
+            shell_words("printf '%s %s' one\\ two\n"),
+            ["printf", "%s %s", "one two"]
+        );
+    }
+
+    #[test]
+    fn vi_word_motion_produces_an_operator_range() {
+        let mut buffer = EditBuffer::new();
+        buffer.insert_str("one two");
+        buffer.move_home();
+        assert_eq!(vi_motion_range(&buffer, 'w', 1), Some((0, 3)));
+    }
 }

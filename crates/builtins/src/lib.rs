@@ -9,6 +9,7 @@ use cherubsh_common::Environment;
 use cherubsh_parser::{Command, Redirect};
 
 pub mod common;
+pub mod dynamic;
 pub mod getopt;
 pub mod options;
 pub mod shopt_table;
@@ -46,7 +47,6 @@ pub mod readonly;
 pub mod set;
 pub mod shopt;
 pub mod source;
-pub mod strmatch;
 pub mod test_cmd;
 
 pub mod break_cmd;
@@ -147,6 +147,12 @@ pub trait ShellOps {
 
     /// Parse + execute a script string in this shell (eval, source body).
     fn run_source(&mut self, src: &str) -> i32;
+    fn capture_source(&mut self, _src: &str) -> Option<Vec<u8>> {
+        None
+    }
+    fn expand_completion_words(&mut self, _src: &str, _expand_glob: bool) -> Option<Vec<String>> {
+        None
+    }
     fn run_source_named(&mut self, src: &str, _source_name: &str) -> i32 {
         self.run_source(src)
     }
@@ -163,6 +169,9 @@ pub trait ShellOps {
 
     /// Mark the shell as pending an `exit`/`return`/`break`/`continue` unwind.
     fn request_exit(&mut self, status: i32);
+    fn requested_exit_status(&self) -> Option<i32> {
+        None
+    }
     fn request_return(&mut self, status: i32);
     fn request_break(&mut self, levels: u32);
     fn request_continue(&mut self, levels: u32);
@@ -220,6 +229,9 @@ pub fn lookup(name: &str) -> Option<&'static dyn Builtin> {
 /// Resolve including disabled state - for `enable`/`builtin` which need to
 /// see all entries.
 pub fn lookup_raw(name: &str) -> Option<&'static dyn Builtin> {
+    if let Some(builtin) = dynamic::lookup(name) {
+        return Some(builtin);
+    }
     match name {
         ":" => return Some(&colon::COLON),
         "." => return Some(&source::DOT),
@@ -246,7 +258,6 @@ pub fn lookup_raw(name: &str) -> Option<&'static dyn Builtin> {
         "set" => return Some(&set::SET),
         "shift" => return Some(&shift::SHIFT),
         "source" => return Some(&source::SOURCE),
-        "strmatch" => return Some(&strmatch::STRMATCH),
         "test" => return Some(&test_cmd::TEST),
         "true" => return Some(&colon::TRUE),
         "typeset" => return Some(&declare::TYPESET),
@@ -256,8 +267,20 @@ pub fn lookup_raw(name: &str) -> Option<&'static dyn Builtin> {
     BUILTINS.iter().copied().find(|b| b.name() == name)
 }
 
-pub fn iter_builtins() -> impl Iterator<Item = &'static dyn Builtin> {
-    BUILTINS.iter().copied()
+pub fn iter_builtins() -> std::vec::IntoIter<&'static dyn Builtin> {
+    let dynamic = dynamic::iter();
+    let dynamic_names = dynamic
+        .iter()
+        .map(|b| b.name())
+        .collect::<std::collections::HashSet<_>>();
+    let mut builtins = dynamic;
+    builtins.extend(
+        BUILTINS
+            .iter()
+            .copied()
+            .filter(|b| !dynamic_names.contains(b.name())),
+    );
+    builtins.into_iter()
 }
 
 pub fn is_special(name: &str) -> bool {
@@ -295,7 +318,6 @@ static BUILTINS: &[&dyn Builtin] = &[
     &local::LOCAL,
     &source::DOT,
     &source::SOURCE,
-    &strmatch::STRMATCH,
     &eval::EVAL,
     &exec_cmd::EXEC,
     &declare::DECLARE,

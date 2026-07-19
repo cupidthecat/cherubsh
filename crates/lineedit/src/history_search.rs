@@ -55,9 +55,7 @@ pub fn interactive_search(
                 return Ok(SearchOutcome::ContinueEditing);
             }
             KeyEvent::Ctrl('r') => {
-                if cursor > 0 {
-                    cursor -= 1;
-                }
+                cursor = cursor.saturating_sub(1);
             }
             KeyEvent::Ctrl('s') => {
                 cursor += 1;

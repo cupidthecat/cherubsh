@@ -267,24 +267,25 @@ fn run_declare(ctx: &mut BuiltinCtx<'_>, force_local: bool, diagnostic_name: &st
                 };
                 (base.to_string(), true, false)
             }
-            None if let Some((base, _key, _rhs, _append)) = malformed_assoc_assignment.as_ref() => {
-                (base.clone(), true, false)
-            }
             None => {
-                let base = if let Some((base, _)) = array_reference(arg) {
-                    (base, true)
-                } else if is_valid_name(arg) {
-                    (arg.as_str(), false)
+                if let Some((base, _key, _rhs, _append)) = malformed_assoc_assignment.as_ref() {
+                    (base.clone(), true, false)
                 } else {
-                    report_diagnostic(
-                        ctx.env_ref(),
-                        diagnostic_name,
-                        &format!("`{arg}': not a valid identifier"),
-                    );
-                    status = 1;
-                    continue;
-                };
-                (base.0.to_string(), false, base.1)
+                    let base = if let Some((base, _)) = array_reference(arg) {
+                        (base, true)
+                    } else if is_valid_name(arg) {
+                        (arg.as_str(), false)
+                    } else {
+                        report_diagnostic(
+                            ctx.env_ref(),
+                            diagnostic_name,
+                            &format!("`{arg}': not a valid identifier"),
+                        );
+                        status = 1;
+                        continue;
+                    };
+                    (base.0.to_string(), false, base.1)
+                }
             }
         };
         if f.set.contains(VarAttrs::NAMEREF)
@@ -1077,9 +1078,7 @@ fn handle_function_arg(ctx: &mut BuiltinCtx<'_>, f: &Flags, name: &str) -> i32 {
         } else if (f.set | f.clear).is_empty() {
             print_function_name(ctx, name, function_attrs(ctx, name), false, true);
         }
-    } else if f.print {
-        print_function_definition(name, &function);
-    } else if (f.set | f.clear).is_empty() {
+    } else if f.print || (f.set | f.clear).is_empty() {
         print_function_definition(name, &function);
     }
     0

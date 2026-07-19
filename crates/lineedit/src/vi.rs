@@ -1,25 +1,23 @@
-//! Vi-mode operator/motion state machine.
-//!
-//! Lives here as a focused submodule - the main dispatch loop in `lib.rs`
-//! handles emacs-style commands directly via the keymap, and switches into
-//! vi-movement mode when the editor receives `EditAction::ViMovementMode`.
-//!
-//! The full vi grammar (operators × motions × text-objects × counts) is
-//! large; this skeleton implements the common subset (`h`/`l`/`0`/`$`/`w`/`b`,
-//! `x`, `dd`/`D`, `i`/`I`/`a`/`A`, `u`, `cw`/`dw`, `f<c>`/`F<c>`/`t<c>`/`T<c>`).
+//! State used while the vi command keymap is active.
 
-#[derive(Default, Debug)]
-pub struct ViState {
-    pub pending_op: Option<Op>,
-    pub pending_motion_arg: Option<char>,
-    pub count: Option<u32>,
-}
-
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Op {
     Delete,
     Change,
     Yank,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Pending {
+    Operator(Op),
+    Find { backward: bool, till: bool },
+    Replace,
+}
+
+#[derive(Default, Debug)]
+pub struct ViState {
+    pub pending: Option<Pending>,
+    pub count: Option<usize>,
 }
 
 impl ViState {
@@ -28,16 +26,29 @@ impl ViState {
     }
 
     pub fn reset(&mut self) {
-        self.pending_op = None;
-        self.pending_motion_arg = None;
+        self.pending = None;
         self.count = None;
     }
 
-    pub fn pump_digit(&mut self, d: u32) {
-        self.count = Some(self.count.unwrap_or(0) * 10 + d);
+    pub fn push_digit(&mut self, digit: usize) {
+        self.count = Some(self.count.unwrap_or(0).saturating_mul(10) + digit);
     }
 
-    pub fn effective_count(&self) -> u32 {
-        self.count.unwrap_or(1)
+    pub fn take_count(&mut self) -> usize {
+        self.count.take().unwrap_or(1).max(1)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ViState;
+
+    #[test]
+    fn counts_accumulate_and_reset_after_use() {
+        let mut state = ViState::new();
+        state.push_digit(1);
+        state.push_digit(2);
+        assert_eq!(state.take_count(), 12);
+        assert_eq!(state.take_count(), 1);
     }
 }

@@ -1,0 +1,10 @@
+# Rust build output
+target/
+
+# Upstream source caches
+.upstream/
+
+# Local test output
+/parity.log
+*.profraw
+*.profdata

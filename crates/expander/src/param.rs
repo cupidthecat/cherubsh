@@ -475,11 +475,91 @@ fn locale_quote(
     ctx: &mut ExpCtx,
     out: &mut ExpandBuf,
 ) -> Result<bool, ExpandError> {
-    // Treat $"..." as a double-quoted run (no gettext translation - parity
-    // caveat). Step past `$"` and delegate.
-    *i += 2;
-    crate::internal::scan_double_quoted_into(bytes, i, ctx, out)?;
+    let content_start = *i + 2;
+    let Some(content_end) = find_locale_quote_end(bytes, content_start) else {
+        *i = content_start;
+        crate::internal::scan_double_quoted_into(bytes, i, ctx, out)?;
+        return Ok(true);
+    };
+    let source = String::from_utf8_lossy(&bytes[content_start..content_end]);
+    let translated = gettext_translation(ctx.env, &source);
+    *i = content_end + 1;
+
+    if ctx.env.option("noexpand_translation") {
+        if translated.is_empty() {
+            out.push_quoted_null();
+        } else {
+            for byte in translated.bytes() {
+                out.push_quoted(byte);
+            }
+        }
+        return Ok(true);
+    }
+
+    let translated_quote = format!("{translated}\"");
+    let mut translated_index = 0;
+    crate::internal::scan_double_quoted_into(
+        translated_quote.as_bytes(),
+        &mut translated_index,
+        ctx,
+        out,
+    )?;
     Ok(true)
+}
+
+fn find_locale_quote_end(bytes: &[u8], mut index: usize) -> Option<usize> {
+    while index < bytes.len() {
+        match bytes[index] {
+            b'\\' if index + 1 < bytes.len() => index += 2,
+            b'"' => return Some(index),
+            _ => index += 1,
+        }
+    }
+    None
+}
+
+#[cfg(unix)]
+fn gettext_translation(env: &dyn Environment, source: &str) -> String {
+    use std::ffi::{CStr, CString};
+
+    unsafe extern "C" {
+        fn bindtextdomain(
+            domain: *const libc::c_char,
+            directory: *const libc::c_char,
+        ) -> *mut libc::c_char;
+        fn dgettext(domain: *const libc::c_char, message: *const libc::c_char)
+            -> *mut libc::c_char;
+    }
+
+    let Some(domain) = env.get("TEXTDOMAIN").filter(|value| !value.is_empty()) else {
+        return source.to_string();
+    };
+    let Ok(domain) = CString::new(domain) else {
+        return source.to_string();
+    };
+    let Ok(message) = CString::new(source) else {
+        return source.to_string();
+    };
+    if let Some(directory) = env.get("TEXTDOMAINDIR").filter(|value| !value.is_empty()) {
+        if let Ok(directory) = CString::new(directory) {
+            unsafe {
+                bindtextdomain(domain.as_ptr(), directory.as_ptr());
+            }
+        }
+    }
+    let translated = unsafe { dgettext(domain.as_ptr(), message.as_ptr()) };
+    if translated.is_null() {
+        source.to_string()
+    } else {
+        unsafe { CStr::from_ptr(translated) }
+            .to_string_lossy()
+            .into_owned()
+    }
+}
+
+#[cfg(not(unix))]
+fn gettext_translation(_env: &dyn Environment, source: &str) -> String {
+    source.to_string()
 }
 
 pub(crate) fn dollar_quote_expand(
@@ -728,7 +808,7 @@ fn expand_brace_body(
     };
     let name = name.as_ref();
     if p >= body.len() {
-        push_parameter_value(ctx, &name, quoted, out)?;
+        push_parameter_value(ctx, name, quoted, out)?;
         return Ok(());
     }
     // Operator dispatch.
@@ -745,7 +825,7 @@ fn expand_brace_body(
             if p + 1 >= body.len() {
                 return Err(bad_substitution_body(body));
             }
-            return handle_substring(&name, &body[p + 1..], ctx, quoted, out);
+            return handle_substring(name, &body[p + 1..], ctx, quoted, out);
         }
     } else {
         (false, op_byte, p + 1)
@@ -756,24 +836,24 @@ fn expand_brace_body(
     match op_byte {
         b'-' | b'=' | b'?' | b'+' => {
             let word = &body[op_pos..];
-            handle_default_alt(&name, op_byte, colon, word, ctx, quoted, out)
+            handle_default_alt(name, op_byte, colon, word, ctx, quoted, out)
         }
         b'#' => {
             let longest = body.get(op_pos) == Some(&b'#');
             let pat_offset = if longest { op_pos + 1 } else { op_pos };
-            handle_remove(&name, &body[pat_offset..], true, longest, ctx, quoted, out)
+            handle_remove(name, &body[pat_offset..], true, longest, ctx, quoted, out)
         }
         b'%' => {
             let longest = body.get(op_pos) == Some(&b'%');
             let pat_offset = if longest { op_pos + 1 } else { op_pos };
-            handle_remove(&name, &body[pat_offset..], false, longest, ctx, quoted, out)
+            handle_remove(name, &body[pat_offset..], false, longest, ctx, quoted, out)
         }
-        b'/' => handle_patsub(&name, &body[op_pos..], ctx, quoted, out),
+        b'/' => handle_patsub(name, &body[op_pos..], ctx, quoted, out),
         b'^' => {
             let all = body.get(op_pos) == Some(&b'^');
             let pat_offset = if all { op_pos + 1 } else { op_pos };
             handle_casemod(
-                &name,
+                name,
                 &body[pat_offset..],
                 if all {
                     CaseModMode::UpperAll
@@ -789,7 +869,7 @@ fn expand_brace_body(
             let all = body.get(op_pos) == Some(&b',');
             let pat_offset = if all { op_pos + 1 } else { op_pos };
             handle_casemod(
-                &name,
+                name,
                 &body[pat_offset..],
                 if all {
                     CaseModMode::LowerAll
@@ -805,7 +885,7 @@ fn expand_brace_body(
             let all = body.get(op_pos) == Some(&b'~');
             let pat_offset = if all { op_pos + 1 } else { op_pos };
             handle_casemod(
-                &name,
+                name,
                 &body[pat_offset..],
                 if all {
                     CaseModMode::ToggleAll
@@ -817,7 +897,7 @@ fn expand_brace_body(
                 out,
             )
         }
-        b'@' => handle_transform(&name, &body[op_pos..], ctx, quoted, out),
+        b'@' => handle_transform(name, &body[op_pos..], ctx, quoted, out),
         _ => Err(bad_substitution_body(body)),
     }
 }
@@ -2762,7 +2842,7 @@ fn expand_patsub_replacement(template: &[u8], matched: &[u8]) -> Vec<u8> {
                 }
                 if i < template.len() && template[i] == b'&' {
                     let count = i - start;
-                    out.extend(std::iter::repeat(b'\\').take(count / 2));
+                    out.extend(std::iter::repeat_n(b'\\', count / 2));
                     if count % 2 == 0 {
                         out.extend_from_slice(matched);
                     } else {
@@ -3168,11 +3248,10 @@ fn assoc_key_quote(value: &str) -> String {
         .chars()
         .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '/' | '.' | '-' | '+' | ':' | ','));
     if safe {
-        value.to_string()
-    } else if {
-        let bytes = quote::shell_string_to_bytes(value);
-        shell_string_needs_ansi_quote(value, &bytes)
-    } {
+        return value.to_string();
+    }
+    let bytes = quote::shell_string_to_bytes(value);
+    if shell_string_needs_ansi_quote(value, &bytes) {
         shell_quote_shell_string(value)
     } else {
         double_quote(value)
@@ -3456,11 +3535,11 @@ fn bash_version(env: &dyn Environment, release: bool) -> String {
     let raw = env
         .get("BASH_VERSION")
         .or_else(|| std::env::var("CHERUBSH_BASH_COMPAT_VERSION").ok())
-        .unwrap_or_else(|| "5.3.0".to_string());
+        .unwrap_or_else(|| "5.3.15".to_string());
     let numeric = raw
         .split(|c: char| !(c.is_ascii_digit() || c == '.'))
         .find(|s| !s.is_empty())
-        .unwrap_or("5.3.0");
+        .unwrap_or("5.3.15");
     let mut parts = numeric.split('.');
     let major = parts.next().unwrap_or("5");
     let minor = parts.next().unwrap_or("3");
@@ -4144,6 +4223,7 @@ fn value_separator(ctx: &mut ExpCtx, quoted: bool, star: bool) -> Option<u8> {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn push_array_values(
     out: &mut ExpandBuf,
     arr: &[String],
@@ -4168,6 +4248,7 @@ fn push_array_values(
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 fn push_substring_array_values(
     out: &mut ExpandBuf,
     arr: &[String],
@@ -4192,6 +4273,7 @@ fn push_substring_array_values(
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 fn push_array_values_impl(
     out: &mut ExpandBuf,
     arr: &[String],
@@ -5478,13 +5560,12 @@ mod tests {
     }
 
     fn expand_one(env: &mut TestEnv, text: &str) -> Vec<String> {
-        let mut runner = NullRunner::default();
-        let flags = text
-            .as_bytes()
-            .iter()
-            .any(|b| matches!(b, b'$' | b'`'))
-            .then_some(W_HASDOLLAR)
-            .unwrap_or(0);
+        let mut runner = NullRunner;
+        let flags = if text.as_bytes().iter().any(|b| matches!(b, b'$' | b'`')) {
+            W_HASDOLLAR
+        } else {
+            0
+        };
         let words = expand_word_list(
             &[WordDesc {
                 text: text.to_string(),
@@ -5501,13 +5582,12 @@ mod tests {
     }
 
     fn expand_error(env: &mut TestEnv, text: &str) -> ExpandError {
-        let mut runner = NullRunner::default();
-        let flags = text
-            .as_bytes()
-            .iter()
-            .any(|b| matches!(b, b'$' | b'`'))
-            .then_some(W_HASDOLLAR)
-            .unwrap_or(0);
+        let mut runner = NullRunner;
+        let flags = if text.as_bytes().iter().any(|b| matches!(b, b'$' | b'`')) {
+            W_HASDOLLAR
+        } else {
+            0
+        };
         expand_word_list(
             &[WordDesc {
                 text: text.to_string(),
@@ -5896,7 +5976,7 @@ mod tests {
                 raw: None,
             }],
             &mut env,
-            &mut NullRunner::default(),
+            &mut NullRunner,
             ExpandFlags::SPLIT_FIELDS | ExpandFlags::QUOTE_REMOVAL,
         )
         .unwrap_err();
@@ -5910,7 +5990,7 @@ mod tests {
                 raw: None,
             }],
             &mut env,
-            &mut NullRunner::default(),
+            &mut NullRunner,
             ExpandFlags::SPLIT_FIELDS | ExpandFlags::QUOTE_REMOVAL,
         )
         .unwrap_err();
@@ -5973,7 +6053,7 @@ mod tests {
                 raw: None,
             }],
             &mut env,
-            &mut NullRunner::default(),
+            &mut NullRunner,
             ExpandFlags::SPLIT_FIELDS | ExpandFlags::QUOTE_REMOVAL,
         )
         .is_err());
@@ -5985,7 +6065,7 @@ mod tests {
                 raw: None,
             }],
             &mut env,
-            &mut NullRunner::default(),
+            &mut NullRunner,
             ExpandFlags::SPLIT_FIELDS | ExpandFlags::QUOTE_REMOVAL,
         )
         .is_err());
@@ -6001,7 +6081,7 @@ mod tests {
         assert_eq!(expand_one(&mut env, r#"$x+$y"#), vec!["a+b"]);
         assert_eq!(expand_one(&mut env, r#"+"$@""#), vec!["+"]);
 
-        let mut runner = NullRunner::default();
+        let mut runner = NullRunner;
         let words = expand_word_list(
             &[
                 WordDesc {
@@ -6098,7 +6178,7 @@ mod tests {
     #[test]
     fn default_assignment_rejects_positional_parameters() {
         let mut env = TestEnv::default();
-        let mut runner = NullRunner::default();
+        let mut runner = NullRunner;
         let err = crate::expand_word_list(
             &[WordDesc {
                 text: r#"${6=arg6}"#.to_string(),
@@ -6147,7 +6227,7 @@ mod tests {
         );
         assert_eq!(expand_one(&mut env, r#"${!*}"#), Vec::<String>::new());
 
-        let mut runner = NullRunner::default();
+        let mut runner = NullRunner;
         let err = crate::expand_word_list(
             &[WordDesc {
                 text: r#"${!1*}"#.to_string(),

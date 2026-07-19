@@ -155,7 +155,7 @@ fn ternary(args: &[String], env: Option<&dyn Environment>, subject: &str) -> i32
         };
     }
     if args[0] == "!" {
-        return invert(binary_or_unary_2(&args[1..].to_vec(), &[], env, subject));
+        return invert(binary_or_unary_2(&args[1..], &[], env, subject));
     }
     if args[0] == "(" && args[2] == ")" {
         return bool_to_status(!args[1].is_empty());
@@ -175,10 +175,10 @@ fn quaternary(
     subject: &str,
 ) -> i32 {
     if args[0] == "!" {
-        return invert(ternary(&args[1..].to_vec(), env, subject));
+        return invert(ternary(&args[1..], env, subject));
     }
     if args[0] == "(" && args[3] == ")" {
-        return binary_or_unary_2(&args[1..3].to_vec(), &[], env, subject);
+        return binary_or_unary_2(&args[1..3], &[], env, subject);
     }
     let mut parser = Parser::new(args, env, require_bracket);
     match parser.parse_or() {

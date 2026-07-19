@@ -88,7 +88,7 @@ impl Builtin for Trap {
                     print!("\t");
                 }
             }
-            if SIGNAL_NAMES.len() % 5 != 0 {
+            if !SIGNAL_NAMES.len().is_multiple_of(5) {
                 println!();
             }
             return 0;

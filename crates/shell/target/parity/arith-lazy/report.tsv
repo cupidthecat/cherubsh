@@ -1,2 +1,0 @@
-verdict	name	status	timed_out	stdout_path	stderr_path	tstout_path
-xfail	arith	1	false	target/parity/arith-lazy/arith.stdout	target/parity/arith-lazy/arith.stderr	/tmp/cupid-bashtst-750951-arith-1778867146557275271.out

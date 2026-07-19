@@ -22,6 +22,7 @@ pub enum KeyEvent {
     Tab,
     Enter,
     Esc,
+    Paste(String),
     Raw(String),
 }
 
@@ -48,6 +49,7 @@ impl KeyEvent {
             KeyEvent::Tab => "\\t".to_string(),
             KeyEvent::Enter => "\\C-m".to_string(),
             KeyEvent::Esc => "\\e".to_string(),
+            KeyEvent::Paste(_) => String::new(),
             KeyEvent::Raw(s) => s.clone(),
         }
     }

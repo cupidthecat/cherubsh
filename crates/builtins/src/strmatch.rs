@@ -30,10 +30,6 @@ impl Builtin for Strmatch {
 }
 
 fn strmatch(pattern: &str, string: &str) -> bool {
-    if let Some(status) = oracle_strmatch(pattern, string) {
-        return status;
-    }
-
     let opts = GlobOpts {
         extglob: true,
         globasciiranges: true,
@@ -49,29 +45,6 @@ fn strmatch(pattern: &str, string: &str) -> bool {
                 == string.as_bytes().split(|b| *b == b'/').count();
     }
     segment_match(pattern.as_bytes(), string.as_bytes(), opts)
-}
-
-fn oracle_strmatch(pattern: &str, string: &str) -> Option<bool> {
-    let oracle = std::env::var_os("BASH_ORACLE_PATH")?;
-    if !std::path::Path::new("./strmatch.so").is_file() {
-        return None;
-    }
-    let status = std::process::Command::new(oracle)
-        .arg("-c")
-        .arg("enable -f ./strmatch.so strmatch || exit 2; strmatch \"$1\" \"$2\"")
-        .arg("strmatch")
-        .arg(string)
-        .arg(pattern)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .ok()?;
-    match status.code() {
-        Some(0) => Some(true),
-        Some(1) => Some(false),
-        _ => None,
-    }
 }
 
 fn segment_match(pattern: &[u8], text: &[u8], opts: GlobOpts) -> bool {

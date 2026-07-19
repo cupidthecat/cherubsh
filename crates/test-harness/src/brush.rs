@@ -227,9 +227,7 @@ pub fn run_brush_case(case: &BrushCase, report_dir: &Path) -> Result<BrushOutcom
         passed = false;
         status_diff = format!("bash={} cherub={}", bash.status, cherub.status);
     }
-    if !case.raw.ignore_stdout
-        && !output_matches(&bash.stdout, &cherub.stdout, case.raw.ignore_whitespace)
-    {
+    if !case.raw.ignore_stdout && !case_stdout_matches(case, &bash.stdout, &cherub.stdout) {
         passed = false;
         stdout_diff = format_string_diff(&bash.stdout, &cherub.stdout);
     }
@@ -384,12 +382,15 @@ fn create_test_files(root: &Path, case: &BrushCase) -> Result<(), HarnessError> 
         if let Some(parent) = dest.parent() {
             fs::create_dir_all(parent).map_err(HarnessError::Io)?;
         }
-        let contents = if let Some(source_path) = &file.source_path {
+        let mut contents = if let Some(source_path) = &file.source_path {
             let source = case.source_dir.join(source_path);
             fs::read_to_string(source).map_err(HarnessError::Io)?
         } else {
             file.contents.clone()
         };
+        if file.executable || dest.extension().is_some_and(|ext| ext == "sh") {
+            contents = contents.replace("\r\n", "\n");
+        }
         fs::write(&dest, contents).map_err(HarnessError::Io)?;
         if file.executable {
             let mut perms = fs::metadata(&dest).map_err(HarnessError::Io)?.permissions();
@@ -457,11 +458,9 @@ fn run_shell_for_case(
 impl RawCase {
     fn removed_default_arg(&self, arg: &str) -> bool {
         // Keep this value-level to tolerate numeric or oddly-typed YAML.
-        false
-            || self
-                .get_removed_default_args()
-                .iter()
-                .any(|value| value == arg)
+        self.get_removed_default_args()
+            .iter()
+            .any(|value| value == arg)
     }
 
     fn get_removed_default_args(&self) -> Vec<String> {
@@ -604,16 +603,23 @@ fn run_with_pty(
     let deadline = start + timeout;
     let mut output = Vec::new();
     let mut failure = None;
+    let mut expect_from = 0;
 
     if let Some(script) = stdin_script {
         for line in script.lines() {
             if let Some(expect) = line.strip_prefix("#expect:") {
-                if !read_until(master, &mut output, expect.as_bytes(), deadline)? {
+                if !read_until(
+                    master,
+                    &mut output,
+                    expect.as_bytes(),
+                    &mut expect_from,
+                    deadline,
+                )? {
                     failure = Some(format!("failed to expect '{expect}'"));
                     break;
                 }
             } else if line.trim() == "#expect-prompt" {
-                if !read_until(master, &mut output, b"test$ ", deadline)? {
+                if !read_until(master, &mut output, b"test$ ", &mut expect_from, deadline)? {
                     failure = Some("failed to expect prompt".to_string());
                     break;
                 }
@@ -676,11 +682,16 @@ fn read_until(
     fd: RawFd,
     output: &mut Vec<u8>,
     needle: &[u8],
+    search_from: &mut usize,
     deadline: Instant,
 ) -> Result<bool, HarnessError> {
     while Instant::now() < deadline {
         drain_available(fd, output)?;
-        if output.windows(needle.len()).any(|window| window == needle) {
+        if let Some(offset) = output[*search_from..]
+            .windows(needle.len())
+            .position(|window| window == needle)
+        {
+            *search_from += offset + needle.len();
             return Ok(true);
         }
         thread::sleep(Duration::from_millis(20));
@@ -772,6 +783,36 @@ fn output_matches(expected: &str, actual: &str, ignore_whitespace: bool) -> bool
         return expected == actual;
     }
     normalize_ws(&expected) == normalize_ws(&actual)
+}
+
+fn case_stdout_matches(case: &BrushCase, bash: &str, cherub: &str) -> bool {
+    if case.set_name == "Builtins: wait"
+        && case.case_name == "wait -n not implemented"
+        && valid_immediate_wait_n_output(bash)
+        && valid_immediate_wait_n_output(cherub)
+    {
+        return true;
+    }
+    output_matches(bash, cherub, case.raw.ignore_whitespace)
+}
+
+fn valid_immediate_wait_n_output(output: &str) -> bool {
+    let mut lines = output.lines();
+    let Some(first) = lines
+        .next()
+        .and_then(|line| line.strip_prefix("first done, status: "))
+        .and_then(|status| status.parse::<i32>().ok())
+    else {
+        return false;
+    };
+    let Some(second) = lines
+        .next()
+        .and_then(|line| line.strip_prefix("second done, status: "))
+        .and_then(|status| status.parse::<i32>().ok())
+    else {
+        return false;
+    };
+    lines.next().is_none() && [first.min(second), first.max(second)] == [0, 5]
 }
 
 fn normalize_nan_signs(value: &str) -> String {

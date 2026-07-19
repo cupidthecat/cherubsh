@@ -1,0 +1,11 @@
+prefix=${pcfiledir}/../..
+exec_prefix=${prefix}
+libdir=${prefix}/lib
+includedir=${prefix}/include
+
+Name: History
+Description: Store and recall command history
+Version: 8.3
+Requires.private:
+Libs: -L${libdir} -lhistory
+Cflags: -I${includedir}

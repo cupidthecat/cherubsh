@@ -1,2 +1,0 @@
-verdict	name	status	timed_out	stdout_path	stderr_path	tstout_path
-PASS	braces	0	false	target/parity/braces-promoted/braces.stdout	target/parity/braces-promoted/braces.stderr	

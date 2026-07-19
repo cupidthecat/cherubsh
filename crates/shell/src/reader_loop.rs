@@ -1,12 +1,11 @@
-use cherubsh_common::{expand_aliases_for_parse, Environment, ShellJump, ShellResult};
+use cherubsh_common::{expand_aliases_for_parse, histexpand, Environment, ShellJump, ShellResult};
 use cherubsh_exec::{execute_with_state, ExecState};
 use cherubsh_lexer::Lexer;
-use cherubsh_lineedit::{CompletionProvider, EditError, HistoryProvider, LineEditor};
+use cherubsh_lineedit::{Completion, CompletionProvider, EditError, HistoryProvider, LineEditor};
 use cherubsh_parser::{Ast, Command, CommandData, ParseError, Parser};
 
-use crate::completion::{self, CompRequest};
-use crate::histexpand;
-use crate::prompt::{decode_prompt_string, prompt_again};
+use crate::completion::{self, CompRequest, CompletionQuote};
+use crate::prompt::{expand_prompt_string, prompt_again};
 use crate::signals::{arm_alarm, check_signals, disarm_alarm};
 use crate::state::ShellState;
 use crate::traps::{notify_completed_jobs, run_pending_traps};
@@ -62,7 +61,7 @@ pub fn reader_loop_with_exec_state(state: &mut ShellState, exec_state: &mut Exec
                     if state.last_command_exit_value == 0 {
                         state.last_command_exit_value = 1;
                     }
-                    if state.interactive == false {
+                    if !state.interactive {
                         state.eof_reached = true;
                     }
                     continue;
@@ -89,7 +88,7 @@ pub fn reader_loop_with_exec_state(state: &mut ShellState, exec_state: &mut Exec
         if state.interactive {
             if let Some(ps0) = state.get("PS0") {
                 if !ps0.is_empty() {
-                    let decoded = decode_prompt_string(state, &ps0);
+                    let decoded = expand_prompt_string(state, exec_state, &ps0);
                     use std::io::Write;
                     let mut stderr = std::io::stderr();
                     let _ = stderr.write_all(decoded.as_bytes());
@@ -111,6 +110,7 @@ pub fn reader_loop_with_exec_state(state: &mut ShellState, exec_state: &mut Exec
                 state.eof_reached = true;
             }
         }
+        state.update_window_size();
         run_pending_traps(state);
 
         if state.just_one_command {
@@ -170,9 +170,10 @@ pub fn parse_command(
         notify_completed_jobs(state);
     }
     if state.interactive && !state.input.is_string() && !state.input.is_stream() {
+        state.check_mail();
         execute_prompt_command(state, exec_state);
     }
-    let input_text = read_logical_command(state)?;
+    let input_text = read_logical_command(state, exec_state)?;
     if input_text.trim().is_empty() {
         return Ok(None);
     }
@@ -193,7 +194,13 @@ pub fn parse_command(
         }
     }
     let parse_input = expand_aliases_for_parse(&input_text, state);
-    match parse_text(&parse_input, state.option("extglob"), state.option("posix")) {
+    let comments_enabled = !state.interactive || state.option("interactive_comments");
+    match parse_text(
+        &parse_input,
+        state.option("extglob"),
+        state.option("posix"),
+        comments_enabled,
+    ) {
         Ok(mut command) => {
             let first_line = first_physical_line(state.current_command_line_count, &input_text);
             offset_command_lines(
@@ -224,7 +231,11 @@ fn history_record_line(state: &ShellState, input_text: &str) -> String {
     if contains_heredoc_redirect(trimmed) {
         return input_text.to_string();
     }
-    if !state.option("cmdhist") || !trimmed.contains('\n') || newline_inside_quotes(trimmed) {
+    if !state.option("cmdhist")
+        || state.option("lithist")
+        || !trimmed.contains('\n')
+        || newline_inside_quotes(trimmed)
+    {
         return trimmed.to_string();
     }
     compact_cmdhist_line(trimmed)
@@ -884,11 +895,18 @@ fn parse_text(
     input_text: &str,
     extglob_patterns: bool,
     posix_mode: bool,
+    comments_enabled: bool,
 ) -> Result<Command, ParseError> {
-    validate_command_substitutions_for_parse(input_text, extglob_patterns, posix_mode)?;
+    validate_command_substitutions_for_parse(
+        input_text,
+        extglob_patterns,
+        posix_mode,
+        comments_enabled,
+    )?;
     let mut lexer = Lexer::new(input_text);
     lexer.set_extglob_patterns(extglob_patterns);
     lexer.set_posix_mode(posix_mode);
+    lexer.set_comments_enabled(comments_enabled);
     let mut tokens = Vec::new();
     while let Some(token) = lexer.next_token() {
         tokens.push(token);
@@ -901,6 +919,7 @@ fn validate_command_substitutions_for_parse(
     input_text: &str,
     extglob_patterns: bool,
     posix_mode: bool,
+    comments_enabled: bool,
 ) -> Result<(), ParseError> {
     let bytes = input_text.as_bytes();
     let mut i = 0;
@@ -985,6 +1004,7 @@ fn validate_command_substitutions_for_parse(
                         i + 2,
                         extglob_patterns,
                         posix_mode,
+                        comments_enabled,
                     )?;
                     return Ok(());
                 };
@@ -995,6 +1015,7 @@ fn validate_command_substitutions_for_parse(
                     &body,
                     extglob_patterns,
                     posix_mode,
+                    comments_enabled,
                 )?;
                 i = end;
                 continue;
@@ -1032,7 +1053,7 @@ fn validate_command_substitutions_for_parse(
             comment_ok = false;
             continue;
         }
-        if b == b'#' && comment_ok {
+        if comments_enabled && b == b'#' && comment_ok {
             while i < bytes.len() && bytes[i] != b'\n' {
                 i += 1;
             }
@@ -1065,6 +1086,7 @@ fn validate_command_substitutions_for_parse(
                             i + 2,
                             extglob_patterns,
                             posix_mode,
+                            comments_enabled,
                         )?;
                         return Ok(());
                     };
@@ -1075,6 +1097,7 @@ fn validate_command_substitutions_for_parse(
                         &body,
                         extglob_patterns,
                         posix_mode,
+                        comments_enabled,
                     )?;
                     i = end;
                     comment_ok = false;
@@ -1103,14 +1126,17 @@ fn validate_command_substitution_body(
     body: &str,
     extglob_patterns: bool,
     posix_mode: bool,
+    comments_enabled: bool,
 ) -> Result<(), ParseError> {
-    validate_command_substitutions_for_parse(body, extglob_patterns, posix_mode).map_err(
-        |err| map_command_substitution_parse_error(input_text, body_start, close_offset, body, err),
-    )?;
+    validate_command_substitutions_for_parse(body, extglob_patterns, posix_mode, comments_enabled)
+        .map_err(|err| {
+            map_command_substitution_parse_error(input_text, body_start, close_offset, body, err)
+        })?;
 
     let mut lexer = Lexer::new(body);
     lexer.set_extglob_patterns(extglob_patterns);
     lexer.set_posix_mode(posix_mode);
+    lexer.set_comments_enabled(comments_enabled);
     let mut tokens = Vec::new();
     while let Some(token) = lexer.next_token() {
         tokens.push(token);
@@ -1133,11 +1159,13 @@ fn validate_unclosed_command_substitution_body(
     body_start: usize,
     extglob_patterns: bool,
     posix_mode: bool,
+    comments_enabled: bool,
 ) -> Result<(), ParseError> {
     let body = &input_text[body_start.min(input_text.len())..];
     let mut lexer = Lexer::new(body);
     lexer.set_extglob_patterns(extglob_patterns);
     lexer.set_posix_mode(posix_mode);
+    lexer.set_comments_enabled(comments_enabled);
     let mut tokens = Vec::new();
     while let Some(token) = lexer.next_token() {
         tokens.push(token);
@@ -1475,11 +1503,12 @@ fn skip_double_quoted_for_parse(bytes: &[u8], mut i: usize) -> Option<usize> {
     None
 }
 
-fn read_logical_command(state: &mut ShellState) -> ShellResult<String> {
+fn read_logical_command(state: &mut ShellState, exec_state: &mut ExecState) -> ShellResult<String> {
     let mut command = String::new();
     loop {
         let line = if state.interactive && !state.input.is_string() && !state.input.is_stream() {
-            match read_interactive_line(state, if command.is_empty() { 1 } else { 2 })? {
+            match read_interactive_line(state, exec_state, if command.is_empty() { 1 } else { 2 })?
+            {
                 Some(line) => line,
                 None => {
                     state.eof_reached = true;
@@ -1531,7 +1560,13 @@ fn read_logical_command(state: &mut ShellState) -> ShellResult<String> {
             continue;
         }
 
-        match parse_text(&parse_probe, state.option("extglob"), state.option("posix")) {
+        let comments_enabled = !state.interactive || state.option("interactive_comments");
+        match parse_text(
+            &parse_probe,
+            state.option("extglob"),
+            state.option("posix"),
+            comments_enabled,
+        ) {
             Ok(_) => return Ok(command),
             Err(err) if err.message == "empty input" => return Ok(command),
             Err(err) if parse_error_wants_more_input(&err, &parse_probe) => continue,
@@ -1569,9 +1604,13 @@ fn history_expand_physical_line(state: &mut ShellState, line: &str) -> ShellResu
     Ok(Some(res.line))
 }
 
-fn read_interactive_line(state: &mut ShellState, prompt_level: u8) -> ShellResult<Option<String>> {
+fn read_interactive_line(
+    state: &mut ShellState,
+    exec_state: &mut ExecState,
+    prompt_level: u8,
+) -> ShellResult<Option<String>> {
     if state.no_line_editing {
-        prompt_again(state, prompt_level);
+        prompt_again(state, exec_state, prompt_level);
         return match state.input.next_line() {
             Ok(line) => Ok(line),
             Err(_) => Err(ShellJump::ForceEof),
@@ -1586,7 +1625,7 @@ fn read_interactive_line(state: &mut ShellState, prompt_level: u8) -> ShellResul
             String::from("\\s-\\v\\$ ")
         }
     });
-    let prompt = decode_prompt_string(state, &raw_prompt);
+    let prompt = expand_prompt_string(state, exec_state, &raw_prompt);
     let keymap = state
         .keymap_get(&state.active_keymap)
         .or_else(|| state.keymap_get("emacs"))
@@ -1596,9 +1635,12 @@ fn read_interactive_line(state: &mut ShellState, prompt_level: u8) -> ShellResul
         .take()
         .unwrap_or_else(|| LineEditor::new(keymap.clone()));
     editor.keymap = keymap;
+    if let Some(command_keymap) = state.keymap_get("vi-command") {
+        editor.set_vi_command_keymap(command_keymap);
+    }
 
     let mut history = HistorySnapshot::from_state(state);
-    let mut completion = ShellCompleter { state };
+    let mut completion = ShellCompleter { state, exec_state };
     let result = if completion.state.input.is_terminal() {
         editor.readline(&prompt, &mut history, &mut completion)
     } else {
@@ -1648,69 +1690,322 @@ impl HistoryProvider for HistorySnapshot {
 
 struct ShellCompleter<'a> {
     state: &'a mut ShellState,
+    exec_state: &'a mut ExecState,
 }
 
 impl CompletionProvider for ShellCompleter<'_> {
-    fn complete(&mut self, line: &str, point: usize) -> Vec<String> {
-        let req = completion_request(line, point);
-        completion::complete(self.state, &req)
+    fn complete(&mut self, line: &str, point: usize) -> Completion {
+        let word_breaks = self
+            .state
+            .get("COMP_WORDBREAKS")
+            .unwrap_or_else(|| " \t\n\"'@><=;|&(:".to_string());
+        let req = completion_request(line, point, &word_breaks);
+        completion::complete(self.state, self.exec_state, &req)
+    }
+
+    fn run_shell_command(
+        &mut self,
+        command: &str,
+        line: &str,
+        point: usize,
+    ) -> Option<(String, usize)> {
+        let saved_line = self.state.get("READLINE_LINE");
+        let saved_point = self.state.get("READLINE_POINT");
+        self.state.set("READLINE_LINE", line.to_string());
+        self.state.set("READLINE_POINT", point.to_string());
+        if let Err(error) = self.exec_state.execute_source(command, self.state) {
+            eprintln!("{}: {error}", self.state.shell_name);
+        }
+        let edited_line = self
+            .state
+            .get("READLINE_LINE")
+            .unwrap_or_else(|| line.to_string());
+        let edited_point = self
+            .state
+            .get("READLINE_POINT")
+            .and_then(|value| value.parse::<usize>().ok())
+            .unwrap_or(point)
+            .min(edited_line.len());
+        restore_readline_variable(self.state, "READLINE_LINE", saved_line);
+        restore_readline_variable(self.state, "READLINE_POINT", saved_point);
+        Some((edited_line, edited_point))
     }
 }
 
-fn completion_request(line: &str, point: usize) -> CompRequest<'_> {
-    let point = point.min(line.len());
-    let before = &line[..point];
-    let current_start = before
-        .rfind(|c: char| c.is_whitespace() || matches!(c, '|' | '&' | ';' | '<' | '>' | '(' | ')'))
-        .map(|idx| idx + 1)
-        .unwrap_or(0);
-    let current_end = line[point..]
-        .find(|c: char| c.is_whitespace() || matches!(c, '|' | '&' | ';' | '<' | '>' | '(' | ')'))
-        .map(|idx| point + idx)
-        .unwrap_or(line.len());
-    let current = line[current_start..current_end].to_string();
-    let mut words: Vec<String> = Vec::new();
-    let mut cword = 0usize;
-    let mut in_word = false;
-    let mut start = 0usize;
-    for (idx, ch) in line.char_indices() {
-        let is_break = ch.is_whitespace() || matches!(ch, '|' | '&' | ';' | '<' | '>' | '(' | ')');
-        if is_break {
-            if in_word {
-                if start <= point && point <= idx {
-                    cword = words.len();
-                }
-                words.push(line[start..idx].to_string());
-                in_word = false;
-            }
-        } else if !in_word {
-            start = idx;
-            in_word = true;
-        }
+fn restore_readline_variable(state: &mut ShellState, name: &str, value: Option<String>) {
+    if let Some(value) = value {
+        state.set(name, value);
+    } else {
+        state.unset(name);
     }
-    if in_word {
-        if start <= point && point <= line.len() {
-            cword = words.len();
-        }
-        words.push(line[start..].to_string());
-    } else if point == line.len() {
-        cword = words.len();
-        words.push(String::new());
-    }
+}
+
+fn completion_request<'a>(line: &'a str, point: usize, word_breaks: &str) -> CompRequest<'a> {
+    let point = clamp_char_boundary(line, point.min(line.len()));
+    let command_start = completion_command_start(line, point);
+    let command_end = completion_command_end(line, point);
+    let segment = &line[command_start..command_end];
+    let relative_point = point.saturating_sub(command_start);
+    let tokens = completion_tokens(segment, word_breaks);
+    let current_info = current_completion_word(segment, relative_point, word_breaks);
+    let current = current_info.text;
+    let replace_start = command_start + current_info.start;
+
+    let mut words: Vec<String> = tokens.iter().map(|token| token.text.clone()).collect();
+    let after_whitespace = segment[..relative_point]
+        .chars()
+        .next_back()
+        .is_some_and(char::is_whitespace);
+    let cword = if current.is_empty() && after_whitespace {
+        words.len()
+    } else {
+        tokens
+            .iter()
+            .enumerate()
+            .filter(|(_, token)| token.start <= relative_point)
+            .map(|(index, _)| index)
+            .next_back()
+            .unwrap_or(0)
+    };
     if words.is_empty() {
         words.push(String::new());
-        cword = 0;
     }
-    if cword < words.len() {
-        words[cword] = current.clone();
-    }
+    let command = words
+        .iter()
+        .find(|word| !is_completion_delimiter(word, word_breaks))
+        .cloned()
+        .unwrap_or_default();
+    let previous = cword
+        .checked_sub(1)
+        .and_then(|index| words.get(index))
+        .cloned()
+        .unwrap_or_default();
     CompRequest {
         line,
         point,
         words,
         cword,
+        command,
         current,
+        previous,
+        replace_start,
+        quote: current_info.quote,
     }
+}
+
+#[derive(Clone, Debug)]
+struct CompletionToken {
+    text: String,
+    start: usize,
+}
+
+#[derive(Clone, Debug)]
+struct CurrentCompletionWord {
+    text: String,
+    start: usize,
+    quote: CompletionQuote,
+}
+
+fn clamp_char_boundary(text: &str, mut index: usize) -> usize {
+    while index > 0 && !text.is_char_boundary(index) {
+        index -= 1;
+    }
+    index
+}
+
+fn completion_command_start(line: &str, point: usize) -> usize {
+    let mut start = 0usize;
+    let mut single = false;
+    let mut double = false;
+    let mut escaped = false;
+    for (index, ch) in line[..point].char_indices() {
+        if escaped {
+            escaped = false;
+        } else if ch == '\\' && !single {
+            escaped = true;
+        } else if ch == '\'' && !double {
+            single = !single;
+        } else if ch == '"' && !single {
+            double = !double;
+        } else if !single && !double && matches!(ch, ';' | '|' | '&' | '\n' | '(' | ')') {
+            start = index + ch.len_utf8();
+        }
+    }
+    while start < point {
+        let ch = line[start..].chars().next().unwrap();
+        if !ch.is_whitespace() {
+            break;
+        }
+        start += ch.len_utf8();
+    }
+    start
+}
+
+fn completion_command_end(line: &str, point: usize) -> usize {
+    let mut single = false;
+    let mut double = false;
+    let mut escaped = false;
+    for ch in line[..point].chars() {
+        if escaped {
+            escaped = false;
+        } else if ch == '\\' && !single {
+            escaped = true;
+        } else if ch == '\'' && !double {
+            single = !single;
+        } else if ch == '"' && !single {
+            double = !double;
+        }
+    }
+    escaped = false;
+    for (offset, ch) in line[point..].char_indices() {
+        if escaped {
+            escaped = false;
+        } else if ch == '\\' && !single {
+            escaped = true;
+        } else if ch == '\'' && !double {
+            single = !single;
+        } else if ch == '"' && !single {
+            double = !double;
+        } else if !single && !double && matches!(ch, ';' | '|' | '&' | '\n' | '(' | ')') {
+            return point + offset;
+        }
+    }
+    line.len()
+}
+
+fn completion_tokens(segment: &str, word_breaks: &str) -> Vec<CompletionToken> {
+    let mut tokens = Vec::new();
+    let mut text = String::new();
+    let mut start = 0usize;
+    let mut active = false;
+    let mut single = false;
+    let mut double = false;
+    let mut escaped = false;
+
+    let flush = |tokens: &mut Vec<CompletionToken>, text: &mut String, active: &mut bool, start| {
+        if *active {
+            tokens.push(CompletionToken {
+                text: std::mem::take(text),
+                start,
+            });
+            *active = false;
+        }
+    };
+
+    for (index, ch) in segment.char_indices() {
+        if escaped {
+            if !active {
+                start = index;
+                active = true;
+            }
+            text.push(ch);
+            escaped = false;
+            continue;
+        }
+        if ch == '\\' && !single {
+            if !active {
+                start = index;
+                active = true;
+            }
+            escaped = true;
+            continue;
+        }
+        if ch == '\'' && !double {
+            if !active {
+                start = index;
+                active = true;
+            }
+            single = !single;
+            continue;
+        }
+        if ch == '"' && !single {
+            if !active {
+                start = index;
+                active = true;
+            }
+            double = !double;
+            continue;
+        }
+        if !single && !double && ch.is_whitespace() {
+            flush(&mut tokens, &mut text, &mut active, start);
+            continue;
+        }
+        if !single && !double && word_breaks.contains(ch) {
+            flush(&mut tokens, &mut text, &mut active, start);
+            tokens.push(CompletionToken {
+                text: ch.to_string(),
+                start: index,
+            });
+            continue;
+        }
+        if !active {
+            start = index;
+            active = true;
+        }
+        text.push(ch);
+    }
+    if escaped {
+        text.push('\\');
+    }
+    flush(&mut tokens, &mut text, &mut active, start);
+    tokens
+}
+
+fn current_completion_word(
+    segment: &str,
+    point: usize,
+    word_breaks: &str,
+) -> CurrentCompletionWord {
+    let mut text = String::new();
+    let mut start = 0usize;
+    let mut quote_start = None;
+    let mut single = false;
+    let mut double = false;
+    let mut escaped = false;
+    for (index, ch) in segment[..point].char_indices() {
+        if escaped {
+            text.push(ch);
+            escaped = false;
+        } else if ch == '\\' && !single {
+            escaped = true;
+        } else if ch == '\'' && !double {
+            single = !single;
+            if single && text.is_empty() {
+                quote_start = Some(index + ch.len_utf8());
+            }
+        } else if ch == '"' && !single {
+            double = !double;
+            if double && text.is_empty() {
+                quote_start = Some(index + ch.len_utf8());
+            }
+        } else if !single && !double && (ch.is_whitespace() || word_breaks.contains(ch)) {
+            text.clear();
+            start = index + ch.len_utf8();
+            quote_start = None;
+        } else {
+            text.push(ch);
+        }
+    }
+    let quote = if single {
+        CompletionQuote::Single
+    } else if double {
+        CompletionQuote::Double
+    } else {
+        CompletionQuote::None
+    };
+    CurrentCompletionWord {
+        text,
+        start: quote_start.unwrap_or(start),
+        quote,
+    }
+}
+
+fn is_completion_delimiter(word: &str, word_breaks: &str) -> bool {
+    word.chars().count() == 1
+        && word
+            .chars()
+            .next()
+            .is_some_and(|ch| ch.is_whitespace() || word_breaks.contains(ch))
 }
 
 fn parse_error_wants_more_input(err: &ParseError, input: &str) -> bool {
@@ -3172,7 +3467,49 @@ fn execute_prompt_command(state: &mut ShellState, exec_state: &mut ExecState) {
 
 #[cfg(test)]
 mod tests {
-    use super::{has_unclosed_command_substitution, has_unclosed_heredoc};
+    use super::{completion_request, has_unclosed_command_substitution, has_unclosed_heredoc};
+    use crate::completion::CompletionQuote;
+
+    const BREAKS: &str = " \t\n\"'@><=;|&(:";
+
+    #[test]
+    fn completion_words_match_bash_word_break_tokens() {
+        let request = completion_request("cmd --foo=ba", 12, BREAKS);
+        assert_eq!(request.words, ["cmd", "--foo", "=", "ba"]);
+        assert_eq!(request.cword, 3);
+        assert_eq!(request.command, "cmd");
+        assert_eq!(request.current, "ba");
+        assert_eq!(request.previous, "=");
+        assert_eq!(request.replace_start, 10);
+    }
+
+    #[test]
+    fn completion_after_a_break_uses_an_empty_readline_word() {
+        let request = completion_request("cmd --foo=", 10, BREAKS);
+        assert_eq!(request.words, ["cmd", "--foo", "="]);
+        assert_eq!(request.cword, 2);
+        assert_eq!(request.current, "");
+        assert_eq!(request.replace_start, 10);
+    }
+
+    #[test]
+    fn completion_tracks_open_quotes_and_utf8_byte_offsets() {
+        let line = "écho \"two wo";
+        let request = completion_request(line, line.len(), BREAKS);
+        assert_eq!(request.words, ["écho", "two wo"]);
+        assert_eq!(request.current, "two wo");
+        assert_eq!(request.quote, CompletionQuote::Double);
+        assert_eq!(request.replace_start, "écho \"".len());
+    }
+
+    #[test]
+    fn completion_starts_after_the_nearest_command_separator() {
+        let line = "echo old; cmd val";
+        let request = completion_request(line, line.len(), BREAKS);
+        assert_eq!(request.words, ["cmd", "val"]);
+        assert_eq!(request.command, "cmd");
+        assert_eq!(request.current, "val");
+    }
 
     #[test]
     fn unquoted_heredoc_probe_uses_logical_lines_for_delimiter() {

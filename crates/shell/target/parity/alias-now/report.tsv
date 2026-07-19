@@ -1,2 +1,0 @@
-verdict	name	status	timed_out	stdout_path	stderr_path	tstout_path
-FAIL	alias	1	false	target/parity/alias-now/alias.stdout	target/parity/alias-now/alias.stderr	/tmp/cupid-bashtst-435776-alias-1778855274665712417.out

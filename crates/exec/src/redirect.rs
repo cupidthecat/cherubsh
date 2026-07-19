@@ -760,7 +760,7 @@ fn execute_plan<'a>(
                 }
                 return Err(err);
             }
-            if let Some(g) = guard.as_deref_mut() {
+            if let Some(g) = guard {
                 g.note_var_fd(high);
             }
             Ok(())
@@ -784,7 +784,7 @@ fn execute_plan<'a>(
                 }
                 return Err(err);
             }
-            if let Some(g) = guard.as_deref_mut() {
+            if let Some(g) = guard {
                 g.note_var_fd(high);
             }
             if close_source {
@@ -825,7 +825,7 @@ fn execute_plan<'a>(
                 }
                 return Err(err);
             }
-            if let Some(g) = guard.as_deref_mut() {
+            if let Some(g) = guard {
                 g.note_var_fd(high);
             }
             Ok(())

@@ -7,6 +7,10 @@ use cherubsh_lexer::TokenKind;
 use cherubsh_lexer::TokenValue;
 use std::sync::Arc;
 
+mod pretty;
+
+pub use pretty::pretty_print;
+
 pub const CONN_AND_AND: u32 = 1;
 pub const CONN_OR_OR: u32 = 2;
 pub const CONN_PIPE: u32 = 3;
@@ -1796,16 +1800,14 @@ impl Parser {
             let piece = token_to_text_lossy(&token);
             match token.kind {
                 TokenKind::LParen => {
-                    if context == PatternCollectContext::CondRegex {
-                        depth += 1;
-                    } else if pattern_extglob_op_precedes(&text) {
+                    if context == PatternCollectContext::CondRegex
+                        || pattern_extglob_op_precedes(&text)
+                    {
                         depth += 1;
                     }
                 }
                 TokenKind::RParen => {
-                    if depth > 0 {
-                        depth -= 1;
-                    }
+                    depth = depth.saturating_sub(1);
                 }
                 TokenKind::DblRParen => {
                     if depth > 1 {
@@ -1964,7 +1966,7 @@ impl Parser {
             return false;
         }
         match self.peek_kind() {
-            Some(kind) => stop_kinds.iter().any(|stop| *stop == kind),
+            Some(kind) => stop_kinds.contains(&kind),
             None => false,
         }
     }

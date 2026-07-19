@@ -15,8 +15,6 @@ impl RawMode {
             return Err(io::Error::last_os_error());
         }
         let mut raw = saved;
-        // Mirror bash's prepare_terminal_settings(): cfmakeraw-ish but we
-        // keep OPOST on so output linefeeds still translate to CRLF.
         raw.c_iflag &= !(libc::IGNBRK
             | libc::BRKINT
             | libc::PARMRK
@@ -25,7 +23,8 @@ impl RawMode {
             | libc::IGNCR
             | libc::ICRNL
             | libc::IXON);
-        raw.c_lflag &= !(libc::ECHO | libc::ECHONL | libc::ICANON | libc::IEXTEN | libc::ISIG);
+        raw.c_lflag &= !(libc::ECHO | libc::ECHONL | libc::ICANON | libc::IEXTEN);
+        raw.c_lflag |= libc::ISIG;
         raw.c_cflag &= !(libc::CSIZE | libc::PARENB);
         raw.c_cflag |= libc::CS8;
         raw.c_cc[libc::VMIN] = 1;
@@ -33,14 +32,26 @@ impl RawMode {
         if unsafe { libc::tcsetattr(fd, libc::TCSANOW, &raw) } < 0 {
             return Err(io::Error::last_os_error());
         }
+        write_terminal_mode(b"\x1b[?2004h");
         Ok(Self { saved, fd })
     }
 }
 
 impl Drop for RawMode {
     fn drop(&mut self) {
+        write_terminal_mode(b"\x1b[?2004l");
         unsafe {
             libc::tcsetattr(self.fd, libc::TCSANOW, &self.saved);
         }
+    }
+}
+
+fn write_terminal_mode(bytes: &[u8]) {
+    unsafe {
+        libc::write(
+            libc::STDERR_FILENO,
+            bytes.as_ptr().cast::<libc::c_void>(),
+            bytes.len(),
+        );
     }
 }

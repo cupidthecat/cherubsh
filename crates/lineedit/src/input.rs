@@ -1,64 +1,37 @@
-//! Raw-mode keyboard input → `KeyEvent`.
-
+use std::collections::VecDeque;
 use std::io;
+use std::sync::{Mutex, OnceLock};
+use std::time::Instant;
 
 use crate::key::KeyEvent;
 
-/// Read one key event. Blocks until a complete sequence arrives.
 pub fn read_key() -> io::Result<Option<KeyEvent>> {
-    let Some(b) = read_stdin_byte()? else {
+    read_key_mode(false)
+}
+
+pub fn read_key_mode(escape_is_command: bool) -> io::Result<Option<KeyEvent>> {
+    let Some(byte) = read_stdin_byte()? else {
         return Ok(None);
     };
-    match b {
-        0x1b => read_escape_sequence(),
+    match byte {
+        0x1b => read_escape_sequence(escape_is_command),
         0x7f | 0x08 => Ok(Some(KeyEvent::Backspace)),
         b'\r' | b'\n' => Ok(Some(KeyEvent::Enter)),
         b'\t' => Ok(Some(KeyEvent::Tab)),
-        0..=0x1f => {
-            // Ctrl-A..Ctrl-Z, plus a few extras: 0x01..0x1a → 'a'..'z'.
-            let letter = (b + b'`') as char;
-            Ok(Some(KeyEvent::Ctrl(letter)))
-        }
-        0x80..=0xff => {
-            // Multi-byte UTF-8: read continuation bytes.
-            let count = if b & 0b1110_0000 == 0b1100_0000 {
-                1
-            } else if b & 0b1111_0000 == 0b1110_0000 {
-                2
-            } else if b & 0b1111_1000 == 0b1111_0000 {
-                3
-            } else {
-                0
-            };
-            let mut bytes = vec![b];
-            for _ in 0..count {
-                let Some(more) = read_stdin_byte()? else {
-                    break;
-                };
-                bytes.push(more);
-            }
-            match std::str::from_utf8(&bytes) {
-                Ok(s) => {
-                    let c = s.chars().next().unwrap_or('\u{FFFD}');
-                    Ok(Some(KeyEvent::Char(c)))
-                }
-                Err(_) => Ok(Some(KeyEvent::Raw(format!("{:?}", bytes)))),
-            }
-        }
-        _ => Ok(Some(KeyEvent::Char(b as char))),
+        0..=0x1f => Ok(Some(KeyEvent::Ctrl(control_name(byte)))),
+        0x80..=0xff => decode_utf8_key(byte),
+        _ => Ok(Some(KeyEvent::Char(byte as char))),
     }
 }
 
-fn read_escape_sequence() -> io::Result<Option<KeyEvent>> {
-    // Try to read next byte with short timeout via `poll`.
-    // Use poll(2) for non-blocking-with-timeout
-    let mut pfd = libc::pollfd {
-        fd: 0,
+fn read_escape_sequence(escape_is_command: bool) -> io::Result<Option<KeyEvent>> {
+    let mut descriptor = libc::pollfd {
+        fd: libc::STDIN_FILENO,
         events: libc::POLLIN,
         revents: 0,
     };
-    let rc = unsafe { libc::poll(&mut pfd, 1, 50) };
-    if rc <= 0 {
+    let ready = unsafe { libc::poll(&mut descriptor, 1, 50) };
+    if ready <= 0 {
         return Ok(Some(KeyEvent::Esc));
     }
     let Some(second) = read_stdin_byte()? else {
@@ -66,69 +39,219 @@ fn read_escape_sequence() -> io::Result<Option<KeyEvent>> {
     };
     match second {
         b'[' => {
-            let Some(third) = read_stdin_byte()? else {
-                return Ok(Some(KeyEvent::Esc));
-            };
-            match third {
-                b'A' => Ok(Some(KeyEvent::Up)),
-                b'B' => Ok(Some(KeyEvent::Down)),
-                b'C' => Ok(Some(KeyEvent::Right)),
-                b'D' => Ok(Some(KeyEvent::Left)),
-                b'H' => Ok(Some(KeyEvent::Home)),
-                b'F' => Ok(Some(KeyEvent::End)),
-                c if c.is_ascii_digit() => {
-                    let mut digits = vec![c];
-                    loop {
-                        let Some(nx) = read_stdin_byte()? else {
-                            break;
-                        };
-                        if nx == b'~' {
-                            break;
-                        }
-                        digits.push(nx);
-                    }
-                    let raw = String::from_utf8_lossy(&digits).to_string();
-                    Ok(Some(match raw.as_str() {
-                        "2" => KeyEvent::Insert,
-                        "3" => KeyEvent::Delete,
-                        "5" => KeyEvent::PageUp,
-                        "6" => KeyEvent::PageDown,
-                        _ => KeyEvent::Raw(format!("\\e[{}~", raw)),
-                    }))
-                }
-                c => Ok(Some(KeyEvent::Raw(format!("\\e[{}", c as char)))),
-            }
+            let sequence = read_csi_sequence()?;
+            Ok(Some(match sequence.as_str() {
+                "A" => KeyEvent::Up,
+                "B" => KeyEvent::Down,
+                "C" => KeyEvent::Right,
+                "D" => KeyEvent::Left,
+                "H" | "1~" | "7~" => KeyEvent::Home,
+                "F" | "4~" | "8~" => KeyEvent::End,
+                "2~" => KeyEvent::Insert,
+                "3~" => KeyEvent::Delete,
+                "5~" => KeyEvent::PageUp,
+                "6~" => KeyEvent::PageDown,
+                "200~" => KeyEvent::Paste(read_bracketed_paste()?),
+                _ => KeyEvent::Raw(format!("\\e[{sequence}")),
+            }))
         }
         b'O' => {
             let Some(third) = read_stdin_byte()? else {
                 return Ok(Some(KeyEvent::Esc));
             };
-            match third {
-                b'H' => Ok(Some(KeyEvent::Home)),
-                b'F' => Ok(Some(KeyEvent::End)),
-                c @ b'P'..=b'S' => Ok(Some(KeyEvent::Function(c - b'P' + 1))),
-                c => Ok(Some(KeyEvent::Raw(format!("\\eO{}", c as char)))),
-            }
+            Ok(Some(match third {
+                b'H' => KeyEvent::Home,
+                b'F' => KeyEvent::End,
+                byte @ b'P'..=b'S' => KeyEvent::Function(byte - b'P' + 1),
+                byte => KeyEvent::Raw(format!("\\eO{}", byte as char)),
+            }))
         }
-        c if c.is_ascii() => Ok(Some(KeyEvent::Meta(c as char))),
-        _ => Ok(Some(KeyEvent::Esc)),
+        byte if escape_is_command => {
+            push_stdin_byte(byte);
+            Ok(Some(KeyEvent::Esc))
+        }
+        0x80..=0xff => decode_utf8_char(second).map(|value| value.map(KeyEvent::Meta)),
+        0x1b => Ok(Some(KeyEvent::Raw("\\e\\e".to_string()))),
+        byte => Ok(Some(KeyEvent::Meta(byte as char))),
+    }
+}
+
+fn read_csi_sequence() -> io::Result<String> {
+    let mut bytes = Vec::new();
+    while bytes.len() < 64 {
+        let Some(byte) = read_stdin_byte()? else {
+            break;
+        };
+        bytes.push(byte);
+        if (0x40..=0x7e).contains(&byte) {
+            break;
+        }
+    }
+    Ok(String::from_utf8_lossy(&bytes).into_owned())
+}
+
+fn read_bracketed_paste() -> io::Result<String> {
+    const END: &[u8] = b"\x1b[201~";
+    let mut bytes = Vec::new();
+    loop {
+        let Some(byte) = read_stdin_byte()? else {
+            break;
+        };
+        bytes.push(byte);
+        if bytes.ends_with(END) {
+            bytes.truncate(bytes.len() - END.len());
+            break;
+        }
+    }
+    Ok(String::from_utf8_lossy(&bytes).into_owned())
+}
+
+pub fn read_literal_char() -> io::Result<Option<char>> {
+    let Some(byte) = read_stdin_byte()? else {
+        return Ok(None);
+    };
+    if byte < 0x80 {
+        return Ok(Some(byte as char));
+    }
+    decode_utf8_char(byte)
+}
+
+fn decode_utf8_key(first: u8) -> io::Result<Option<KeyEvent>> {
+    Ok(decode_utf8_char(first)?.map(KeyEvent::Char))
+}
+
+fn decode_utf8_char(first: u8) -> io::Result<Option<char>> {
+    let continuation_count = if first & 0b1110_0000 == 0b1100_0000 {
+        1
+    } else if first & 0b1111_0000 == 0b1110_0000 {
+        2
+    } else if first & 0b1111_1000 == 0b1111_0000 {
+        3
+    } else {
+        0
+    };
+    let mut bytes = vec![first];
+    for _ in 0..continuation_count {
+        let Some(byte) = read_stdin_byte()? else {
+            break;
+        };
+        bytes.push(byte);
+    }
+    Ok(Some(
+        std::str::from_utf8(&bytes)
+            .ok()
+            .and_then(|value| value.chars().next())
+            .unwrap_or('\u{fffd}'),
+    ))
+}
+
+fn control_name(byte: u8) -> char {
+    match byte {
+        0 => '@',
+        1..=26 => (b'a' + byte - 1) as char,
+        27 => '[',
+        28 => '\\',
+        29 => ']',
+        30 => '^',
+        _ => '_',
     }
 }
 
 fn read_stdin_byte() -> io::Result<Option<u8>> {
+    if let Some(byte) = stdin_pushback()
+        .lock()
+        .expect("input pushback lock")
+        .pop_front()
+    {
+        return Ok(Some(byte));
+    }
+    wait_for_stdin()?;
     let mut byte = [0u8; 1];
-    loop {
-        let n = unsafe { libc::read(libc::STDIN_FILENO, byte.as_mut_ptr().cast(), 1) };
-        if n == 0 {
-            return Ok(None);
+    let count = unsafe {
+        libc::read(
+            libc::STDIN_FILENO,
+            byte.as_mut_ptr().cast::<libc::c_void>(),
+            1,
+        )
+    };
+    if count == 0 {
+        return Ok(None);
+    }
+    if count < 0 {
+        let error = io::Error::last_os_error();
+        if error.raw_os_error() == Some(libc::EINTR) {
+            return Ok(Some(3));
         }
-        if n < 0 {
-            let err = io::Error::last_os_error();
-            if err.raw_os_error() == Some(libc::EINTR) {
-                continue;
-            }
-            return Err(err);
-        }
-        return Ok(Some(byte[0]));
+        return Err(error);
+    }
+    Ok(Some(byte[0]))
+}
+
+fn wait_for_stdin() -> io::Result<()> {
+    let deadline = *input_deadline().lock().expect("input deadline lock");
+    let Some(deadline) = deadline else {
+        return Ok(());
+    };
+    let now = Instant::now();
+    if now >= deadline {
+        return Err(io::Error::new(
+            io::ErrorKind::TimedOut,
+            "readline timed out",
+        ));
+    }
+    let remaining = deadline.saturating_duration_since(now);
+    let milliseconds = remaining
+        .as_millis()
+        .saturating_add(u128::from(remaining.subsec_nanos() % 1_000_000 != 0))
+        .min(libc::c_int::MAX as u128) as libc::c_int;
+    let mut descriptor = libc::pollfd {
+        fd: libc::STDIN_FILENO,
+        events: libc::POLLIN,
+        revents: 0,
+    };
+    let ready = unsafe { libc::poll(&mut descriptor, 1, milliseconds) };
+    if ready == 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::TimedOut,
+            "readline timed out",
+        ));
+    }
+    if ready < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(())
+}
+
+pub fn set_input_deadline(deadline: Option<Instant>) {
+    *input_deadline().lock().expect("input deadline lock") = deadline;
+}
+
+fn input_deadline() -> &'static Mutex<Option<Instant>> {
+    static DEADLINE: OnceLock<Mutex<Option<Instant>>> = OnceLock::new();
+    DEADLINE.get_or_init(|| Mutex::new(None))
+}
+
+fn push_stdin_byte(byte: u8) {
+    stdin_pushback()
+        .lock()
+        .expect("input pushback lock")
+        .push_front(byte);
+}
+
+fn stdin_pushback() -> &'static Mutex<VecDeque<u8>> {
+    static PUSHBACK: OnceLock<Mutex<VecDeque<u8>>> = OnceLock::new();
+    PUSHBACK.get_or_init(|| Mutex::new(VecDeque::new()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::control_name;
+
+    #[test]
+    fn control_bytes_have_readline_names() {
+        assert_eq!(control_name(0), '@');
+        assert_eq!(control_name(1), 'a');
+        assert_eq!(control_name(26), 'z');
+        assert_eq!(control_name(31), '_');
     }
 }

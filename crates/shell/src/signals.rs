@@ -264,8 +264,8 @@ pub fn pending_signal_take(sig: i32) -> u32 {
 /// Iterator over all signals with pending events (non-zero counter).
 pub fn pending_signals_snapshot() -> Vec<i32> {
     let mut out = Vec::new();
-    for sig in 1..NSIG {
-        if PENDING_COUNTS[sig].load(Ordering::SeqCst) > 0 {
+    for (sig, counter) in PENDING_COUNTS.iter().enumerate().skip(1) {
+        if counter.load(Ordering::SeqCst) > 0 {
             out.push(sig as i32);
         }
     }
@@ -318,10 +318,7 @@ pub fn acquire_terminal(
 ) -> bool {
     // Try /dev/tty first, then stderr - bash uses fd 2 if /dev/tty fails.
     let raw_fd = unsafe {
-        let mut fd = libc::open(
-            b"/dev/tty\0".as_ptr() as *const i8,
-            libc::O_RDWR | libc::O_CLOEXEC,
-        );
+        let mut fd = libc::open(c"/dev/tty".as_ptr(), libc::O_RDWR | libc::O_CLOEXEC);
         if fd < 0 {
             // Fallback: dup stderr if it's a tty.
             if libc::isatty(2) != 0 {

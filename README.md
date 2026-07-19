@@ -1,223 +1,236 @@
 # CherubSH
 
-CherubSH (`cherubsh`), formerly cupidshell, is a Rust implementation of Bash 5.3. It aims to match Bash behavior, rather than provide a Bash-like language. The project tests parsing, expansion, redirection, builtins, job control, traps, history, completion, and process behavior against Bash 5.3 and the vendored Brush compatibility corpus.
+CherubSH (`cherubsh`), formerly cupidshell, is a Rust implementation of Bash 5.3 behavior. It includes its own UTF-8 line editor and C-compatible GNU Readline and History libraries. Compatibility is checked against pinned builds of Bash 5.3.15 and Readline 8.3 patch 3, plus the Brush shell test corpus.
 
-## Features
+CherubSH is developed and tested on Linux. The same build and test commands work under WSL.
 
-- A Bash 5.3-compatible parser, lexer, expansion engine, execution model, and shell state.
-- All 86 upstream Bash 5.3 `run-*` drivers pass.
-- The upstream Bash 5.3 `tests` tree is vendored and runs through the parity harness.
-- All 2,077 runnable cases in the vendored Brush compatibility corpus pass against the Bash 5.3 oracle. Brush metadata or Bash-version constraints skip 28 cases.
-- A differential fixture harness that compares CherubSH directly with a Bash 5.3 oracle.
-- Bash-compatible parameter expansion, arithmetic expansion, command substitution, process substitution, brace expansion, globbing, word splitting, quote removal, arrays, associative arrays, and namerefs.
-- Core Bash builtins including `alias`, `bind`, `break`, `builtin`, `caller`, `cd`, `command`, `complete`, `compgen`, `compopt`, `continue`, `declare`, `dirs`, `disown`, `echo`, `enable`, `eval`, `exec`, `exit`, `export`, `fc`, `fg`, `bg`, `getopts`, `hash`, `help`, `history`, `jobs`, `kill`, `let`, `local`, `mapfile`, `popd`, `printf`, `pushd`, `pwd`, `read`, `readonly`, `return`, `set`, `shift`, `shopt`, `source`, `suspend`, `test`, `times`, `trap`, `type`, `ulimit`, `umask`, `unalias`, `unset`, and `wait`.
-- Parity coverage for job control, pipelines, subshells, coprocesses, redirections, here-documents, here-strings, traps, `set -e`, `pipefail`, `lastpipe`, and POSIX mode.
-- Prompt decoding, history expansion, line-editing scaffolding, completion registration, and completion generation.
-- Vendored Bash 5.3 test corpus, so users can run upstream parity without separately checking out Bash source.
+## Compatibility status
 
-## Bash 5.3 Parity
-
-CherubSH passes every standalone `run-*` driver that Bash runs through `tests/run-all` or `make tests`.
-
-Current parity sweep:
+The v0.3.0 parity gates currently report:
 
 | Suite | Result |
 | --- | ---: |
 | Upstream Bash 5.3 `run-*` drivers | 86 / 86 passing |
-| CherubSH fixture parity tests | 99 / 99 passing |
-| Brush compatibility corpus runnable cases | 2,077 / 2,077 passing |
-| Combined Bash, fixture, and Brush runnable parity | 2,262 / 2,262 passing |
+| CherubSH differential fixtures | 99 / 99 passing |
+| Runnable Brush compatibility cases | 2,077 / 2,077 passing |
+| Brush cases skipped by their metadata or Bash version | 28 |
 
-The harness uses the unmodified Bash 5.3 expected outputs. It runs Bash's test drivers against `cherubsh`, records artifacts for each test, and fails on unexpected `FAIL`, `TIMEOUT`, or `XPASS` results.
+The upstream Bash gate uses the original `.right` files. The Brush gate runs each case once with Bash 5.3.15 and once with CherubSH, then compares status, output, and files left behind. Readline tests compile the same C fixtures and upstream examples against GNU Readline and the CherubSH library.
 
-Like [shellgei/rusty_bash](https://github.com/shellgei/rusty_bash), CherubSH is a Rust Bash clone measured against Bash behavior.
+Bash is used only as a test oracle. CherubSH does not call Bash to parse commands, print syntax trees, extract translation strings, expand completions, or run loadable builtins.
 
-## Vendored Bash Tests
+## What works
 
-The Bash 5.3 test corpus is vendored in this repository:
+- Bash parsing and execution for functions, pipelines, subshells, coprocesses, background jobs, traps, redirections, here-documents, and here-strings.
+- Parameter, arithmetic, command, process, brace, pathname, and tilde expansion, including indexed arrays, associative arrays, namerefs, quoting, word splitting, and pattern operators.
+- Bash shell options and `shopt` settings covered by the Bash and Brush compatibility suites.
+- Native `--pretty-print`, `--dump-strings`, `--dump-po-strings`, and `-D` invocation modes for files, standard input, and `-c` command strings.
+- The standard builtins used by the upstream tests, including job control, history, programmable completion, `read`, `mapfile`, `printf`, `test`, `source`, and `wait -n -p`.
+- Bash 5.3.15 loadable builtins through `enable -f`, including scalar, indexed-array, associative-array, input, and child-shell ABI calls used by Bash's example modules.
+- Interactive Emacs and Vi keymaps, UTF-8 cursor movement, undo, kill/yank behavior, history search, terminal-width-aware redisplay, and programmable completion.
+- Programmable completion resources, callbacks, filters, option ordering, and lazy-loaded Git completion from bash-completion 2.18.
+- Separate Readline 8.3 and History libraries with public headers, C symbols, custom callbacks, macros, keymaps, versioned shared-library names, static archives, and `pkg-config` files.
 
-- `vendor/bash-5.3/tests`: upstream Bash 5.3 tests, `.right` files, `run-*` drivers, and misc/manual tests.
-- `vendor/bash-5.3/support`: upstream C sources for required test helpers (`recho`, `zecho`, `printenv`, `xcase`).
-- `vendor/bash-5.3/examples/loadables`: upstream loadable examples used by selected tests.
-- `vendor/bash-5.3/y.tab.c`, `bashansi.h`, `config.h`, `version.h`: upstream build-tree inputs used by heredoc and parser-sensitive tests.
-- `vendor/bash-5.3/COPYING`, `README`, `AUTHORS`, `NEWS`: upstream metadata and license context.
+## Build and run
 
-You do not need a separate Bash source checkout to run the upstream test corpus. By default, the harness uses the vendored tests and compiles the small upstream helper programs in a temporary directory. Set `BASH_53_TESTS_DIR=/path/to/bash-5.3/tests` only when you want to compare against another Bash test tree.
-
-A legacy Bash 5.2.21 vendor tree and oracle builder are retained for regression comparisons. Set `BASH_ORACLE_VERSION=5.2.21` when intentionally running that older gate.
-
-The vendored `tests/misc` files are not part of Bash's normal `make tests` or `tests/run-all` target. They include manual, network, TTY, signal-timing, and performance scripts. The standard parity gate therefore runs the same suite that Bash runs by default.
-
-## Vendored Brush Tests
-
-The brush compatibility corpus is vendored under `vendor/brush` from `brush-shell/tests/cases`. The active CherubSH gate runs `vendor/brush/brush-shell/tests/cases/compat` against the same Bash 5.3 oracle used by the main parity harness; brush-specific CLI cases under `cases/brush` are retained as source context only.
-
-Current Brush parity status for v0.3.0:
-
-| Brush result | Count |
-| --- | ---: |
-| Passing runnable compat cases | 2,077 |
-| Failing runnable compat cases | 0 |
-| Skipped by Brush metadata | 27 |
-| Skipped by Bash-version constraints | 1 |
-
-These skips are not CherubSH-versus-Bash failures. The harness excludes them before execution because the Brush metadata marks them as skipped or because they need an oracle version outside the pinned Bash 5.3 gate.
-
-The brush sweep is opt-in because it runs thousands of shell invocations:
-
-```sh
-RUN_BRUSH_PARITY=1 cargo test -p cherubsh --test brush_parity -- --nocapture
-```
-
-To run a focused slice:
-
-```sh
-RUN_BRUSH_PARITY=1 BRUSH_PARITY_FILTER='Builtins: printf' cargo test -p cherubsh --test brush_parity -- --nocapture
-```
-
-Reports are written to `target/parity/brush/report.tsv`. The combined driver also supports the same gate:
-
-```sh
-RUN_BRUSH_PARITY=1 ./tools/run-parity.sh
-```
-
-## Other Tests
-
-The parity driver also runs CherubSH's differential fixtures against the Bash 5.3 oracle. They cover lifecycle behavior, parser acceptance, expansions, arrays, assignments, builtins, redirections, process substitution, functions, `set -e`, `set -x`, jobs, traps, `read`, `source`, `type`, history, completion, and coprocess behavior.
-
-Regular Cargo unit and integration tests run as part of the same workspace sweep.
-
-## Switching From Bash
-
-CherubSH runs Bash-compatible scripts directly, but your shell is a critical system component. Keep `/bin/bash` installed and test your dotfiles and scripts before changing your login shell.
-
-Build CherubSH:
+The repository pins Rust 1.93.1 in `rust-toolchain.toml`.
 
 ```sh
 cargo build --release -p cherubsh
-```
-
-Run it without installing:
-
-```sh
 target/release/cherubsh
 target/release/cherubsh examples/01-basics.sh
 ```
 
-Install it somewhere on `PATH`:
+You can also run it through Cargo:
+
+```sh
+cargo run -p cherubsh
+cargo run -p cherubsh -- -c 'printf "%s\n" "$BASH_VERSION"'
+```
+
+Parser output and translation extraction run without executing the input:
+
+```sh
+target/release/cherubsh --pretty-print -c 'for name in one two; do echo "$name"; done'
+target/release/cherubsh --dump-strings messages.sh
+target/release/cherubsh --dump-po-strings messages.sh
+```
+
+## Interactive setup
+
+CherubSH reads `~/.cherubrc` for an interactive non-login shell. It does not silently fall back to `~/.bashrc`. Use `--norc` to skip the file or `--rcfile path` to choose another one.
+
+A small starting file might look like this:
+
+```sh
+# ~/.cherubrc
+export EDITOR=vi
+set -o vi
+alias ll='ls -alF'
+
+if [[ -r /usr/share/bash-completion/bash_completion ]]; then
+    source /usr/share/bash-completion/bash_completion
+fi
+```
+
+The pinned bash-completion source used by development tests is fetched to `target/upstream/bash-completion-2.18.0` by `tools/fetch-upstream.sh`.
+
+## Bash loadable builtins
+
+The parity driver builds the example modules shipped with Bash 5.3.15 and checks every builtin it finds. Each one must load, print help, run, and unload the same way under Bash and CherubSH. Additional C fixtures check data exchange through scalars and arrays, line input, subscript parsing, and the child shell started by the `push` example.
+
+After the oracle modules have been built, you can load one directly:
+
+```sh
+BASH_LOADABLES_PATH=target/oracle/bash-5.3.15/examples/loadables \
+  target/release/cherubsh --norc -c '
+    enable -f printenv printenv
+    printenv HOME
+    enable -d printenv
+  '
+```
+
+## Readline and History libraries
+
+Build and stage the compatibility libraries with:
+
+```sh
+./tools/build-readline.sh
+```
+
+The staged files are split between headers and libraries:
+
+```text
+target/readline/include/readline/  readline.h, history.h, keymaps.h, tilde.h, ...
+target/readline/lib/               libreadline.so.8.3, libhistory.so.8.3, static archives
+target/readline/lib/pkgconfig/     readline.pc, history.pc
+```
+
+For example, a C program can link against the staged shared library like this:
+
+```sh
+cc example.c \
+  -Itarget/readline/include \
+  -Ltarget/readline/lib \
+  -Wl,-rpath,"$PWD/target/readline/lib" \
+  -lreadline -ltermcap
+```
+
+The staged directory also works with `pkg-config`:
+
+```sh
+export PKG_CONFIG_PATH="$PWD/target/readline/lib/pkgconfig"
+pkg-config --cflags --libs readline
+pkg-config --cflags --libs history
+```
+
+Run the GNU differential gate with:
+
+```sh
+./tools/run-readline-parity.sh
+```
+
+That command builds GNU Readline 8.3 patch 3, checks public symbol coverage and library names, and compiles the same C fixtures against both implementations. The fixtures exercise a pseudo-terminal Readline loop, user-defined C callbacks, macros, bare keymaps, and History behavior. It also builds every upstream Readline example and compares deterministic output byte for byte. Reports are kept under `target/parity/readline`.
+
+## Testing
+
+Run the ordinary Rust test suite first:
+
+```sh
+cargo test --workspace --locked
+```
+
+The full parity gate needs common build tools, `bison`, `texinfo`, `gpgv`, ncurses development headers, Perl, Python 3, and util-linux. On Debian or Ubuntu:
+
+```sh
+sudo apt-get install \
+  autoconf bison build-essential curl git gpgv \
+  libncurses-dev patch perl python3 texinfo util-linux
+```
+
+Fetch and verify the pinned sources, then run every gate:
+
+```sh
+./tools/fetch-upstream.sh
+RUN_BRUSH_PARITY=1 ./tools/run-parity.sh
+```
+
+`tools/fetch-upstream.sh` checks the recorded tag objects, SHA-256 hashes, and GNU patch signatures before preparing Bash 5.3.15 and Readline 8.3 patch 3. The exact references live in `upstream.lock` and `upstream.sha256`.
+
+The main driver builds a Bash 5.3.15 oracle under `target/oracle`, runs the Rust workspace and upstream Bash suites, and finishes with the Readline gate. Add `RUN_BRUSH_PARITY=1` to include all 2,105 Brush cases, as shown above.
+
+Useful focused commands:
+
+```sh
+# One or more upstream Bash drivers
+RUN_UPSTREAM_PARITY=1 \
+UPSTREAM_PARITY_FILTER='history,jobs' \
+cargo test -p cherubsh --test upstream_parity -- --nocapture
+
+# Brush cases whose qualified names contain this text
+RUN_BRUSH_PARITY=1 \
+BRUSH_PARITY_FILTER='Builtins: wait' \
+cargo test -p cherubsh --test brush_parity -- --nocapture
+
+# Readline and History only
+./tools/run-readline-parity.sh
+```
+
+Parity reports are written below `target/parity`.
+
+## Reference source trees
+
+- `vendor/readline-8.3` contains the user-supplied Readline 8.3 source used to build the GNU oracle.
+- `vendor/bash-5.3.15/tests` contains the checked-in Bash test corpus and expected output files.
+- `vendor/brush` contains the Brush compatibility YAML at commit `5a50c12ed59e610dae038db9acf642286c585e2d`.
+- `target/upstream` holds verified source caches created by `tools/fetch-upstream.sh`.
+- `target/oracle` holds local GNU builds. It is generated and ignored by Git.
+
+The normal upstream Bash suite excludes `tests/misc`, matching Bash's own `make tests` and `tests/run-all` targets. That directory contains manual, network, performance, signal-timing, and terminal-dependent scripts.
+
+## Examples
+
+The scripts under `examples/` cover everyday shell use, expansion and redirection, and process management:
+
+```sh
+cargo run -p cherubsh -- examples/01-basics.sh
+cargo run -p cherubsh -- examples/02-expansion-and-redirection.sh
+cargo run -p cherubsh -- examples/03-traps-coproc-and-jobs.sh
+cargo run -p cherubsh -- examples/04-log-summary.sh
+cargo run -p cherubsh -- examples/05-parallel-checks.sh
+```
+
+## Installing as a shell
+
+Install the release binary somewhere on `PATH`:
 
 ```sh
 sudo install -m 0755 target/release/cherubsh /usr/local/bin/cherubsh
 ```
 
-Run existing Bash scripts with CherubSH:
-
-```sh
-cherubsh ./script.sh
-cherubsh -c 'printf "%s\n" "${BASH_VERSION:-compatible}"'
-```
-
-Use CherubSH for new scripts:
-
-```sh
-#!/usr/bin/env cherubsh
-set -euo pipefail
-
-name=${1:-world}
-printf 'hello %s\n' "$name"
-```
-
-Try it as your current interactive shell:
-
-```sh
-exec cherubsh
-```
-
-Make it your login shell after testing:
+Test your scripts and dotfiles before making it your login shell. Keep the system Bash package installed.
 
 ```sh
 command -v cherubsh | sudo tee -a /etc/shells
 chsh -s "$(command -v cherubsh)"
 ```
 
-Switch back to Bash if needed:
+To switch back:
 
 ```sh
 chsh -s /bin/bash
 ```
 
-Do not replace `/bin/bash` with CherubSH on a system install. System scripts often depend on the exact path and build options of the distro-provided Bash. Prefer explicit script shebangs, `SHELL=/usr/local/bin/cherubsh` for user tools, or `chsh` for your own login shell.
+Do not replace `/bin/bash`. Distribution scripts may depend on that exact path and on build-time options from the packaged Bash.
 
-## Running
+## Credits and licenses
 
-```sh
-cargo run -p cherubsh
-```
+CherubSH is an independent implementation. Its behavior and tests draw on several upstream projects:
 
-Run a script:
+- [GNU Bash](https://www.gnu.org/software/bash/) provides the compatibility target and upstream test corpus. Its source and tests are GPL-3.0-or-later.
+- [GNU Readline](https://www.gnu.org/software/readline/) provides the C API and behavioral reference for the compatible Readline and History libraries. Its source and headers are GPL-3.0-or-later.
+- [Brush](https://github.com/reubeno/brush) provides the MIT-licensed shell compatibility cases under `vendor/brush`.
+- [bash-completion](https://github.com/scop/bash-completion) provides the GPL-2.0-or-later completion corpus used for compatibility testing.
+- [shellgei/rusty_bash](https://github.com/shellgei/rusty_bash) is useful related work on a Bash-compatible shell in Rust.
 
-```sh
-cargo run -p cherubsh -- examples/01-basics.sh
-```
-
-## Examples
-
-Runnable examples live in `examples/`:
-
-- `examples/01-basics.sh`: functions, arrays, associative arrays, loops, and `case`.
-- `examples/02-expansion-and-redirection.sh`: parameter expansion, command substitution, brace expansion, here-documents, and process substitution.
-- `examples/03-traps-coproc-and-jobs.sh`: traps, background jobs, `wait`, and named coprocess file descriptors.
-
-Run them from the repository root:
-
-```sh
-cargo run -p cherubsh -- examples/01-basics.sh
-cargo run -p cherubsh -- examples/02-expansion-and-redirection.sh
-cargo run -p cherubsh -- examples/03-traps-coproc-and-jobs.sh
-```
-
-## Testing
-
-```sh
-./tools/run-parity.sh
-```
-
-`tools/run-parity.sh` runs the full workspace test suite, the CherubSH fixture parity suite, and the vendored upstream Bash 5.3 suite. Set `RUN_BRUSH_PARITY=1` to add the vendored brush compatibility corpus to the same sweep.
-
-The default parity oracle must be Bash 5.3:
-
-- Set `BASH_53_PATH=/path/to/bash-5.3` to use an existing oracle binary.
-- Or let `oracle/build-bash-5.3.sh` build one under `target/oracle/bash-5.3`.
-
-The oracle builder can download the Bash 5.3 release tarball when no local source tree is supplied. Set `BASH_SRC=/path/to/bash-5.3` to build from an existing source tree instead.
-
-## Benchmarking
-
-Use the benchmark harness to compare CherubSH against the Bash 5.3 oracle:
-
-```sh
-./tools/bench.sh
-```
-
-The benchmark covers startup, `-c` parsing, large scripts, arithmetic and control flow, functions, aliases, variables, indexed and associative arrays, parameter expansion, pattern matching, word splitting, brace expansion, command substitution, `read`, `mapfile`, `printf`, `test`, command lookup, completion generation, redirections, here-documents, `eval`, subshells, background `wait`, pipelines, process substitution, external commands, shell options, positional parameters, `getopts`, traps, directory changes, sourcing, and glob scanning.
-
-Useful knobs:
-
-```sh
-RUNS=30 WARMUPS=5 ./tools/bench.sh
-BENCH_BUILD=0 BASH_53_PATH=/path/to/bash-5.3 ./tools/bench.sh
-```
-
-Results are printed as median/min/max milliseconds with a ratio against Bash 5.3. Raw samples are written to `target/bench/raw.tsv`, and the summarized table is written to `target/bench/summary.tsv`.
-
-Benchmarks are not parity tests. Run them on an otherwise idle machine, compare medians across multiple runs, and treat external pipeline cases as measurements of the shell and system together, not just interpreter speed.
-
-
-## Credits
-
-CherubSH is an independent Rust implementation, but its compatibility target and validation corpus are grounded in upstream shell work:
-
-- [GNU Bash](https://www.gnu.org/software/bash/) is the behavioral oracle and source of the vendored Bash 5.3 and legacy 5.2.21 test corpora, helper sources, and reference metadata. Bash's upstream author records credit Brian Fox, Chet Ramey, the GNU Project, and many other contributors; see `vendor/bash-5-3/AUTHORS` and `vendor/bash-5.2.21/AUTHORS`.
-- [brush](https://github.com/reubeno/brush) by Reuben Olinsky provides the vendored shell compatibility cases used by the optional Brush parity sweep; see `vendor/brush/README.cherubsh.md` and `vendor/brush/LICENSE`.
-- [GNU Readline](https://www.gnu.org/software/readline/) and the GNU History library shape Bash's interactive editing, `bind`, completion, and history behavior, which CherubSH reimplements for compatibility rather than vendoring directly.
-- [shellgei/rusty_bash](https://github.com/shellgei/rusty_bash) is useful adjacent work in the Rust Bash-clone space and is referenced above as a comparison point; CherubSH does not vendor code from it.
+CherubSH itself is licensed under GPL-3.0-or-later. See `LICENSE` and the license files kept with each vendored source tree.

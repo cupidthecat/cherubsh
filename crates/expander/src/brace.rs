@@ -375,7 +375,7 @@ fn expand_sequence(body: &[u8]) -> Option<Vec<Vec<u8>>> {
                 vec![cur as u8]
             });
             if going_up {
-                if cur as i32 >= e as i32 {
+                if cur >= e as i32 {
                     break;
                 }
                 cur += abs_step;
@@ -383,7 +383,7 @@ fn expand_sequence(body: &[u8]) -> Option<Vec<Vec<u8>>> {
                     break;
                 }
             } else {
-                if cur as i32 <= e as i32 {
+                if cur <= e as i32 {
                     break;
                 }
                 cur -= abs_step;

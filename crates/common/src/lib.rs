@@ -7,6 +7,7 @@ use std::sync::Arc;
 use bitflags::bitflags;
 
 pub mod completion;
+pub mod histexpand;
 pub mod history;
 pub mod jobs;
 pub mod keymap;
@@ -1287,6 +1288,10 @@ pub trait Environment {
     fn push_diagnostic_line(&mut self, _line: u32) {}
     fn pop_diagnostic_line(&mut self) {}
     fn set_current_command(&mut self, _command: Option<String>) {}
+    fn next_shell_input_line(&mut self) -> Option<String> {
+        None
+    }
+    fn enter_loadable_child(&mut self) {}
     fn arithmetic_expansion_errors_exit_shell(&self) -> bool {
         false
     }
@@ -1695,7 +1700,7 @@ pub trait Environment {
     }
     /// True if a non-default trap is registered for `kind`.
     fn trap_is_set(&self, kind: signals::TrapKind) -> bool {
-        matches!(self.trap_action(kind), Some(_))
+        self.trap_action(kind).is_some()
     }
 
     fn jobs_table(&self) -> Option<&jobs::JobTable> {
@@ -1740,6 +1745,16 @@ pub trait Environment {
     }
     fn compspec_iter(&self) -> Vec<(completion::CompSlot, Option<String>, completion::CompSpec)> {
         Vec::new()
+    }
+    fn completion_options_update(
+        &mut self,
+        _set: completion::CompOpts,
+        _clear: completion::CompOpts,
+    ) -> bool {
+        false
+    }
+    fn completion_options_current(&self) -> Option<(String, completion::CompOpts)> {
+        None
     }
 
     fn keymap_active(&self) -> &str {

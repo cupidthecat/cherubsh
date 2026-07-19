@@ -125,8 +125,6 @@ impl Builtin for Shopt {
                         println!("set {}o {}", if on { "-" } else { "+" }, name);
                     } else if print_form {
                         println!("shopt {}{}", if on { "-s " } else { "-u " }, name);
-                    } else if set_o_mode {
-                        println!("{:<20}\t{}", name, if on { "on" } else { "off" });
                     } else {
                         println!("{:<20}\t{}", name, if on { "on" } else { "off" });
                     }

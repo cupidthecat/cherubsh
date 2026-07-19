@@ -3,9 +3,10 @@ use std::io::{self, BufRead, BufReader, IsTerminal};
 use std::os::unix::io::{AsRawFd, FromRawFd};
 use std::path::Path;
 
-/// Mirrors bash's BASH_INPUT tagged union (input.h:83-89).
-#[derive(Debug)]
+/// Input source currently being read by the shell.
+#[derive(Debug, Default)]
 pub enum BashInput {
+    #[default]
     None,
     Stdin {
         name: String,
@@ -19,12 +20,6 @@ pub enum BashInput {
         name: String,
         reader: BufReader<File>,
     },
-}
-
-impl Default for BashInput {
-    fn default() -> Self {
-        BashInput::None
-    }
 }
 
 impl BashInput {

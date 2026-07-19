@@ -330,15 +330,11 @@ fn invalid_escaped_index_subscript_error(expr: &str, env: &dyn Environment) -> O
         .unwrap_or(expr.len());
     let raw_subscript = &expr[open + 1..end];
     let subscript = if escaped {
+        raw_subscript.replace("\\]", "]").replace("\\[", "[")
+    } else {
         raw_subscript.to_string()
-    } else {
-        raw_subscript.replace('[', "\\[").replace(']', "\\]")
     };
-    let token_start = if escaped {
-        close - open - 1
-    } else {
-        subscript.find("\\]").unwrap_or(close - open - 1)
-    };
+    let token_start = subscript.find(']').unwrap_or(close - open - 1);
     let token = &subscript[token_start..];
     Some(ExpandError::ArithSyntax(format!(
         "{}: arithmetic syntax error: invalid arithmetic operator (error token is \"{}\")",
@@ -588,7 +584,7 @@ pub struct Word {
 
 pub fn expand_word(word: &Word, env: &mut dyn Environment) -> Vec<Word> {
     let span = word.span.unwrap_or_else(Span::dummy);
-    let mut runner = NullRunner::default();
+    let mut runner = NullRunner;
     let wd = PWordDesc {
         text: word.value.clone(),
         flags: 0,

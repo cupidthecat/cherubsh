@@ -134,7 +134,7 @@ fn help_description(name: &str) -> &'static str {
 }
 
 fn print_bash_help_list() {
-    println!("GNU bash, version 5.3.0(1)-release (x86_64-pc-linux-gnu)");
+    println!("GNU bash, version 5.3.15(1)-release (x86_64-pc-linux-gnu)");
     print!("{BASH_HELP_LIST_BODY}");
 }
 

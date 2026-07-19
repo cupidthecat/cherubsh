@@ -1,7 +1,0 @@
-verdict	name	status	timed_out	stdout_path	stderr_path	tstout_path
-PASS	alias	0	false	target/parity/promoted-current/alias.stdout	target/parity/promoted-current/alias.stderr	
-PASS	appendop	0	false	target/parity/promoted-current/appendop.stdout	target/parity/promoted-current/appendop.stderr	
-PASS	mapfile	0	false	target/parity/promoted-current/mapfile.stdout	target/parity/promoted-current/mapfile.stderr	
-PASS	strip	0	false	target/parity/promoted-current/strip.stdout	target/parity/promoted-current/strip.stderr	
-PASS	tilde	0	false	target/parity/promoted-current/tilde.stdout	target/parity/promoted-current/tilde.stderr	
-PASS	tilde2	0	false	target/parity/promoted-current/tilde2.stdout	target/parity/promoted-current/tilde2.stderr	

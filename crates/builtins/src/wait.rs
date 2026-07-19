@@ -3,7 +3,7 @@
 use std::thread;
 use std::time::Duration;
 
-use cherubsh_common::jobs::{JobSpec, JobState};
+use cherubsh_common::jobs::{JobFlags, JobSpec, JobState};
 use cherubsh_common::signals::{TrapAction, TrapKind, NSIG};
 use cherubsh_common::AssignError;
 
@@ -86,7 +86,7 @@ impl Builtin for Wait {
                 last_status = 127;
                 continue;
             };
-            let pids = match resolve_target_pids(ctx, &spec) {
+            let pids = match resolve_target_pids(ctx, &spec, wait_any) {
                 Some(pids) if !pids.is_empty() => pids,
                 None => {
                     if arg.starts_with('%') {
@@ -134,8 +134,22 @@ struct WaitTarget {
     pids: Vec<i32>,
 }
 
-fn resolve_target_pids(ctx: &mut BuiltinCtx<'_>, spec: &JobSpec) -> Option<Vec<i32>> {
+fn resolve_target_pids(
+    ctx: &mut BuiltinCtx<'_>,
+    spec: &JobSpec,
+    whole_job_for_pid: bool,
+) -> Option<Vec<i32>> {
     match spec {
+        JobSpec::Pid(pid) if whole_job_for_pid => {
+            let Some(table) = ctx.env_ref().jobs_table() else {
+                return Some(vec![*pid]);
+            };
+            let Some(job_id) = table.job_of_pid(*pid) else {
+                return Some(vec![*pid]);
+            };
+            let job = table.get(job_id)?;
+            Some(job.processes.iter().map(|p| p.pid).collect())
+        }
         JobSpec::Pid(pid) => Some(vec![*pid]),
         _ => {
             let table = ctx.env_ref().jobs_table()?;
@@ -187,8 +201,16 @@ fn prepare_wait_p_var(ctx: &mut BuiltinCtx<'_>, var: &str) -> bool {
 }
 
 fn wait_for_children(ctx: &mut BuiltinCtx<'_>, wait_any: bool, force: bool) -> (i32, Option<i32>) {
+    if wait_any {
+        if let Some(completed) = take_completed_job(ctx, None) {
+            return completed;
+        }
+    }
     if let Some(pids) = all_waitable_job_pids(ctx) {
         if pids.is_empty() {
+            if !wait_any {
+                mark_all_completed_jobs_waited(ctx);
+            }
             return (if wait_any { 127 } else { 0 }, None);
         }
         if wait_any {
@@ -200,6 +222,7 @@ fn wait_for_children(ctx: &mut BuiltinCtx<'_>, wait_any: bool, force: bool) -> (
                     return (status, None);
                 }
             }
+            mark_all_completed_jobs_waited(ctx);
             return (0, None);
         }
     }
@@ -221,6 +244,7 @@ fn wait_for_children(ctx: &mut BuiltinCtx<'_>, wait_any: bool, force: bool) -> (
         }
         saw_child = true;
         update_job_table(ctx, pid, status);
+        mark_process_waited_by_pid(ctx, pid);
         run_sigchld_trap(ctx);
         last_status = decode(status);
         if wait_any {
@@ -255,7 +279,13 @@ fn all_waitable_job_pids(ctx: &BuiltinCtx<'_>) -> Option<Vec<i32>> {
 fn wait_for_pids(ctx: &mut BuiltinCtx<'_>, pids: &[i32], force: bool) -> Option<i32> {
     let mut last_status = None;
     let mut trapped_children = 0usize;
+    let mut waited_pids = Vec::new();
     for pid in pids {
+        if let Some(status) = completed_pid_status(ctx, *pid) {
+            last_status = Some(status);
+            waited_pids.push(*pid);
+            continue;
+        }
         let mut status: libc::c_int = 0;
         loop {
             let flags = libc::WNOHANG | if force { 0 } else { libc::WUNTRACED };
@@ -280,8 +310,12 @@ fn wait_for_pids(ctx: &mut BuiltinCtx<'_>, pids: &[i32], force: bool) -> Option<
             update_job_table(ctx, rc, status);
             trapped_children += 1;
             last_status = Some(decode(status));
+            waited_pids.push(rc);
             break;
         }
+    }
+    for pid in waited_pids {
+        mark_process_waited_by_pid(ctx, pid);
     }
     for _ in 0..trapped_children {
         run_sigchld_trap(ctx);
@@ -295,30 +329,33 @@ fn wait_for_any_target(
     force: bool,
 ) -> (Option<i32>, Option<i32>) {
     let mut pids: Vec<i32> = targets.into_iter().flat_map(|t| t.pids).collect();
+    if let Some((status, pid)) = take_completed_job(ctx, Some(&pids)) {
+        return (Some(status), pid);
+    }
     while !pids.is_empty() {
-        let mut index = 0;
-        while index < pids.len() {
-            let pid = pids[index];
-            let mut status: libc::c_int = 0;
-            let flags = libc::WNOHANG | if force { 0 } else { libc::WUNTRACED };
-            let rc = unsafe { libc::waitpid(pid, &mut status, flags) };
-            if rc > 0 {
-                update_job_table(ctx, rc, status);
-                run_sigchld_trap(ctx);
-                return (Some(decode(status)), Some(rc));
+        let mut status: libc::c_int = 0;
+        let flags = libc::WNOHANG | if force { 0 } else { libc::WUNTRACED };
+        let rc = unsafe { libc::waitpid(-1, &mut status, flags) };
+        if rc > 0 {
+            update_job_table(ctx, rc, status);
+            run_sigchld_trap(ctx);
+            if let Some((status, winner)) = take_completed_job(ctx, Some(&pids)) {
+                return (Some(status), winner);
             }
-            if rc < 0 {
-                let errno = unsafe { *libc::__errno_location() };
-                if errno == libc::EINTR {
-                    if let Some(status) = run_pending_wait_trap(ctx) {
-                        return (Some(status), None);
-                    }
-                    continue;
+            if libc::WIFEXITED(status) || libc::WIFSIGNALED(status) {
+                pids.retain(|pid| *pid != rc);
+            }
+            continue;
+        }
+        if rc < 0 {
+            let errno = unsafe { *libc::__errno_location() };
+            if errno == libc::EINTR {
+                if let Some(status) = run_pending_wait_trap(ctx) {
+                    return (Some(status), None);
                 }
-                pids.remove(index);
                 continue;
             }
-            index += 1;
+            break;
         }
         thread::sleep(Duration::from_millis(10));
     }
@@ -374,7 +411,9 @@ fn purge_waited_done(ctx: &mut BuiltinCtx<'_>) {
                 table
                     .list()
                     .iter()
-                    .filter(|job| job.state == JobState::Done)
+                    .filter(|job| {
+                        job.state == JobState::Done && job.flags.contains(JobFlags::WAITED_FOR)
+                    })
                     .map(|job| job.id)
                     .collect()
             })
@@ -386,6 +425,88 @@ fn purge_waited_done(ctx: &mut BuiltinCtx<'_>) {
         }
     }
     run_coproc_cleanups(ctx);
+}
+
+fn take_completed_job(
+    ctx: &mut BuiltinCtx<'_>,
+    allowed_pids: Option<&[i32]>,
+) -> Option<(i32, Option<i32>)> {
+    let (status, winner, pids) = {
+        let table = ctx.env_ref().jobs_table()?;
+        let job = table
+            .list()
+            .iter()
+            .filter(|job| {
+                job.state == JobState::Done
+                    && !job.flags.contains(JobFlags::WAITED_FOR)
+                    && allowed_pids.is_none_or(|allowed| {
+                        job.processes
+                            .iter()
+                            .any(|process| allowed.contains(&process.pid))
+                    })
+            })
+            .min_by_key(|job| table.completion_order(job.id))?;
+        let status = job.exit_status.unwrap_or_else(|| {
+            job.processes
+                .last()
+                .map(|process| decode(process.status_raw))
+                .unwrap_or(0)
+        });
+        let winner = job
+            .processes
+            .last()
+            .map(|process| process.pid)
+            .unwrap_or(job.leader_pid);
+        let pids = job
+            .processes
+            .iter()
+            .map(|process| process.pid)
+            .collect::<Vec<_>>();
+        (status, winner, pids)
+    };
+    if let Some(table) = ctx.env().jobs_table_mut() {
+        for pid in pids {
+            table.mark_pid_waited(pid);
+        }
+    }
+    Some((status, Some(winner)))
+}
+
+fn completed_pid_status(ctx: &BuiltinCtx<'_>, pid: i32) -> Option<i32> {
+    let table = ctx.env_ref().jobs_table()?;
+    if table.pid_was_waited(pid) {
+        return None;
+    }
+    let job = table.get(table.job_of_pid(pid)?)?;
+    let process = job.processes.iter().find(|process| process.pid == pid)?;
+    (process.state == JobState::Done).then(|| decode(process.status_raw))
+}
+
+fn mark_process_waited_by_pid(ctx: &mut BuiltinCtx<'_>, pid: i32) {
+    let Some(table) = ctx.env().jobs_table_mut() else {
+        return;
+    };
+    table.mark_pid_waited(pid);
+}
+
+fn mark_all_completed_jobs_waited(ctx: &mut BuiltinCtx<'_>) {
+    let pids = ctx
+        .env_ref()
+        .jobs_table()
+        .map(|table| {
+            table
+                .list()
+                .iter()
+                .filter(|job| job.state == JobState::Done)
+                .flat_map(|job| job.processes.iter().map(|process| process.pid))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    if let Some(table) = ctx.env().jobs_table_mut() {
+        for pid in pids {
+            table.mark_pid_waited(pid);
+        }
+    }
 }
 
 fn run_coproc_cleanups(ctx: &mut BuiltinCtx<'_>) {

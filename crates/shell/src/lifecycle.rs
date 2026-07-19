@@ -68,11 +68,13 @@ pub fn shell_initialize(state: &mut ShellState) {
         "SHELL",
         state.get("SHELL").unwrap_or_else(default_login_shell),
     );
-    bind(
-        state,
-        "BASH_LOADABLES_PATH",
-        String::from(BASH_LOADABLES_PATH_VALUE),
-    );
+    if state.get("BASH_LOADABLES_PATH").is_none() {
+        bind(
+            state,
+            "BASH_LOADABLES_PATH",
+            String::from(BASH_LOADABLES_PATH_VALUE),
+        );
+    }
     bind_readonly(state, "BASHOPTS", bashopts_value(state));
     bind(
         state,
@@ -112,6 +114,9 @@ pub fn shell_initialize(state: &mut ShellState) {
     state.set_attr("OPTIND", VarAttrs::INTEGER, true);
     if state.get("OPTERR").is_none() {
         bind(state, "OPTERR", String::from("1"));
+    }
+    if state.interactive && state.get("MAILCHECK").is_none() {
+        bind(state, "MAILCHECK", String::from("60"));
     }
     if state.get("PS1").is_none() {
         bind(state, "PS1", String::from("\\s-\\v\\$ "));

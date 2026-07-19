@@ -11,7 +11,7 @@ use std::borrow::Cow;
 
 use crate::pipeline;
 use crate::util::{expand_words, report_expand_error, try_expand_one, try_expand_words};
-use crate::{ExecContext, ExecMode, Unwind};
+use crate::{ExecContext, ExecError, ExecMode, Unwind};
 
 pub(crate) fn execute_connection<'a>(
     ctx: &mut ExecContext<'a>,
@@ -106,7 +106,13 @@ pub(crate) fn execute_connection<'a>(
             collect_pipeline(conn, &mut commands);
             pipeline::execute(ctx, commands, conn.connector == CONN_BAR_AND)
         }
-        _ => ctx.unsupported("connection"),
+        invalid => {
+            ExecError::new(format!(
+                "internal error: invalid connection operator {invalid}"
+            ))
+            .report();
+            2
+        }
     }
 }
 

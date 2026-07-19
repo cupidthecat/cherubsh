@@ -1,21 +1,14 @@
-//! Job-control data model.
+//! Job-control state shared by the shell and its builtins.
 //!
-//! Mirrors bash-5.2.21 `jobs.h` PROCESS/JOB structs. The single source of
-//! truth for live jobs lives in `ShellState.jobs` (a `JobTable`) so builtins
-//! and the exec engine can both mutate it through the `Environment` trait.
-//!
-//! Concurrency: every mutator that races against SIGCHLD must be wrapped in
-//! a `SignalMaskGuard` (see `cherubsh_common::signals`). The signal handler
-//! itself is async-signal-safe and only touches the atomic pending-counters
-//! in `signals::pending_counts`; reaping happens at safe points via
-//! `JobTable::reap_all`.
+//! The layout follows the process and job records in Bash 5.3.15. Code that
+//! can race with `SIGCHLD` must hold a `SignalMaskGuard`; child reaping is
+//! deferred to safe points.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use bitflags::bitflags;
 
-/// Identifier used for jobspec `%N`. Increments monotonically; ids are
-/// reused only after a job is `purge_done`-ed.
+/// Identifier used for jobspec `%N`. A free slot is reused after its job leaves the table.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct JobId(pub u32);
 
@@ -127,8 +120,10 @@ pub struct JobTable {
     jobs: Vec<Job>,
     current: Option<JobId>,
     previous: Option<JobId>,
-    next_id: u32,
     pid_to_job: HashMap<i32, JobId>,
+    waited_pids: HashSet<i32>,
+    completion_order: HashMap<JobId, u64>,
+    next_completion_order: u64,
 }
 
 impl JobTable {
@@ -137,24 +132,45 @@ impl JobTable {
             jobs: Vec::new(),
             current: None,
             previous: None,
-            next_id: 0,
             pid_to_job: HashMap::new(),
+            waited_pids: HashSet::new(),
+            completion_order: HashMap::new(),
+            next_completion_order: 0,
         }
     }
 
     fn allocate_id(&mut self) -> JobId {
-        // bash assigns the next gap-free positive integer; we approximate by
-        // scanning for an unused id starting at 1 (matches typical output).
         let mut id = 1u32;
         loop {
             if !self.jobs.iter().any(|j| j.id.0 == id) {
-                if id > self.next_id {
-                    self.next_id = id;
-                }
                 return JobId(id);
             }
             id += 1;
         }
+    }
+
+    fn reset_current_previous(&mut self) {
+        let mut candidates: Vec<(usize, JobId, bool)> = self
+            .jobs
+            .iter()
+            .enumerate()
+            .filter(|(_, job)| job.state != JobState::Done)
+            .map(|(index, job)| (index, job.id, job.state == JobState::Stopped))
+            .collect();
+        if candidates.is_empty() {
+            let mut completed = self
+                .jobs
+                .iter()
+                .enumerate()
+                .filter(|(_, job)| !job.notified)
+                .map(|(index, job)| (index, job.id));
+            self.current = completed.next_back().map(|(_, id)| id);
+            self.previous = completed.next_back().map(|(_, id)| id);
+            return;
+        }
+        candidates.sort_by_key(|(index, _, stopped)| (*stopped, *index));
+        self.current = candidates.pop().map(|(_, id, _)| id);
+        self.previous = candidates.pop().map(|(_, id, _)| id);
     }
 
     pub fn add(
@@ -177,6 +193,7 @@ impl JobTable {
             flags |= JobFlags::JOBCONTROL;
         }
         for p in &processes {
+            self.waited_pids.remove(&p.pid);
             self.pid_to_job.insert(p.pid, id);
         }
         let job = Job {
@@ -225,23 +242,40 @@ impl JobTable {
             let job = self.jobs.remove(pos);
             for p in &job.processes {
                 self.pid_to_job.remove(&p.pid);
+                self.waited_pids.remove(&p.pid);
             }
+            self.completion_order.remove(&id);
         }
-        if self.current == Some(id) {
-            self.current = self.previous;
-            self.previous = None;
-        } else if self.previous == Some(id) {
-            self.previous = None;
-        }
-        // pick a fresh previous from any remaining stopped/running job
-        if self.previous.is_none() && self.current.is_some() {
-            let cur = self.current.unwrap();
-            self.previous = self.jobs.iter().rev().find(|j| j.id != cur).map(|j| j.id);
-        }
+        self.reset_current_previous();
     }
 
     pub fn job_of_pid(&self, pid: i32) -> Option<JobId> {
         self.pid_to_job.get(&pid).copied()
+    }
+
+    pub fn pid_was_waited(&self, pid: i32) -> bool {
+        self.waited_pids.contains(&pid)
+    }
+
+    pub fn completion_order(&self, id: JobId) -> Option<u64> {
+        self.completion_order.get(&id).copied()
+    }
+
+    pub fn mark_pid_waited(&mut self, pid: i32) {
+        self.waited_pids.insert(pid);
+        let Some(job_id) = self.job_of_pid(pid) else {
+            return;
+        };
+        let all_waited = self.get(job_id).is_some_and(|job| {
+            job.processes
+                .iter()
+                .all(|p| self.waited_pids.contains(&p.pid))
+        });
+        if all_waited {
+            if let Some(job) = self.get_mut(job_id) {
+                job.flags.insert(JobFlags::WAITED_FOR);
+            }
+        }
     }
 
     pub fn lookup(&self, spec: &JobSpec) -> Result<JobId, JobLookupErr> {
@@ -293,6 +327,7 @@ impl JobTable {
         let Some(jid) = self.pid_to_job.get(&pid).copied() else {
             return;
         };
+        let mut completed = false;
         if let Some(job) = self.get_mut(jid) {
             for p in job.processes.iter_mut() {
                 if p.pid == pid {
@@ -300,11 +335,22 @@ impl JobTable {
                     p.state = JobState::Done;
                 }
             }
-            if job.processes.iter().all(|p| p.state == JobState::Done) {
+            if job.state != JobState::Done
+                && job.processes.iter().all(|p| p.state == JobState::Done)
+            {
                 job.state = JobState::Done;
                 let last = job.processes.last().map(|p| p.status_raw).unwrap_or(0);
                 job.exit_status = Some(decode_status(last));
+                completed = true;
             }
+        }
+        if completed {
+            self.completion_order
+                .insert(jid, self.next_completion_order);
+            self.next_completion_order = self.next_completion_order.wrapping_add(1);
+        }
+        if completed && (self.current == Some(jid) || self.previous == Some(jid)) {
+            self.reset_current_previous();
         }
     }
 
@@ -364,20 +410,14 @@ impl JobTable {
                 purged.push(j.id);
                 for p in &j.processes {
                     self.pid_to_job.remove(&p.pid);
+                    self.waited_pids.remove(&p.pid);
                 }
+                self.completion_order.remove(&j.id);
             }
             k
         });
-        if let Some(c) = self.current {
-            if purged.contains(&c) {
-                self.current = self.previous;
-                self.previous = None;
-            }
-        }
-        if let Some(p) = self.previous {
-            if purged.contains(&p) {
-                self.previous = None;
-            }
+        if !purged.is_empty() {
+            self.reset_current_previous();
         }
         purged
     }
@@ -432,8 +472,7 @@ impl JobTable {
     }
 }
 
-/// Decode a raw `waitpid` status into the bash-conventional 0..255 exit code
-/// (signal-terminated → 128+sig, exited → status, stopped → 128+sig).
+/// Converts a raw `waitpid` status to the shell's 0-255 exit status.
 pub fn decode_status(raw: i32) -> i32 {
     if libc::WIFEXITED(raw) {
         libc::WEXITSTATUS(raw)
@@ -443,5 +482,92 @@ pub fn decode_status(raw: i32) -> i32 {
         128 + libc::WSTOPSIG(raw)
     } else {
         1
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn process(pid: i32) -> Process {
+        Process {
+            pid,
+            status_raw: 0,
+            state: JobState::Running,
+            command: format!("job-{pid}"),
+        }
+    }
+
+    fn add_job(table: &mut JobTable, pid: i32) -> JobId {
+        table.add(
+            pid,
+            pid,
+            format!("job-{pid}"),
+            true,
+            true,
+            vec![process(pid)],
+        )
+    }
+
+    #[test]
+    fn reuses_the_lowest_free_job_id() {
+        let mut table = JobTable::new();
+        assert_eq!(add_job(&mut table, 101), JobId(1));
+        assert_eq!(add_job(&mut table, 102), JobId(2));
+        assert_eq!(add_job(&mut table, 103), JobId(3));
+        table.remove(JobId(2));
+        assert_eq!(add_job(&mut table, 104), JobId(2));
+    }
+
+    #[test]
+    fn stopped_jobs_take_current_and_previous_markers() {
+        let mut table = JobTable::new();
+        let first = add_job(&mut table, 201);
+        let second = add_job(&mut table, 202);
+        assert_eq!(table.current(), Some(second));
+        assert_eq!(table.previous(), Some(first));
+
+        table.mark_stopped(201, libc::SIGTSTP);
+        assert_eq!(table.current(), Some(first));
+        assert_eq!(table.previous(), Some(second));
+
+        table.mark_dead(201, 0);
+        assert_eq!(table.current(), Some(second));
+        assert_eq!(table.previous(), None);
+    }
+
+    #[test]
+    fn lone_completed_job_keeps_the_current_marker_until_notification() {
+        let mut table = JobTable::new();
+        let only = add_job(&mut table, 211);
+
+        table.mark_dead(211, 0);
+
+        assert_eq!(table.current(), Some(only));
+        assert_eq!(table.previous(), None);
+    }
+
+    #[test]
+    fn continuing_a_stopped_job_preserves_current_markers() {
+        let mut table = JobTable::new();
+        let first = add_job(&mut table, 221);
+        let second = add_job(&mut table, 222);
+        table.mark_stopped(221, libc::SIGTSTP);
+
+        table.mark_running(221);
+
+        assert_eq!(table.current(), Some(first));
+        assert_eq!(table.previous(), Some(second));
+    }
+
+    #[test]
+    fn removing_current_recomputes_both_markers() {
+        let mut table = JobTable::new();
+        let first = add_job(&mut table, 301);
+        let second = add_job(&mut table, 302);
+        let third = add_job(&mut table, 303);
+        table.remove(third);
+        assert_eq!(table.current(), Some(second));
+        assert_eq!(table.previous(), Some(first));
     }
 }

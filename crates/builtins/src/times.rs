@@ -24,12 +24,9 @@ impl Builtin for Times {
                 return 1;
             }
             println!(
-                "{}",
-                format!(
-                    "{}\n{}",
-                    format_usage(&self_usage),
-                    format_usage(&child_usage)
-                )
+                "{}\n{}",
+                format_usage(&self_usage),
+                format_usage(&child_usage)
             );
         }
         0

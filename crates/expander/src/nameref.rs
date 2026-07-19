@@ -9,23 +9,19 @@ const NAMEREF_MAX_DEPTH: usize = 8;
 /// detected.
 pub fn resolve(env: &dyn Environment, name: &str) -> Option<String> {
     if !env.attrs(name).contains(VarAttrs::NAMEREF) {
-        // Trust the env-level resolver as a fallback (ShellState wires this up)
-        // but if the var isn't a nameref the answer is just `name`.
+        // A regular variable already resolves to itself.
         return Some(name.to_string());
     }
     let mut cur = name.to_string();
     let mut seen = std::collections::HashSet::new();
     seen.insert(cur.clone());
     for _ in 0..NAMEREF_MAX_DEPTH {
-        let next = match env.resolve_nameref(&cur) {
-            Some(n) => n,
-            None => return None,
-        };
+        let next = env.resolve_nameref(&cur)?;
         if next == cur {
             return Some(cur);
         }
         if !seen.insert(next.clone()) {
-            return None; // cycle
+            return None;
         }
         cur = next;
         if !env.attrs(&cur).contains(VarAttrs::NAMEREF) {

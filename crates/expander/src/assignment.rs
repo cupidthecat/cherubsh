@@ -303,9 +303,7 @@ fn fast_expand_simple_subscript(subscript: &str, env: &dyn Environment) -> Optio
             i += 1;
             continue;
         }
-        let Some(next) = body_bytes.get(i + 1).copied() else {
-            return None;
-        };
+        let next = body_bytes.get(i + 1).copied()?;
         if !(next == b'_' || next.is_ascii_alphabetic()) {
             return None;
         }
@@ -505,7 +503,7 @@ fn invalid_compound_metachar(body: &str) -> Option<String> {
                 i = if current_subst_starts(bytes, i + 2) {
                     skip_current_subst(bytes, i + 2)
                 } else {
-                    skip_balanced(bytes, i + 1, b'{', b'}')
+                    skip_balanced(bytes, i + 2, b'{', b'}')
                 };
                 at_word_start = false;
             }
@@ -544,7 +542,7 @@ fn skip_double_quoted_word(bytes: &[u8], mut i: usize) -> usize {
     while i < bytes.len() {
         match bytes[i] {
             b'\\' if i + 1 < bytes.len() => i += 2,
-            b'$' if bytes.get(i + 1) == Some(&b'{') => i = skip_balanced(bytes, i + 1, b'{', b'}'),
+            b'$' if bytes.get(i + 1) == Some(&b'{') => i = skip_balanced(bytes, i + 2, b'{', b'}'),
             b'$' if bytes.get(i + 1) == Some(&b'(') => i = skip_balanced(bytes, i + 2, b'(', b')'),
             b'`' => i = skip_backticks(bytes, i),
             b'"' => return i + 1,
@@ -591,7 +589,7 @@ fn skip_current_subst(bytes: &[u8], mut i: usize) -> usize {
                 i = if current_subst_starts(bytes, i + 2) {
                     skip_current_subst(bytes, i + 2)
                 } else {
-                    skip_balanced(bytes, i + 1, b'{', b'}')
+                    skip_balanced(bytes, i + 2, b'{', b'}')
                 };
             }
             b'{' => {
@@ -907,7 +905,7 @@ fn lex_words(body: &str) -> Vec<WordDesc> {
                     at_word_start = false;
                 }
                 b'$' if bytes.get(i + 1) == Some(&b'{') => {
-                    i = skip_balanced(bytes, i + 1, b'{', b'}');
+                    i = skip_balanced(bytes, i + 2, b'{', b'}');
                     at_word_start = false;
                 }
                 b'$' if bytes.get(i + 1) == Some(&b'(') => {
@@ -998,7 +996,7 @@ fn skip_bracket_assignment(bytes: &[u8], start: usize) -> Option<usize> {
             b'\\' => i = (i + 2).min(bytes.len()),
             b'\'' => i = skip_quoted(bytes, i, bytes[i]),
             b'"' => i = skip_double_quoted_word(bytes, i),
-            b'$' if bytes.get(i + 1) == Some(&b'{') => i = skip_balanced(bytes, i + 1, b'{', b'}'),
+            b'$' if bytes.get(i + 1) == Some(&b'{') => i = skip_balanced(bytes, i + 2, b'{', b'}'),
             b'$' if bytes.get(i + 1) == Some(&b'(') => i = skip_balanced(bytes, i + 2, b'(', b')'),
             b'[' => {
                 depth += 1;
@@ -1158,7 +1156,7 @@ fn bracket_assignment(text: &str) -> Option<(&str, &str, bool)> {
             b'\\' => i = (i + 2).min(bytes.len()),
             b'\'' => i = skip_quoted(bytes, i, bytes[i]),
             b'"' => i = skip_double_quoted_word(bytes, i),
-            b'$' if bytes.get(i + 1) == Some(&b'{') => i = skip_balanced(bytes, i + 1, b'{', b'}'),
+            b'$' if bytes.get(i + 1) == Some(&b'{') => i = skip_balanced(bytes, i + 2, b'{', b'}'),
             b'$' if bytes.get(i + 1) == Some(&b'(') => i = skip_balanced(bytes, i + 2, b'(', b')'),
             b'[' => {
                 depth += 1;
@@ -1283,6 +1281,12 @@ mod tests {
         let texts = words.into_iter().map(|w| w.text).collect::<Vec<_>>();
         assert_eq!(texts, vec!["[1]=x", "[2]=y", "a#b"]);
         assert_eq!(invalid_compound_metachar("# ignored ;\n [1]=two"), None);
+
+        let words = lex_words(
+            "\r\n \"${selected[@]}\"\r\n\r\n # Note: bash < 4.3 has a bug\r\n ${old[@]+\"${old[@]}\"}\r\n",
+        );
+        let texts = words.into_iter().map(|word| word.text).collect::<Vec<_>>();
+        assert_eq!(texts, vec!["\"${selected[@]}\"", "${old[@]+\"${old[@]}\"}"]);
     }
 
     #[test]

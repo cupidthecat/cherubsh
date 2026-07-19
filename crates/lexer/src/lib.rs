@@ -95,6 +95,7 @@ pub struct Lexer<'a> {
     peek_word_after_time: bool,
     extglob_patterns: bool,
     posix_mode: bool,
+    comments_enabled: bool,
 }
 
 impl<'a> Lexer<'a> {
@@ -115,6 +116,7 @@ impl<'a> Lexer<'a> {
             peek_word_after_time: false,
             extglob_patterns: false,
             posix_mode: false,
+            comments_enabled: true,
         }
     }
 
@@ -136,6 +138,10 @@ impl<'a> Lexer<'a> {
         self.posix_mode = enabled;
     }
 
+    pub fn set_comments_enabled(&mut self, enabled: bool) {
+        self.comments_enabled = enabled;
+    }
+
     pub fn next_token(&mut self) -> Option<Token> {
         if self.done {
             return None;
@@ -147,12 +153,8 @@ impl<'a> Lexer<'a> {
                 self.done = true;
                 return Some(self.emit_simple(TokenKind::End, self.offset, self.offset));
             }
-            let ch = self.peek_byte();
-            if ch == b'\\'
-                && self.offset + 1 < self.input.len()
-                && self.input.as_bytes()[self.offset + 1] == b'\n'
-            {
-                self.offset += 2;
+            if let Some(length) = self.line_continuation_len() {
+                self.offset += length;
                 continue;
             }
             break;
@@ -193,6 +195,7 @@ impl<'a> Lexer<'a> {
                 break;
             }
             if self.offset < self.input.len()
+                && self.comments_enabled
                 && self.peek_byte() == b'#'
                 && (saw_blank || self.at_word_start())
             {
@@ -209,42 +212,52 @@ impl<'a> Lexer<'a> {
         if self.last_reserved {
             return true;
         }
-        match self.last_kind {
-            None
-            | Some(TokenKind::Newline)
-            | Some(TokenKind::Semicolon)
-            | Some(TokenKind::Ampersand)
-            | Some(TokenKind::AndAnd)
-            | Some(TokenKind::OrOr)
-            | Some(TokenKind::Pipe)
-            | Some(TokenKind::BarAnd)
-            | Some(TokenKind::LParen)
-            | Some(TokenKind::RParen)
-            | Some(TokenKind::LBrace)
-            | Some(TokenKind::RBrace)
-            | Some(TokenKind::DblSemicolon)
-            | Some(TokenKind::SemiAmp)
-            | Some(TokenKind::DblSemiAmp)
-            | Some(TokenKind::DblLParen)
-            | Some(TokenKind::DblRParen)
-            | Some(TokenKind::DblRBracket)
-            | Some(TokenKind::Then)
-            | Some(TokenKind::Else)
-            | Some(TokenKind::Elif)
-            | Some(TokenKind::Do)
-            | Some(TokenKind::Done)
-            | Some(TokenKind::Fi)
-            | Some(TokenKind::Esac)
-            | Some(TokenKind::Bang)
-            | Some(TokenKind::Time)
-            | Some(TokenKind::TimeOpt)
-            | Some(TokenKind::TimeIgn) => true,
-            _ => false,
-        }
+        matches!(
+            self.last_kind,
+            None | Some(TokenKind::Newline)
+                | Some(TokenKind::Semicolon)
+                | Some(TokenKind::Ampersand)
+                | Some(TokenKind::AndAnd)
+                | Some(TokenKind::OrOr)
+                | Some(TokenKind::Pipe)
+                | Some(TokenKind::BarAnd)
+                | Some(TokenKind::LParen)
+                | Some(TokenKind::RParen)
+                | Some(TokenKind::LBrace)
+                | Some(TokenKind::RBrace)
+                | Some(TokenKind::DblSemicolon)
+                | Some(TokenKind::SemiAmp)
+                | Some(TokenKind::DblSemiAmp)
+                | Some(TokenKind::DblLParen)
+                | Some(TokenKind::DblRParen)
+                | Some(TokenKind::DblRBracket)
+                | Some(TokenKind::Then)
+                | Some(TokenKind::Else)
+                | Some(TokenKind::Elif)
+                | Some(TokenKind::Do)
+                | Some(TokenKind::Done)
+                | Some(TokenKind::Fi)
+                | Some(TokenKind::Esac)
+                | Some(TokenKind::Bang)
+                | Some(TokenKind::Time)
+                | Some(TokenKind::TimeOpt)
+                | Some(TokenKind::TimeIgn)
+        )
     }
 
     fn peek_byte(&self) -> u8 {
         self.input.as_bytes()[self.offset]
+    }
+
+    fn line_continuation_len(&self) -> Option<usize> {
+        let rest = self.input.as_bytes().get(self.offset..)?;
+        if rest.starts_with(b"\\\n") {
+            Some(2)
+        } else if rest.starts_with(b"\\\r\n") {
+            Some(3)
+        } else {
+            None
+        }
     }
 
     fn take_char(&mut self) -> char {
@@ -388,10 +401,8 @@ impl<'a> Lexer<'a> {
             }
             match ch {
                 b'\\' => {
-                    if self.offset + 1 < self.input.len()
-                        && self.input.as_bytes()[self.offset + 1] == b'\n'
-                    {
-                        self.offset += 2;
+                    if let Some(length) = self.line_continuation_len() {
+                        self.offset += length;
                         continue;
                     }
                     flags |= W_QUOTED;
@@ -624,6 +635,10 @@ impl<'a> Lexer<'a> {
             match ch {
                 b'"' => return,
                 b'\\' => {
+                    if let Some(length) = self.line_continuation_len() {
+                        self.offset += length;
+                        continue;
+                    }
                     out.push('\\');
                     self.offset += 1;
                     if self.offset < self.input.len() {
@@ -1404,12 +1419,12 @@ impl<'a> Lexer<'a> {
                 continue;
             }
             if ch == b'\\' {
+                if let Some(length) = self.line_continuation_len() {
+                    self.offset += length;
+                    continue;
+                }
                 self.offset += 1;
                 if self.offset < self.input.len() {
-                    if self.peek_byte() == b'\n' {
-                        self.offset += 1;
-                        continue;
-                    }
                     out.push('\\');
                     delimiter.push(self.peek_byte() as char);
                     out.push(self.take_char());
@@ -1854,6 +1869,19 @@ mod tests {
     fn comment_consumed_to_newline() {
         let ks = kinds("echo a # rest\nb");
         assert!(ks.contains(&TokenKind::Newline));
+    }
+
+    #[test]
+    fn line_continuations_work_with_lf_and_crlf() {
+        assert_eq!(
+            words("for i in one \\\n two"),
+            vec!["for", "i", "in", "one", "two"]
+        );
+        assert_eq!(
+            words("for i in one \\\r\n two"),
+            vec!["for", "i", "in", "one", "two"]
+        );
+        assert_eq!(words("echo one\\\r\ntwo"), vec!["echo", "onetwo"]);
     }
 
     #[test]

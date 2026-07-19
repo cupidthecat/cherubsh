@@ -10,7 +10,7 @@ use crate::state::ShellState;
 
 const SYS_PROFILE: &str = "/etc/profile";
 
-/// Source a file if it exists and is readable. Mirrors maybe_execute_file.
+/// Sources a file when it exists and can be read.
 pub fn maybe_source(path: &Path, state: &mut ShellState) -> bool {
     let mut exec_state = ExecState::default();
     exec_state.import_exported_functions(state);
@@ -44,7 +44,7 @@ fn expanded_env_path(name: &str, state: &mut ShellState) -> Option<PathBuf> {
     if raw.is_empty() {
         return None;
     }
-    let mut runner = NullRunner::default();
+    let mut runner = NullRunner;
     let expanded = expand_string_to_string(&raw, state, &mut runner).unwrap_or(raw);
     if expanded.is_empty() {
         None
@@ -74,7 +74,7 @@ fn source_login_files(state: &mut ShellState, exec_state: &mut ExecState) {
     }
 }
 
-/// run_startup_files: full port of shell.c:1124-1260.
+/// Loads the startup files selected for the current shell mode.
 pub fn run_startup_files(state: &mut ShellState, exec_state: &mut ExecState) {
     let mut sourced_login = false;
 
@@ -87,16 +87,15 @@ pub fn run_startup_files(state: &mut ShellState, exec_state: &mut ExecState) {
 
     // Non-interactive: BASH_ENV (and return)
     if !state.interactive_shell {
-        if !(state.su_shell && state.login_shell != 0) {
-            if !state.posixly_correct
-                && !state.act_like_sh
-                && !state.privileged_mode
-                && state.sourced_env == 0
-            {
-                state.sourced_env += 1;
-                if let Some(path) = expanded_env_path("BASH_ENV", state) {
-                    maybe_source_with_exec_state(&path, state, exec_state);
-                }
+        let skip_bash_env = state.su_shell && state.login_shell != 0
+            || state.posixly_correct
+            || state.act_like_sh
+            || state.privileged_mode
+            || state.sourced_env != 0;
+        if !skip_bash_env {
+            state.sourced_env += 1;
+            if let Some(path) = expanded_env_path("BASH_ENV", state) {
+                maybe_source_with_exec_state(&path, state, exec_state);
             }
         }
         return;
@@ -109,20 +108,18 @@ pub fn run_startup_files(state: &mut ShellState, exec_state: &mut ExecState) {
         }
 
         if !state.act_like_sh && !state.no_rc {
-            let bashrc = state.bashrc_file.clone();
-            maybe_source_with_exec_state(&bashrc, state, exec_state);
+            let rc_file = state.rc_file.clone();
+            maybe_source_with_exec_state(&rc_file, state, exec_state);
         } else if state.act_like_sh && !state.privileged_mode && state.sourced_env == 0 {
             state.sourced_env += 1;
             if let Some(path) = expanded_env_path("ENV", state) {
                 maybe_source_with_exec_state(&path, state, exec_state);
             }
         }
-    } else {
-        if !state.privileged_mode && state.sourced_env == 0 {
-            state.sourced_env += 1;
-            if let Some(path) = expanded_env_path("ENV", state) {
-                maybe_source_with_exec_state(&path, state, exec_state);
-            }
+    } else if !state.privileged_mode && state.sourced_env == 0 {
+        state.sourced_env += 1;
+        if let Some(path) = expanded_env_path("ENV", state) {
+            maybe_source_with_exec_state(&path, state, exec_state);
         }
     }
 }

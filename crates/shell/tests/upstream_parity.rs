@@ -1,8 +1,6 @@
-//! bash-5.2.21 upstream test sweep.
+//! Runs the upstream Bash `run-*` drivers against CherubSH.
 //!
-//! Wraps every vendored `bash-5.2.21/tests/run-*` script, points it at the
-//! cherubsh binary, and classifies the outcome against `upstream-xfail.txt`.
-//! Gated on `RUN_UPSTREAM_PARITY=1` to keep `cargo test` fast by default.
+//! Set `RUN_UPSTREAM_PARITY=1` to include this slower suite.
 
 use std::fs;
 use std::io::Write;
@@ -10,7 +8,10 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use cherubsh_test_harness::upstream::{discover_upstream_tests, load_xfail, run_upstream};
-use cherubsh_test_harness::{cherub_path, oracle_available, oracle_bash_path, workspace_root};
+use cherubsh_test_harness::{
+    cherub_path, oracle_available, oracle_bash_path, oracle_version, oracle_version_dir,
+    workspace_root,
+};
 
 const PER_TEST_TIMEOUT_SECS: u64 = 60;
 const JOBS_TIMEOUT_SECS: u64 = 90;
@@ -27,13 +28,14 @@ enum Verdict {
 #[test]
 fn upstream_parity_all() {
     if std::env::var_os("RUN_UPSTREAM_PARITY").is_none() {
-        eprintln!("skip: set RUN_UPSTREAM_PARITY=1 to run the bash-5.2.21 upstream sweep");
+        eprintln!("skip: set RUN_UPSTREAM_PARITY=1 to run the upstream Bash sweep");
         return;
     }
 
     if !oracle_available() {
         panic!(
-            "bash-5.2.21 oracle not available at {}; run oracle/build-bash-5.2.21.sh first",
+            "bash {} oracle is not available at {}",
+            oracle_version(),
             oracle_bash_path().display()
         );
     }
@@ -217,10 +219,19 @@ fn report_dir() -> PathBuf {
 }
 
 fn bash_tests_dir() -> PathBuf {
+    if let Ok(path) = std::env::var("BASH_TESTS_DIR") {
+        return PathBuf::from(path);
+    }
+    if let Ok(path) = std::env::var("BASH_5315_TESTS_DIR") {
+        return PathBuf::from(path);
+    }
+    if let Ok(path) = std::env::var("BASH_53_TESTS_DIR") {
+        return PathBuf::from(path);
+    }
     if let Ok(path) = std::env::var("BASH_521_TESTS_DIR") {
         return PathBuf::from(path);
     }
-    workspace_root().join("vendor/bash-5.2.21/tests")
+    workspace_root().join(format!("target/oracle/bash-{}/tests", oracle_version_dir()))
 }
 
 fn filter_tests(

@@ -357,7 +357,7 @@ fn prepare_self_nameref_array_assignment(env: &mut dyn Environment, name: &str) 
         return None;
     }
     let target = env.resolve_nameref(name)?;
-    if !array_reference_base(&target).is_some_and(|base| base == name) {
+    if array_reference_base(&target).is_none_or(|base| base != name) {
         return None;
     }
     if env.get(name).as_deref() == Some(target.as_str()) {

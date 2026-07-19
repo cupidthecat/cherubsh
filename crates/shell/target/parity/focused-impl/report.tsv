@@ -1,4 +1,0 @@
-verdict	name	status	timed_out	stdout_path	stderr_path	tstout_path
-xfail	arith	1	false	target/parity/focused-impl/arith.stdout	target/parity/focused-impl/arith.stderr	target/parity/focused-impl/arith.tstout
-xfail	case	1	false	target/parity/focused-impl/case.stdout	target/parity/focused-impl/case.stderr	target/parity/focused-impl/case.tstout
-xfail	parser	1	false	target/parity/focused-impl/parser.stdout	target/parity/focused-impl/parser.stderr	target/parity/focused-impl/parser.tstout

@@ -1,13 +1,11 @@
-//! Vendored brush compatibility test sweep.
+//! Runs the vendored Brush compatibility cases against Bash and CherubSH.
 //!
-//! Runs `vendor/brush/brush-shell/tests/cases/compat` against CherubSH and the
-//! Bash 5.2.21 oracle. Gated on `RUN_BRUSH_PARITY=1` because the corpus has
-//! thousands of shell invocations.
+//! Set `RUN_BRUSH_PARITY=1` to include this slower suite.
 
 use std::fs;
 
 use cherubsh_test_harness::brush::{default_brush_cases_dir, discover_brush_cases, run_brush_case};
-use cherubsh_test_harness::{oracle_available, oracle_bash_path, workspace_root};
+use cherubsh_test_harness::{oracle_available, oracle_bash_path, oracle_version, workspace_root};
 
 #[test]
 fn brush_compat_parity_all() {
@@ -18,7 +16,8 @@ fn brush_compat_parity_all() {
 
     if !oracle_available() {
         panic!(
-            "bash-5.2.21 oracle not available at {}; run oracle/build-bash-5.2.21.sh first",
+            "bash {} oracle is not available at {}",
+            oracle_version(),
             oracle_bash_path().display()
         );
     }

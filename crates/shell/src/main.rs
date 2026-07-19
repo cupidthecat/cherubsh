@@ -1,7 +1,7 @@
 mod completion;
 mod exit;
-mod histexpand;
 mod input;
+mod invocation;
 mod lifecycle;
 mod options;
 mod prompt;
@@ -19,6 +19,7 @@ use cherubsh_exec::ExecState;
 
 use crate::exit::exit_shell;
 use crate::input::BashInput;
+use crate::invocation::run_source_output_mode;
 use crate::lifecycle::{init_interactive, init_noninteractive, load_history, shell_initialize};
 use crate::options::{
     bind_args, parse_long_options, parse_shell_options, set_shell_name,
@@ -31,7 +32,19 @@ use crate::state::{ShellState, StartupMode};
 
 const SHELL_STACK_SIZE: usize = 32 * 1024 * 1024;
 
+#[cfg(target_os = "linux")]
+unsafe extern "C" {
+    fn cherub_loadable_abi_link_anchor();
+}
+
 fn main() {
+    unsafe {
+        libc::setlocale(libc::LC_ALL, c"".as_ptr());
+    }
+    #[cfg(target_os = "linux")]
+    unsafe {
+        cherub_loadable_abi_link_anchor();
+    }
     install_early_sigint();
     let big5_locale = current_locale_is_big5();
     let argv = std::env::args_os()
@@ -48,7 +61,10 @@ fn main() {
         })
         .unwrap_or(2);
     // Cannot call exit_shell here because we don't own state; use _exit directly.
-    unsafe { libc::_exit(exit_code) };
+    unsafe {
+        libc::fflush(std::ptr::null_mut());
+        libc::_exit(exit_code);
+    }
 }
 
 fn run_shell(argv: Vec<String>) -> i32 {
@@ -316,6 +332,14 @@ fn run(argv: Vec<String>) -> Result<i32, ShellError> {
         load_history(&mut state);
     }
 
+    if state.pretty_print_mode && state.interactive_shell {
+        eprintln!(
+            "{}: warning: pretty-printing mode ignored in interactive shells",
+            state.shell_invocation_name
+        );
+        state.pretty_print_mode = false;
+    }
+
     // Choose the appropriate input source. Reset EOF first because
     // startup-file sourcing leaves eof_reached set when its input stack pops.
     state.eof_reached = false;
@@ -324,13 +348,25 @@ fn run(argv: Vec<String>) -> Result<i32, ShellError> {
     state.current_command_line_count = 0;
     if let Some(command) = state.command_execution_string.clone() {
         state.startup_state = StartupMode::DashC;
+        state.pretty_print_mode = false;
+        if let Some(status) = run_source_output_mode(&state, "-c", &command) {
+            return Ok(status);
+        }
         state.input = BashInput::from_string("-c", command);
     } else if let Some(path) = state.shell_script_filename.clone() {
         if let Some(status) = script_startup_error(&zero, &path) {
             return Ok(status);
         }
-        if state.pretty_print_mode {
-            return Ok(run_pretty_print(&path));
+        if state.pretty_print_mode || state.dump_translatable_strings || state.dump_po_strings {
+            let bytes = std::fs::read(&path).map_err(|err| ShellError {
+                message: format!("failed to open script {}: {err}", path.display()),
+                code: 127,
+                span: None,
+            })?;
+            let source = cherubsh_expander::quote::bytes_to_shell_string(&bytes);
+            if let Some(status) = run_source_output_mode(&state, &path.to_string_lossy(), &source) {
+                return Ok(status);
+            }
         }
         state.input = BashInput::from_file(&path).map_err(|err| ShellError {
             message: format!("failed to open script {}: {err}", path.display()),
@@ -339,6 +375,19 @@ fn run(argv: Vec<String>) -> Result<i32, ShellError> {
         })?;
     } else {
         state.read_from_stdin = true;
+        if state.pretty_print_mode || state.dump_translatable_strings || state.dump_po_strings {
+            use std::io::Read;
+            let mut bytes = Vec::new();
+            std::io::stdin()
+                .read_to_end(&mut bytes)
+                .map_err(|err| ShellError::with_code(err.to_string(), 1))?;
+            let source = cherubsh_expander::quote::bytes_to_shell_string(&bytes);
+            if let Some(status) =
+                run_source_output_mode(&state, &state.shell_invocation_name, &source)
+            {
+                return Ok(status);
+            }
+        }
         state.input = BashInput::stdin();
     }
 
@@ -370,20 +419,6 @@ fn resolve_script_path(script: &str) -> Option<PathBuf> {
         }
     }
     None
-}
-
-fn run_pretty_print(path: &Path) -> i32 {
-    let Some(oracle) = std::env::var_os("BASH_ORACLE_PATH") else {
-        return 0;
-    };
-    match std::process::Command::new(oracle)
-        .arg("--pretty-print")
-        .arg(path)
-        .status()
-    {
-        Ok(status) => status.code().unwrap_or(1),
-        Err(_) => 1,
-    }
 }
 
 #[cfg(test)]

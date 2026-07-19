@@ -1,0 +1,14 @@
+# Immutable source references used by tools/fetch-upstream.sh.
+BASH_REPOSITORY=https://https.git.savannah.gnu.org/git/bash.git
+BASH_TAG=bash-5.3
+BASH_TAG_OBJECT=b8c60bc9ca365f8261fa97900b6fa939f6ebc303
+BASH_PATCHLEVEL=15
+
+READLINE_REPOSITORY=https://https.git.savannah.gnu.org/git/readline.git
+READLINE_TAG=readline-8.3
+READLINE_TAG_OBJECT=447b8290b3e2e2d117dc8e9cdb83b0dc6448a638
+READLINE_PATCHLEVEL=3
+
+BASH_COMPLETION_REPOSITORY=https://github.com/scop/bash-completion.git
+BASH_COMPLETION_TAG=2.18.0
+BASH_COMPLETION_TAG_OBJECT=b80d38cce5645fb98acd4eba857843fdf66be570

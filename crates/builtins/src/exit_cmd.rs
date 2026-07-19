@@ -1,5 +1,6 @@
 use crate::common::report_diagnostic;
 use crate::{Builtin, BuiltinCtx, BuiltinFlags};
+use cherubsh_common::JobState;
 
 pub struct Exit;
 pub static EXIT: Exit = Exit;
@@ -16,6 +17,9 @@ impl Builtin for Exit {
     fn run(&self, ctx: &mut BuiltinCtx<'_>) -> i32 {
         let (status, should_exit) = parse_status(ctx, "exit");
         if should_exit {
+            if warn_about_jobs(ctx) {
+                return 1;
+            }
             ctx.shell.request_exit(status);
         }
         status
@@ -38,10 +42,78 @@ impl Builtin for Logout {
         }
         let (status, should_exit) = parse_status(ctx, "logout");
         if should_exit {
+            if warn_about_jobs(ctx) {
+                return 1;
+            }
             ctx.shell.request_exit(status);
         }
         status
     }
+}
+
+fn warn_about_jobs(ctx: &mut BuiltinCtx<'_>) -> bool {
+    if !ctx.env_ref().option("interactive") || ctx.env_ref().option("__exit_job_warning") {
+        return false;
+    }
+    if let Some(table) = ctx.env().jobs_table_mut() {
+        let _ = table.reap_all();
+    }
+    let Some(table) = ctx.env_ref().jobs_table() else {
+        return false;
+    };
+    let stopped = table
+        .list()
+        .iter()
+        .any(|job| job.state == JobState::Stopped);
+    let running = table
+        .list()
+        .iter()
+        .any(|job| job.state == JobState::Running);
+    if !(stopped || ctx.env_ref().option("checkjobs") && running) {
+        return false;
+    }
+
+    eprintln!(
+        "There are {} jobs.",
+        if stopped { "stopped" } else { "running" }
+    );
+    if ctx.env_ref().option("checkjobs") {
+        let current = table.current().map(|id| id.raw());
+        let previous = table.previous().map(|id| id.raw());
+        for job in table
+            .list()
+            .iter()
+            .filter(|job| job.state != JobState::Done)
+        {
+            let marker = if Some(job.id.raw()) == current {
+                '+'
+            } else if Some(job.id.raw()) == previous {
+                '-'
+            } else {
+                ' '
+            };
+            let label = if job.state == JobState::Stopped {
+                "Stopped"
+            } else {
+                "Running"
+            };
+            let suffix = if job.state == JobState::Running {
+                " &"
+            } else {
+                ""
+            };
+            println!(
+                "[{}]{}  {:<26} {}{}",
+                job.id.raw(),
+                marker,
+                label,
+                job.command_line,
+                suffix
+            );
+        }
+    }
+    ctx.env().set_option("__exit_job_warning", true);
+    true
 }
 
 fn parse_status(ctx: &mut BuiltinCtx<'_>, diagnostic_name: &str) -> (i32, bool) {

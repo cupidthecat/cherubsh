@@ -166,12 +166,12 @@ pub(crate) fn call<'a>(
         ExecMode::Parent => {
             if redirects.is_empty() {
                 apply_assignments(ctx, assignments);
-                ctx.execute_function_body_command(&body, ExecMode::Parent)
+                ctx.execute_function_body_command(body, ExecMode::Parent)
             } else {
                 match redirect::apply_redirects_to_parent(ctx, redirects) {
                     Ok(_guard) => {
                         apply_assignments(ctx, assignments);
-                        ctx.execute_function_body_command(&body, ExecMode::Parent)
+                        ctx.execute_function_body_command(body, ExecMode::Parent)
                     }
                     Err(err) => {
                         err.report_with_env(ctx.env);
@@ -186,7 +186,7 @@ pub(crate) fn call<'a>(
                 1
             } else {
                 apply_assignments(ctx, assignments);
-                ctx.execute_function_body_command(&body, ExecMode::Child)
+                ctx.execute_function_body_command(body, ExecMode::Child)
             }
         }
     });

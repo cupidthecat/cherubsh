@@ -6,7 +6,7 @@ use cherubsh_common::{
     Environment, FastHashMap as HashMap, CMD_IGNORE_RETURN, CMD_INVERT_RETURN, CMD_TIME_PIPELINE,
     CMD_TIME_POSIX, W_ASSIGNMENT,
 };
-use cherubsh_expander::{ExpandError, ProcSubstHandle};
+use cherubsh_expander::{CommandRunner, ExpandError, ExpandFlags, ProcSubstHandle};
 use cherubsh_lexer::{Lexer, TokenKind};
 use cherubsh_parser::{
     Ast, Command, CommandData, CondCommand, CondType, Parser, Redirect, RedirectInstruction,
@@ -60,6 +60,106 @@ impl ExecState {
                     .insert(name.to_string(), "main".to_string());
             }
         }
+    }
+
+    pub fn expand_string(
+        &mut self,
+        text: &str,
+        env: &mut dyn Environment,
+    ) -> Result<String, ExpandError> {
+        let mut runner = ExecRunner::with_functions_mut_at_depth(
+            &mut self.functions,
+            &mut self.function_sources,
+            self.function_depth,
+            self.source_depth,
+        );
+        cherubsh_expander::expand_string_to_string(text, env, &mut runner)
+    }
+
+    pub fn function_names(&self) -> Vec<String> {
+        self.functions.keys().cloned().collect()
+    }
+
+    pub fn execute_source(
+        &mut self,
+        source: &str,
+        env: &mut dyn Environment,
+    ) -> Result<ExecResult, String> {
+        let parse_source = cherubsh_common::expand_aliases_for_parse(source, env);
+        let mut lexer = Lexer::new(&parse_source);
+        lexer.set_extglob_patterns(env.option("extglob"));
+        lexer.set_posix_mode(env.option("posix"));
+        lexer.set_comments_enabled(true);
+        let mut tokens = Vec::new();
+        while let Some(token) = lexer.next_token() {
+            let at_end = token.kind == TokenKind::End;
+            tokens.push(token);
+            if at_end {
+                break;
+            }
+        }
+        let mut parser = Parser::new(tokens, &parse_source);
+        let ast = parser
+            .parse_input_unit()
+            .map_err(|error| error.message)?
+            .ok_or_else(|| "empty input".to_string())?;
+        Ok(execute_with_state(&ast, env, self))
+    }
+
+    pub fn capture_subshell(
+        &mut self,
+        source: &str,
+        env: &mut dyn Environment,
+    ) -> Result<Vec<u8>, ExpandError> {
+        let mut runner = ExecRunner::with_functions_mut_at_depth(
+            &mut self.functions,
+            &mut self.function_sources,
+            self.function_depth,
+            self.source_depth,
+        );
+        runner.run_subst(env, source)
+    }
+
+    pub fn expand_words_source(
+        &mut self,
+        source: &str,
+        env: &mut dyn Environment,
+    ) -> Result<Vec<String>, ExpandError> {
+        let parse_source = format!("__cherub_completion {source}");
+        let mut lexer = Lexer::new(&parse_source);
+        lexer.set_extglob_patterns(env.option("extglob"));
+        lexer.set_posix_mode(env.option("posix"));
+        let mut tokens = Vec::new();
+        while let Some(token) = lexer.next_token() {
+            let at_end = token.kind == TokenKind::End;
+            tokens.push(token);
+            if at_end {
+                break;
+            }
+        }
+        let mut parser = Parser::new(tokens, &parse_source);
+        let ast = parser
+            .parse_input_unit()
+            .map_err(|error| ExpandError::Other(error.message))?
+            .ok_or_else(|| ExpandError::Other("empty completion word list".to_string()))?;
+        let CommandData::Simple(simple) = ast.root.data else {
+            return Err(ExpandError::Other(
+                "completion word list is not a simple word list".to_string(),
+            ));
+        };
+        let mut runner = ExecRunner::with_functions_mut_at_depth(
+            &mut self.functions,
+            &mut self.function_sources,
+            self.function_depth,
+            self.source_depth,
+        );
+        let words = cherubsh_expander::expand_word_list(
+            simple.words.get(1..).unwrap_or_default(),
+            env,
+            &mut runner,
+            ExpandFlags::SPLIT_FIELDS | ExpandFlags::EXPAND_GLOB | ExpandFlags::QUOTE_REMOVAL,
+        )?;
+        Ok(words.into_iter().map(|word| word.text).collect())
     }
 }
 
@@ -507,7 +607,6 @@ impl<'a> ExecContext<'a> {
                 let result = if self.env.option("xtrace") {
                     let expanded_result =
                         cherubsh_expander::expand_for_arith_with_text(expr, self.env, &mut runner);
-                    drop(runner);
                     match expanded_result {
                         Ok((expanded, value)) => {
                             xtrace::trace(self, &format!("(( {} ))", expanded));
@@ -589,12 +688,6 @@ impl<'a> ExecContext<'a> {
             return None;
         }
         crate::trap::run_debug_trap(self)
-    }
-
-    pub(crate) fn unsupported(&mut self, feature: &str) -> i32 {
-        ExecError::new(format!("unsupported: {feature}")).report();
-        self.last_status = 2;
-        2
     }
 }
 
@@ -763,7 +856,7 @@ fn render_redirect(redir: &Redirect) -> String {
         | RedirectInstruction::MoveOutputWord => ">&",
         RedirectInstruction::DeblankReadingUntil => "<<-",
         RedirectInstruction::CloseThis => match redir.redirector {
-            Redirector::Fd(fd) if fd == 0 => "<&",
+            Redirector::Fd(0) => "<&",
             _ => ">&",
         },
         RedirectInstruction::ErrAndOut => "&>",
@@ -829,21 +922,70 @@ fn child_command_can_exec_direct(command: &Command) -> bool {
 }
 
 fn report_pipeline_time(env: &mut dyn Environment, elapsed: Duration, posix: bool) {
-    let default = if posix {
-        "real %2R\nuser %2U\nsys %2S"
+    let format = if posix {
+        "real %2R\nuser %2U\nsys %2S".to_string()
     } else {
-        "real %2R\nuser %2U\nsys %2S"
+        env.get("TIMEFORMAT")
+            .unwrap_or_else(|| "\nreal\t%3lR\nuser\t%3lU\nsys\t%3lS".to_string())
     };
-    let format = env.get("TIMEFORMAT").unwrap_or_else(|| default.to_string());
-    let real = format!("{:.2}", elapsed.as_secs_f64());
-    let rendered = format
-        .replace("%2R", &real)
-        .replace("%R", &real)
-        .replace("%2U", "0.00")
-        .replace("%U", "0.00")
-        .replace("%2S", "0.00")
-        .replace("%S", "0.00");
-    eprintln!("{rendered}");
+    if format.is_empty() {
+        return;
+    }
+    match render_time_format(&format, elapsed) {
+        Ok(rendered) => eprintln!("{rendered}"),
+        Err(ch) => eprintln!("cherubsh: TIMEFORMAT: `{ch}': invalid format character"),
+    }
+}
+
+fn render_time_format(format: &str, elapsed: Duration) -> Result<String, char> {
+    let mut rendered = String::with_capacity(format.len() + 32);
+    let mut chars = format.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch != '%' || chars.peek().is_none() {
+            rendered.push(ch);
+            continue;
+        }
+        if chars.peek() == Some(&'%') {
+            chars.next();
+            rendered.push('%');
+            continue;
+        }
+        if chars.peek() == Some(&'P') {
+            chars.next();
+            rendered.push_str("0.00");
+            continue;
+        }
+
+        let mut precision = 3usize;
+        if chars.peek().is_some_and(char::is_ascii_digit) {
+            precision = chars.next().unwrap().to_digit(10).unwrap() as usize;
+            precision = precision.min(6);
+        }
+        let long = if chars.peek() == Some(&'l') {
+            chars.next();
+            true
+        } else {
+            false
+        };
+        let kind = chars.next().ok_or('%')?;
+        let seconds = match kind {
+            'R' | 'E' => elapsed.as_secs_f64(),
+            'U' | 'S' => 0.0,
+            other => return Err(other),
+        };
+        rendered.push_str(&format_time_value(seconds, precision, long));
+    }
+    Ok(rendered)
+}
+
+fn format_time_value(seconds: f64, precision: usize, long: bool) -> String {
+    if long {
+        let minutes = (seconds / 60.0).floor() as u64;
+        let remainder = seconds - minutes as f64 * 60.0;
+        format!("{minutes}m{remainder:.precision$}s")
+    } else {
+        format!("{seconds:.precision$}")
+    }
 }
 
 pub(crate) fn report_arith_command_error(env: &dyn Environment, err: ExpandError, expr: &str) {
@@ -851,9 +993,9 @@ pub(crate) fn report_arith_command_error(env: &dyn Environment, err: ExpandError
         return;
     }
     let message = err.into_shell_error(None).message;
-    let message = if arith_command_error_is_for_outer_expr(expr, &message) {
-        format!("((: {message}")
-    } else if message.starts_with('`') && message.contains("not a valid identifier") {
+    let message = if arith_command_error_is_for_outer_expr(expr, &message)
+        || message.starts_with('`') && message.contains("not a valid identifier")
+    {
         format!("((: {message}")
     } else {
         message
@@ -946,4 +1088,24 @@ fn arith_command_error_is_for_outer_expr(expr: &str, message: &str) -> bool {
             || (expr.contains('"') && message.contains("arithmetic syntax error"))
             || (expr.starts_with('\'') && message.starts_with('\''))
             || (expr.starts_with('"') && message.starts_with('"')))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::render_time_format;
+    use std::time::Duration;
+
+    #[test]
+    fn time_format_supports_precision_and_long_output() {
+        let elapsed = Duration::from_millis(1_234);
+        assert_eq!(
+            render_time_format("real %2R; long %3lR; %% %P", elapsed),
+            Ok("real 1.23; long 0m1.234s; % 0.00".to_string())
+        );
+    }
+
+    #[test]
+    fn time_format_rejects_unknown_conversions() {
+        assert_eq!(render_time_format("%Q", Duration::ZERO), Err('Q'));
+    }
 }

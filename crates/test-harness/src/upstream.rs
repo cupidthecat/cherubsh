@@ -133,7 +133,6 @@ pub fn run_upstream(
     command.env("HOME", &clean_home);
     command.env("THIS_SH", &shell_for_test);
     command.env("BASH", &shell_for_test);
-    command.env("BASH_ORACLE_PATH", oracle_bash_path());
     if oracle_version_dir() == "5.2.21" {
         command.env("CHERUBSH_BASH_COMPAT_VERSION", "5.2.21");
     }
@@ -408,10 +407,11 @@ fn prepare_upstream_support_helper() -> Option<UpstreamSupportHelper> {
     let vendor_dir = std::env::var("BASH_TESTS_DIR")
         .ok()
         .map(PathBuf::from)
+        .or_else(|| std::env::var("BASH_5315_TESTS_DIR").ok().map(PathBuf::from))
         .or_else(|| std::env::var("BASH_53_TESTS_DIR").ok().map(PathBuf::from))
         .or_else(|| std::env::var("BASH_521_TESTS_DIR").ok().map(PathBuf::from))
         .and_then(|tests_dir| tests_dir.parent().map(Path::to_path_buf))
-        .unwrap_or_else(|| workspace_root().join("vendor/bash-5.3"));
+        .unwrap_or_else(|| workspace_root().join("target/oracle/bash-5.3.15"));
     let source_dir = vendor_dir.join("support");
     let root = std::env::temp_dir().join(format!(
         "cherub-upstream-support-{}-{}",

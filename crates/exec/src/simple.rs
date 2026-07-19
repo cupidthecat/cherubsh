@@ -265,6 +265,9 @@ pub(crate) fn execute<'a>(
         return status;
     }
     let mut command_name = command_expanded[0].clone();
+    if !matches!(command_name.as_str(), "exit" | "logout" | "jobs") {
+        ctx.env.set_option("__exit_job_warning", false);
+    }
     let command_word_extra_args = command_expanded[1..].to_vec();
     let command_is_function = ctx.functions.contains_key(&command_name);
     let assignment_builtin = !command_is_function
@@ -484,6 +487,42 @@ pub(crate) fn execute<'a>(
         }
     }
 
+    if mode == ExecMode::Parent
+        && ctx.env.option("interactive")
+        && ctx.env.option("autocd")
+        && is_directory_command(ctx.env, &command_name)
+    {
+        let cd_args = std::iter::once("--".to_string())
+            .chain(std::iter::once(command_name.clone()))
+            .chain(args.clone())
+            .collect::<Vec<_>>();
+        if let Some(function_body) = ctx.functions.get("cd").cloned() {
+            let status = function::call(
+                ctx,
+                "cd",
+                &function_body,
+                cd_args,
+                &simple.redirects,
+                &scalar_assignments,
+                ExecMode::Parent,
+            );
+            update_underscore(ctx, underscore_value);
+            return status;
+        }
+        let status = run_builtin(
+            ctx,
+            "cd",
+            &cd_args,
+            &vec![0; cd_args.len()],
+            &scalar_assignments,
+            simple,
+            mode,
+            suppress_function_lookup,
+        );
+        update_underscore(ctx, underscore_value);
+        return status;
+    }
+
     let status = match mode {
         ExecMode::Parent => {
             match execute_external_parent(
@@ -547,6 +586,20 @@ pub(crate) fn execute<'a>(
     }
     update_underscore(ctx, underscore_value);
     status
+}
+
+fn is_directory_command(env: &dyn Environment, name: &str) -> bool {
+    if name.contains('/') {
+        return std::path::Path::new(name).is_dir();
+    }
+    let path = env.get("PATH").unwrap_or_default();
+    for directory in path.split(':') {
+        let base = if directory.is_empty() { "." } else { directory };
+        if std::path::Path::new(base).join(name).is_dir() {
+            return true;
+        }
+    }
+    std::path::Path::new(name).is_dir()
 }
 
 fn underscore_value(name: &str, args: &[String]) -> String {
@@ -884,7 +937,7 @@ fn expand_assignment_builtin_args(
             flags.push(arg_flags);
         } else {
             let expanded = expand_words(std::slice::from_ref(word), ctx);
-            flags.extend(std::iter::repeat(0).take(expanded.len()));
+            flags.extend(std::iter::repeat_n(0, expanded.len()));
             out.extend(expanded);
         }
     }
@@ -899,12 +952,13 @@ fn expand_regular_args_with_flags(
     let mut flags = Vec::new();
     for word in words {
         let expanded = try_expand_words(std::slice::from_ref(word), ctx)?;
-        flags.extend(std::iter::repeat(word.flags).take(expanded.len()));
+        flags.extend(std::iter::repeat_n(word.flags, expanded.len()));
         out.extend(expanded);
     }
     Ok((out, flags))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn run_builtin<'a>(
     ctx: &mut ExecContext<'a>,
     name: &str,

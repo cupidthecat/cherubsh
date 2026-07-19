@@ -1,6 +1,6 @@
 use crate::common::report_diagnostic;
 use crate::getopt::{GetOpt, OptParser};
-use crate::{iter_builtins, lookup_raw, Builtin, BuiltinCtx};
+use crate::{dynamic, iter_builtins, lookup_raw, Builtin, BuiltinCtx};
 
 pub struct Enable;
 pub static ENABLE: Enable = Enable;
@@ -16,7 +16,6 @@ impl Builtin for Enable {
         let mut list_all = false;
         let mut disable = false;
         let mut delete = false;
-        let mut list_only = false;
         let mut posix_only = false;
         let mut load: Option<String> = None;
         let mut parser = OptParser::new(ctx.args, "adnpsf:");
@@ -25,7 +24,7 @@ impl Builtin for Enable {
                 GetOpt::Opt { ch: 'a', .. } => list_all = true,
                 GetOpt::Opt { ch: 'd', .. } => delete = true,
                 GetOpt::Opt { ch: 'n', .. } => disable = true,
-                GetOpt::Opt { ch: 'p', .. } => list_only = true,
+                GetOpt::Opt { ch: 'p', .. } => {}
                 GetOpt::Opt { ch: 's', .. } => posix_only = true,
                 GetOpt::Opt { ch: 'f', arg, .. } => load = arg,
                 GetOpt::Opt { .. } => {}
@@ -47,35 +46,34 @@ impl Builtin for Enable {
 
         let rest = parser.remaining(ctx.args);
 
-        if load.is_some() {
-            if rest.iter().any(|name| *name == "strmatch") {
-                ctx.env().builtin_set_enabled("strmatch", true);
-                return 0;
-            }
-            eprintln!("cherubsh: enable: -f: dynamic loading not available");
-            return 1;
+        if let Some(filename) = load {
+            let names = rest.to_vec();
+            return match dynamic::load(ctx, &filename, &names, posix_only, disable) {
+                Ok(()) => 0,
+                Err(message) => {
+                    for line in message.lines() {
+                        report_diagnostic(ctx.env_ref(), "enable", line);
+                    }
+                    1
+                }
+            };
         }
 
         if delete && !rest.is_empty() {
             let mut status = 0;
             for name in rest {
-                if lookup_raw(name).is_none() {
-                    report_diagnostic(
-                        ctx.env_ref(),
-                        "enable",
-                        &format!("{name}: not a shell builtin"),
-                    );
+                if !dynamic::is_dynamic(name) {
+                    let message = if lookup_raw(name).is_some() {
+                        format!("{name}: not dynamically loaded")
+                    } else {
+                        format!("{name}: not a shell builtin")
+                    };
+                    report_diagnostic(ctx.env_ref(), "enable", &message);
                     status = 1;
                     continue;
                 }
-                if *name == "strmatch" {
-                    ctx.env().builtin_set_enabled(name, false);
-                } else {
-                    report_diagnostic(
-                        ctx.env_ref(),
-                        "enable",
-                        &format!("{name}: not dynamically loaded"),
-                    );
+                if let Err(message) = dynamic::unload(ctx, name) {
+                    report_diagnostic(ctx.env_ref(), "enable", &message);
                     status = 1;
                 }
             }
@@ -92,9 +90,6 @@ impl Builtin for Enable {
                     continue;
                 }
                 let on = ctx.env_ref().builtin_enabled(b.name());
-                if b.name() == "strmatch" && !on && disable && !list_all {
-                    continue;
-                }
                 if !list_all {
                     if disable && on {
                         continue;
@@ -103,11 +98,7 @@ impl Builtin for Enable {
                         continue;
                     }
                 }
-                if list_only {
-                    println!("enable {}{}", if on { "" } else { "-n " }, b.name());
-                } else {
-                    println!("enable {}{}", if on { "" } else { "-n " }, b.name());
-                }
+                println!("enable {}{}", if on { "" } else { "-n " }, b.name());
             }
             return 0;
         }

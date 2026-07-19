@@ -89,6 +89,7 @@ fn collect_positionals(ctx: &mut BuiltinCtx<'_>) -> Vec<String> {
     (1..=count).filter_map(|i| env.positional(i)).collect()
 }
 
+#[allow(clippy::too_many_arguments)]
 fn walk(
     ctx: &mut BuiltinCtx<'_>,
     optstring: &str,

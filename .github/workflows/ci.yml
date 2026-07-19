@@ -1,0 +1,65 @@
+name: parity
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: parity-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install system packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes \
+            autoconf \
+            bison \
+            build-essential \
+            curl \
+            git \
+            gpgv \
+            libncurses-dev \
+            patch \
+            perl \
+            python3 \
+            texinfo \
+            util-linux
+
+      - name: Install the pinned Rust toolchain
+        run: rustup toolchain install 1.93.1 --profile minimal --component clippy,rustfmt
+
+      - name: Check Rust formatting
+        run: cargo fmt --all -- --check
+
+      - name: Lint Rust targets
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+      - name: Verify and prepare upstream sources
+        run: ./tools/fetch-upstream.sh
+
+      - name: Run every parity gate
+        env:
+          RUN_BRUSH_PARITY: "1"
+        run: ./tools/run-parity.sh
+
+      - name: Preserve parity reports
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: parity-reports
+          path: |
+            parity.log
+            target/parity
+          if-no-files-found: ignore

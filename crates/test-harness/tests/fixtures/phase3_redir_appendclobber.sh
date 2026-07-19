@@ -5,6 +5,6 @@ set -C
 # >| should override noclobber and overwrite
 echo overwrite >|"$tmp"
 cat "$tmp"
-# >> should append even under noclobber
+# >> should append even under noclobbe
 echo append >>"$tmp"
 cat "$tmp"

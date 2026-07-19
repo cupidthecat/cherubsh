@@ -23,7 +23,7 @@ pub(crate) fn execute<'a>(
         return 0;
     }
     if commands.len() == 1 {
-        return ctx.execute_command(&commands[0], ExecMode::Parent);
+        return ctx.execute_command(commands[0], ExecMode::Parent);
     }
 
     let job_control = ctx.env.job_control_enabled();
@@ -56,10 +56,8 @@ pub(crate) fn execute<'a>(
         let is_last_fork = index + 1 == stages_to_fork && !lastpipe;
         let mut pipe_fds = [0i32; 2];
         let needs_pipe = index + 1 < total;
-        if needs_pipe {
-            if unsafe { libc::pipe(pipe_fds.as_mut_ptr()) } < 0 {
-                return 1;
-            }
+        if needs_pipe && unsafe { libc::pipe(pipe_fds.as_mut_ptr()) } < 0 {
+            return 1;
         }
         let pid = unsafe { libc::fork() };
         if pid < 0 {
@@ -156,7 +154,7 @@ pub(crate) fn execute<'a>(
         if trace_debug_in_parent {
             ctx.suppress_debug_traps = true;
         }
-        let status = ctx.execute_command(&commands[total - 1], ExecMode::Parent);
+        let status = ctx.execute_command(commands[total - 1], ExecMode::Parent);
         ctx.suppress_debug_traps = saved_suppress_debug;
         if saved >= 0 {
             unsafe {
