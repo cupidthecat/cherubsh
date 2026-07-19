@@ -544,17 +544,4 @@ mod tests {
         assert_eq!(decode_prompt_string(&s, "$FOO"), "bar");
         assert_eq!(decode_prompt_string(&s, "${FOO}!"), "bar!");
     }
-
-    #[test]
-    fn prompt_expansion_preserves_previous_exit_status() {
-        let mut s = state();
-        s.last_command_exit_value = 7;
-        let mut exec_state = ExecState::default();
-
-        assert_eq!(
-            expand_prompt_string(&mut s, &mut exec_state, "$(printf prompt)"),
-            "prompt"
-        );
-        assert_eq!(s.last_command_exit_value, 7);
-    }
 }

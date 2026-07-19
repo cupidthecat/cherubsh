@@ -302,6 +302,16 @@ PROMPT_COMMAND=pc_from_rc
 }
 
 #[test]
+fn prompt_command_substitution_preserves_previous_exit_status() {
+    let cherub = run_cherub_with_args(
+        &["--noprofile", "--norc", "-i"],
+        Some("PS1='$(printf prompt)> '\nfalse\nprintf 'after:%s\\n' \"$?\"\nexit\n"),
+    );
+    assert_eq!(cherub.status, 0);
+    assert!(cherub.stdout.contains("after:1\n"), "{cherub:?}");
+}
+
+#[test]
 fn just_one_command_from_stdin_reads_one_line() {
     let spec = Spec {
         args: vec!["-t"],
