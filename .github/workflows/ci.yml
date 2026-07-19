@@ -33,6 +33,7 @@ jobs:
             libncurses-dev \
             patch \
             perl \
+            python3 \
             texinfo \
             util-linux
 

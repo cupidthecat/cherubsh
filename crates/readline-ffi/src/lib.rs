@@ -10,7 +10,9 @@ use std::ptr;
 use std::sync::{Mutex, OnceLock};
 
 use cherubsh_common::{histexpand, HistoryTable, Keymap as RustKeymap};
-use cherubsh_lineedit::{Completion, CompletionProvider, EditError, HistoryProvider, LineEditor};
+use cherubsh_lineedit::{
+    Completion, CompletionProvider, EditError, HistoryProvider, LineEditor, RawMode,
+};
 
 unsafe extern "C" {
     #[link_name = "stdin"]
@@ -1209,6 +1211,7 @@ struct ReadlineStore {
     prompt_allocation: usize,
     callback: Option<rl_vcpfunc_t>,
     callback_prompt: String,
+    callback_raw_mode: Option<RawMode>,
     variables: std::collections::BTreeMap<String, String>,
     kill_ring: Vec<String>,
     undo: Vec<(String, usize)>,
@@ -1227,6 +1230,7 @@ impl ReadlineStore {
             prompt_allocation: 0,
             callback: None,
             callback_prompt: String::new(),
+            callback_raw_mode: None,
             variables: std::collections::BTreeMap::new(),
             kill_ring: Vec::new(),
             undo: Vec::new(),
@@ -2051,9 +2055,22 @@ pub unsafe extern "C" fn rl_callback_handler_install(
     rl_initialize();
     rl_set_prompt(prompt);
     rl_readline_state |= 0x00080000;
+    let prompt = c_text(prompt).unwrap_or_default();
+    let raw_mode = if libc::isatty(libc::STDIN_FILENO) != 0 {
+        RawMode::enter().ok()
+    } else {
+        None
+    };
     let mut store = readline_store().lock().expect("readline lock");
     store.callback = callback;
-    store.callback_prompt = c_text(prompt).unwrap_or_default();
+    store.callback_prompt = prompt.clone();
+    store.callback_raw_mode = raw_mode;
+    drop(store);
+    libc::write(
+        libc::STDERR_FILENO,
+        prompt.as_bytes().as_ptr().cast(),
+        prompt.len(),
+    );
 }
 
 #[no_mangle]
@@ -2063,16 +2080,34 @@ pub unsafe extern "C" fn rl_callback_read_char() {
         (store.callback, store.callback_prompt.clone())
     };
     let Some(callback) = callback else { return };
-    let prompt = clean_c_string(&prompt);
-    let line = readline(prompt.as_ptr());
+    let empty_prompt = clean_c_string("");
+    let line = readline(empty_prompt.as_ptr());
     callback(line);
+    if readline_store()
+        .lock()
+        .expect("readline lock")
+        .callback
+        .is_some()
+    {
+        let prompt_value = clean_c_string(&prompt);
+        rl_set_prompt(prompt_value.as_ptr());
+        libc::write(
+            libc::STDERR_FILENO,
+            prompt.as_bytes().as_ptr().cast(),
+            prompt.len(),
+        );
+    }
 }
 
 #[no_mangle]
 pub extern "C" fn rl_callback_handler_remove() {
-    let mut store = readline_store().lock().expect("readline lock");
-    store.callback = None;
-    store.callback_prompt.clear();
+    let raw_mode = {
+        let mut store = readline_store().lock().expect("readline lock");
+        store.callback = None;
+        store.callback_prompt.clear();
+        store.callback_raw_mode.take()
+    };
+    drop(raw_mode);
     unsafe { rl_readline_state &= !0x00080000 };
 }
 

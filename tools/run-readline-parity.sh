@@ -6,6 +6,7 @@ ORACLE_ROOT="${READLINE_ORACLE_ROOT:-${WORKSPACE_ROOT}/target/oracle/readline-8.
 IMPLEMENTATION_ROOT="${READLINE_OUTPUT_ROOT:-${WORKSPACE_ROOT}/target/readline}"
 REPORT_ROOT="${READLINE_PARITY_REPORT_ROOT:-${WORKSPACE_ROOT}/target/parity/readline}"
 EXAMPLE_ROOT="${ORACLE_ROOT}/source/examples"
+PTY_CAPTURE="${WORKSPACE_ROOT}/tests/readline/pty_capture.py"
 
 "${WORKSPACE_ROOT}/oracle/build-readline-8.3.sh"
 "${WORKSPACE_ROOT}/tools/build-readline.sh"
@@ -41,8 +42,9 @@ for side in oracle implementation; do
     HOME="${REPORT_ROOT}/home" LC_ALL=C.UTF-8 TERM=xterm-256color \
         "${REPORT_ROOT}/${side}/abi-smoke" > "${REPORT_ROOT}/${side}/abi-smoke.out"
     "${REPORT_ROOT}/${side}/history-link" > "${REPORT_ROOT}/${side}/history-link.out"
-    printf 'typed line\n' | script -qefc "${REPORT_ROOT}/${side}/readline-loop" /dev/null \
-        | perl -pe 's/\e\[[0-9;?]*[[:alpha:]~]//g; s/\r//g' \
+    printf 'typed line\n\004' \
+        | HOME="${REPORT_ROOT}/home" LC_ALL=C.UTF-8 TERM=xterm-256color \
+            python3 "${PTY_CAPTURE}" "${REPORT_ROOT}/${side}/readline-loop" \
         > "${REPORT_ROOT}/${side}/readline-loop.out"
 done
 
@@ -90,15 +92,14 @@ capture_pty_example() {
     local input="$1"
     local output_base="$2"
     shift 2
-    local command
-    printf -v command '%q ' "$@"
     set +e
-    printf '%s' "${input}" \
-        | HOME="${REPORT_ROOT}/home" LC_ALL=C.UTF-8 TZ=UTC timeout 10 \
-            script -qefc "cd $(printf '%q' "${REPORT_ROOT}/home") && ${command}" /dev/null \
-        | perl -pe 's/\e\[[0-9;?]*[[:alpha:]~]//g; s/\r//g' \
-        > "${output_base}.stdout"
-    local status=${PIPESTATUS[1]}
+    (
+        cd "${REPORT_ROOT}/home"
+        printf '%s' "${input}" \
+            | HOME="${REPORT_ROOT}/home" LC_ALL=C.UTF-8 TZ=UTC \
+                python3 "${PTY_CAPTURE}" "$@"
+    ) > "${output_base}.stdout"
+    local status=$?
     set -e
     printf '%s\n' "${status}" > "${output_base}.status"
 }

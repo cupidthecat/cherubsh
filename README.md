@@ -104,12 +104,12 @@ Run the ordinary Rust test suite first:
 cargo test --workspace --locked
 ```
 
-The full parity gate needs common build tools, `bison`, `texinfo`, `gpgv`, ncurses development headers, Perl, and util-linux. On Debian or Ubuntu:
+The full parity gate needs common build tools, `bison`, `texinfo`, `gpgv`, ncurses development headers, Perl, Python 3, and util-linux. On Debian or Ubuntu:
 
 ```sh
 sudo apt-get install \
   autoconf bison build-essential curl git gpgv \
-  libncurses-dev patch perl texinfo util-linux
+  libncurses-dev patch perl python3 texinfo util-linux
 ```
 
 Fetch and verify the pinned sources, then run every gate:
