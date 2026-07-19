@@ -8,6 +8,7 @@ members = [
   "crates/exec",
   "crates/lineedit",
   "crates/readline-ffi",
+  "crates/history-ffi",
   "crates/shell",
   "crates/test-harness",
 ]

@@ -4,8 +4,9 @@
 use cherubsh_builtins::ShellOps;
 use cherubsh_common::{expand_aliases_for_parse, Environment, Span, W_ASSIGNMENT, W_COMPASSIGN};
 use cherubsh_expander::assignment::expand_assignment_word;
+use cherubsh_expander::{CommandRunner, ExpandFlags};
 use cherubsh_lexer::{Lexer, TokenKind};
-use cherubsh_parser::{Command, ParseError, Parser, WordDesc};
+use cherubsh_parser::{Command, CommandData, ParseError, Parser, WordDesc};
 use std::sync::Arc;
 
 use crate::runner::ExecRunner;
@@ -18,11 +19,11 @@ pub struct ExecAdapter<'a, 'b> {
 
 impl<'a, 'b> ShellOps for ExecAdapter<'a, 'b> {
     fn env(&mut self) -> &mut dyn Environment {
-        &mut *self.ctx.env
+        self.ctx.env
     }
 
     fn env_ref(&self) -> &dyn Environment {
-        &*self.ctx.env
+        self.ctx.env
     }
 
     fn function_define(&mut self, name: &str, body: Command) {
@@ -81,6 +82,54 @@ impl<'a, 'b> ShellOps for ExecAdapter<'a, 'b> {
         run_source_inner(self, src, false, None)
     }
 
+    fn capture_source(&mut self, src: &str) -> Option<Vec<u8>> {
+        let mut runner = ExecRunner::with_functions_mut_at_depth(
+            &mut self.ctx.functions,
+            &mut self.ctx.function_sources,
+            self.ctx.function_depth,
+            self.ctx.source_depth,
+        );
+        runner.run_subst(self.ctx.env, src).ok()
+    }
+
+    fn expand_completion_words(&mut self, src: &str, expand_glob: bool) -> Option<Vec<String>> {
+        let parse_source = format!("__cherub_completion {src}");
+        let mut lexer = Lexer::new(&parse_source);
+        lexer.set_extglob_patterns(self.ctx.env.option("extglob"));
+        lexer.set_posix_mode(self.ctx.env.option("posix"));
+        let mut tokens = Vec::new();
+        while let Some(token) = lexer.next_token() {
+            let at_end = token.kind == TokenKind::End;
+            tokens.push(token);
+            if at_end {
+                break;
+            }
+        }
+        let mut parser = Parser::new(tokens, &parse_source);
+        let ast = parser.parse_input_unit().ok()??;
+        let CommandData::Simple(simple) = ast.root.data else {
+            return None;
+        };
+        let mut runner = ExecRunner::with_functions_mut_at_depth(
+            &mut self.ctx.functions,
+            &mut self.ctx.function_sources,
+            self.ctx.function_depth,
+            self.ctx.source_depth,
+        );
+        let mut flags = ExpandFlags::SPLIT_FIELDS | ExpandFlags::QUOTE_REMOVAL;
+        if expand_glob {
+            flags |= ExpandFlags::EXPAND_GLOB;
+        }
+        cherubsh_expander::expand_word_list(
+            simple.words.get(1..).unwrap_or_default(),
+            self.ctx.env,
+            &mut runner,
+            flags,
+        )
+        .ok()
+        .map(|words| words.into_iter().map(|word| word.text).collect())
+    }
+
     fn run_source_named(&mut self, src: &str, source_name: &str) -> i32 {
         run_source_inner(self, src, false, Some(source_name))
     }
@@ -103,6 +152,12 @@ impl<'a, 'b> ShellOps for ExecAdapter<'a, 'b> {
 
     fn request_exit(&mut self, status: i32) {
         self.ctx.pending = Some(Unwind::Exit(status));
+    }
+    fn requested_exit_status(&self) -> Option<i32> {
+        match &self.ctx.pending {
+            Some(Unwind::Exit(status)) => Some(*status),
+            _ => None,
+        }
     }
     fn request_return(&mut self, status: i32) {
         self.ctx.pending = Some(Unwind::Return {

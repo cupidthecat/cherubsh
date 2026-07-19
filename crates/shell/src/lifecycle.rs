@@ -68,11 +68,13 @@ pub fn shell_initialize(state: &mut ShellState) {
         "SHELL",
         state.get("SHELL").unwrap_or_else(default_login_shell),
     );
-    bind(
-        state,
-        "BASH_LOADABLES_PATH",
-        String::from(BASH_LOADABLES_PATH_VALUE),
-    );
+    if state.get("BASH_LOADABLES_PATH").is_none() {
+        bind(
+            state,
+            "BASH_LOADABLES_PATH",
+            String::from(BASH_LOADABLES_PATH_VALUE),
+        );
+    }
     bind_readonly(state, "BASHOPTS", bashopts_value(state));
     bind(
         state,

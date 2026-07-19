@@ -67,6 +67,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cherubsh-history-ffi"
+version = "0.3.0"
+dependencies = [
+ "cherubsh-common",
+ "cherubsh-lineedit",
+ "libc",
+]
+
+[[package]]
 name = "cherubsh-lexer"
 version = "0.3.0"
 dependencies = [

@@ -40,6 +40,7 @@ if [[ "${ORACLE_VERSION}" == "5.2.21" ]]; then
     export BASH_521_PATH="${ORACLE}"
     export BASH_521_TESTS_DIR="${BASH_TESTS_DIR:-${BASH_521_TESTS_DIR:-${DEFAULT_TESTS_DIR}}}"
 else
+    bash "${WS_ROOT}/oracle/build-bash-5.3.15-loadables.sh"
     export BASH_5315_PATH="${ORACLE}"
     export BASH_53_PATH="${ORACLE}"
     export BASH_5315_TESTS_DIR="${BASH_TESTS_DIR:-${BASH_5315_TESTS_DIR:-${BASH_53_TESTS_DIR:-${DEFAULT_TESTS_DIR}}}}"

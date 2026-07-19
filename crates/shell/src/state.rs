@@ -414,9 +414,12 @@ pub struct ShellState {
     pub privileged_mode: bool,
     pub restricted: bool,
     pub debugging: bool,
+    pub debugger_mode: bool,
     pub noexec: bool,
     pub wordexp_only: bool,
     pub pretty_print_mode: bool,
+    pub dump_translatable_strings: bool,
+    pub dump_po_strings: bool,
     pub verbose_flag: bool,
     pub command_execution_string: Option<String>,
     pub current_command_string: Option<String>,
@@ -520,10 +523,12 @@ pub struct ShellState {
     pub compspecs: HashMap<String, CompSpec>,
     pub compspec_order: HashMap<String, u64>,
     pub compspec_next_order: u64,
+    pub compspec_initialized: bool,
     pub default_compspec: Option<CompSpec>,
     pub initial_compspec: Option<CompSpec>,
     pub empty_compspec: Option<CompSpec>,
     pub active_completion_options: Option<cherubsh_common::completion::CompOpts>,
+    pub active_completion_command: Option<String>,
     pub keymaps: HashMap<String, Keymap>,
     pub active_keymap: String,
     pub line_editor: Option<LineEditor>,
@@ -533,8 +538,7 @@ impl Default for ShellState {
     fn default() -> Self {
         let shell_pid = unsafe { libc::getpid() };
         let shell_pgrp = unsafe { libc::getpgrp() };
-        let mut disabled_builtins = BTreeMap::new();
-        disabled_builtins.insert("strmatch".to_string(), true);
+        let disabled_builtins = BTreeMap::new();
         Self {
             interactive: false,
             interactive_shell: false,
@@ -555,9 +559,12 @@ impl Default for ShellState {
             privileged_mode: false,
             restricted: false,
             debugging: false,
+            debugger_mode: false,
             noexec: false,
             wordexp_only: false,
             pretty_print_mode: false,
+            dump_translatable_strings: false,
+            dump_po_strings: false,
             verbose_flag: false,
             command_execution_string: None,
             current_command_string: None,
@@ -660,10 +667,12 @@ impl Default for ShellState {
             compspecs: HashMap::default(),
             compspec_order: HashMap::default(),
             compspec_next_order: 0,
+            compspec_initialized: false,
             default_compspec: None,
             initial_compspec: None,
             empty_compspec: None,
             active_completion_options: None,
+            active_completion_command: None,
             keymaps: HashMap::default(),
             active_keymap: String::from("emacs"),
             line_editor: None,
@@ -1592,6 +1601,26 @@ impl Environment for ShellState {
 
     fn set(&mut self, name: &str, value: String) {
         let _ = self.assign(name, value);
+    }
+
+    fn next_shell_input_line(&mut self) -> Option<String> {
+        if !matches!(self.input, BashInput::Stdin { .. }) {
+            return None;
+        }
+        let line = self.input.next_line().ok().flatten();
+        if line.is_some() {
+            self.current_command_line_count = self.current_command_line_count.saturating_add(1);
+        }
+        line
+    }
+
+    fn enter_loadable_child(&mut self) {
+        let pid = unsafe { libc::getpid() };
+        self.shell_pid_value = Some(pid);
+        self.bashpid_cache = Some(pid);
+        self.last_async_pid = None;
+        self.pending_coproc_cleanups.clear();
+        self.jobs = JobTable::new();
     }
 
     fn assign(&mut self, name: &str, mut value: String) -> Result<(), AssignError> {
@@ -3764,6 +3793,7 @@ impl Environment for ShellState {
     }
 
     fn compspec_set(&mut self, slot: CompSlot, key: Option<&str>, spec: CompSpec) {
+        self.compspec_initialized = true;
         match slot {
             CompSlot::Command => {
                 if let Some(k) = key {
@@ -3789,6 +3819,9 @@ impl Environment for ShellState {
         }
     }
     fn compspec_remove(&mut self, slot: CompSlot, key: Option<&str>) -> bool {
+        if !self.compspec_initialized {
+            return true;
+        }
         match slot {
             CompSlot::Command => key
                 .map(|k| {
@@ -3846,6 +3879,15 @@ impl Environment for ShellState {
         *options |= set;
         *options &= !clear;
         true
+    }
+
+    fn completion_options_current(
+        &self,
+    ) -> Option<(String, cherubsh_common::completion::CompOpts)> {
+        Some((
+            self.active_completion_command.clone()?,
+            self.active_completion_options?,
+        ))
     }
 
     fn keymap_active(&self) -> &str {

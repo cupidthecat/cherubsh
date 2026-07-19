@@ -23,7 +23,7 @@ pub(crate) fn execute<'a>(
         return 0;
     }
     if commands.len() == 1 {
-        return ctx.execute_command(&commands[0], ExecMode::Parent);
+        return ctx.execute_command(commands[0], ExecMode::Parent);
     }
 
     let job_control = ctx.env.job_control_enabled();
@@ -154,7 +154,7 @@ pub(crate) fn execute<'a>(
         if trace_debug_in_parent {
             ctx.suppress_debug_traps = true;
         }
-        let status = ctx.execute_command(&commands[total - 1], ExecMode::Parent);
+        let status = ctx.execute_command(commands[total - 1], ExecMode::Parent);
         ctx.suppress_debug_traps = saved_suppress_debug;
         if saved >= 0 {
             unsafe {

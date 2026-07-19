@@ -66,6 +66,23 @@ fn wait_n_consumes_completed_jobs_separately() {
 }
 
 #[test]
+fn wait_n_reports_each_immediate_child_once() {
+    let out = run_cherub(&RunSpec {
+        script: Some("(exit 0) & (exit 5) & wait -n; echo first:$?; wait -n; echo second:$?"),
+        ..RunSpec::default()
+    })
+    .expect("run cherub");
+    let mut statuses = out
+        .stdout
+        .lines()
+        .filter_map(|line| line.split_once(':'))
+        .map(|(_, status)| status.parse::<i32>().expect("numeric wait status"))
+        .collect::<Vec<_>>();
+    statuses.sort_unstable();
+    assert_eq!(statuses, [0, 5], "stdout={:?}", out.stdout);
+}
+
+#[test]
 fn jobs_x_substitutes_jobspec_with_process_group() {
     let out = run_cherub(&RunSpec {
         script: Some("sleep 0.05 & jobs -x test %1 -gt 0; echo status:$?; wait"),

@@ -2,7 +2,10 @@ use std::collections::HashSet;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
-use cherubsh_common::completion::{CompAction, CompOpts, CompSlot, CompSpec};
+use cherubsh_common::completion::{
+    hostname_names, locale_sort, matching_service_names, signal_names, system_group_names,
+    system_user_names, CompAction, CompOpts, CompSlot, CompSpec,
+};
 use cherubsh_common::{Environment, JobState, VarAttrs, VarKind};
 use cherubsh_exec::ExecState;
 use cherubsh_expander::pattern::{fnmatch, GlobOpts};
@@ -53,13 +56,16 @@ pub fn complete(
             };
             used_spec = true;
             let saved_options = state.active_completion_options.take();
+            let saved_command = state.active_completion_command.take();
             state.active_completion_options = Some(spec.options);
+            state.active_completion_command = Some(req.command.clone());
             let run = run_spec(state, exec_state, &spec, req);
             options = state
                 .active_completion_options
                 .take()
                 .unwrap_or(spec.options);
             state.active_completion_options = saved_options;
+            state.active_completion_command = saved_command;
             matches = run.matches;
             filenames = run.filenames || options.contains(CompOpts::FILENAMES);
             if !run.retry {
@@ -103,8 +109,9 @@ pub fn complete(
     if explicit_space {
         matches[0].pop();
     }
-    let quote_matches =
-        !options.contains(CompOpts::NOQUOTE) && (filenames || state.option("complete_fullquote"));
+    let quote_matches = options.contains(CompOpts::FULLQUOTE)
+        || !options.contains(CompOpts::NOQUOTE)
+            && (filenames || state.option("complete_fullquote"));
     let single_match = matches.len() == 1;
     if quote_matches {
         for item in &mut matches {
@@ -178,8 +185,11 @@ fn run_spec(
 ) -> SpecRun {
     let mut matches = Vec::new();
     let mut filenames = false;
-    for action in &spec.actions {
-        matches.extend(action_matches(state, exec_state, *action, &req.current));
+    for action in CompAction::GENERATION_ORDER
+        .into_iter()
+        .filter(|action| spec.actions.contains(action))
+    {
+        matches.extend(action_matches(state, exec_state, action, &req.current));
         filenames |= matches!(action, CompAction::File | CompAction::Directory);
     }
     if let Some(pattern) = &spec.glob_pattern {
@@ -235,7 +245,15 @@ fn action_matches(
                 .map(|var| var.name),
             prefix,
         ),
-        Binding => filter_prefix(BINDING_NAMES.iter().map(|name| (*name).to_string()), prefix),
+        Binding => filter_prefix(
+            cherubsh_builtins::bind::known_function_names()
+                .iter()
+                .filter(|name| {
+                    state.interactive || !cherubsh_builtins::bind::bash_line_function(name)
+                })
+                .map(|name| (*name).to_string()),
+            prefix,
+        ),
         Builtin => filter_prefix(
             cherubsh_builtins::iter_builtins().map(|item| item.name().to_string()),
             prefix,
@@ -264,15 +282,15 @@ fn action_matches(
         ),
         File => file_matches(state, prefix, false),
         Function => filter_prefix(exec_state.function_names(), prefix),
-        Group => filter_prefix(parse_colon_file("/etc/group", 0), prefix),
+        Group => filter_prefix(system_group_names(), prefix),
         HelpTopic => filter_prefix(HELP_TOPICS.iter().map(|name| (*name).to_string()), prefix),
-        HostName => filter_prefix(parse_hostnames(state), prefix),
+        HostName => filter_prefix(completion_hostnames(state), prefix),
         Job | Running | Stopped => job_names(state, action, prefix),
         Keyword => filter_prefix(
             SHELL_KEYWORDS.iter().map(|name| (*name).to_string()),
             prefix,
         ),
-        Service => filter_prefix(parse_services(), prefix),
+        Service => matching_service_names(prefix),
         SetOpt => filter_prefix(
             cherubsh_builtins::options::SET_OPTIONS
                 .iter()
@@ -286,7 +304,7 @@ fn action_matches(
             prefix,
         ),
         Signal => filter_prefix(signal_names(), prefix),
-        User => filter_prefix(parse_colon_file("/etc/passwd", 0), prefix),
+        User => filter_prefix(system_user_names(), prefix),
         Variable => filter_prefix(state.iter_vars().into_iter().map(|var| var.name), prefix),
     }
 }
@@ -339,7 +357,7 @@ fn bash_default_matches(
         .strip_prefix('~')
         .filter(|text| !text.contains('/'))
     {
-        let matches = filter_prefix(parse_colon_file("/etc/passwd", 0), prefix)
+        let matches = filter_prefix(system_user_names(), prefix)
             .into_iter()
             .map(|name| format!("~{name}/"))
             .collect();
@@ -349,7 +367,7 @@ fn bash_default_matches(
         if let Some(at) = req.current.rfind('@') {
             let host_prefix = &req.current[at + 1..];
             let head = &req.current[..=at];
-            let matches = filter_prefix(parse_hostnames(state), host_prefix)
+            let matches = filter_prefix(completion_hostnames(state), host_prefix)
                 .into_iter()
                 .map(|host| format!("{head}{host}"))
                 .collect();
@@ -611,7 +629,7 @@ fn filter_matches(state: &ShellState, pattern: &str, word: &str, item: &str) -> 
         pattern.as_bytes(),
         item.as_bytes(),
         GlobOpts {
-            nocaseglob: true,
+            nocaseglob: state.option("nocasematch"),
             extglob,
             globasciiranges: state.option("globasciiranges"),
         },
@@ -644,53 +662,11 @@ fn replace_filter_ampersand(pattern: &str, word: &str) -> String {
     out
 }
 
-fn parse_hostnames(state: &ShellState) -> Vec<String> {
+fn completion_hostnames(state: &ShellState) -> Vec<String> {
     let source = state
         .get("HOSTFILE")
-        .filter(|path| !path.is_empty())
-        .unwrap_or_else(|| "/etc/hosts".to_string());
-    let Ok(contents) = std::fs::read_to_string(source) else {
-        return Vec::new();
-    };
-    let mut out = Vec::new();
-    for line in contents.lines() {
-        let mut fields = line
-            .split('#')
-            .next()
-            .unwrap_or_default()
-            .split_whitespace();
-        fields.next();
-        out.extend(fields.map(str::to_string));
-    }
-    out
-}
-
-fn parse_colon_file(path: &str, field: usize) -> Vec<String> {
-    std::fs::read_to_string(path)
-        .unwrap_or_default()
-        .lines()
-        .filter_map(|line| line.split(':').nth(field).map(str::to_string))
-        .collect()
-}
-
-fn parse_services() -> Vec<String> {
-    std::fs::read_to_string("/etc/services")
-        .unwrap_or_default()
-        .lines()
-        .filter_map(|line| {
-            let name = line.split_whitespace().next()?;
-            (!name.starts_with('#')).then(|| name.to_string())
-        })
-        .collect()
-}
-
-fn signal_names() -> Vec<String> {
-    const SIGNALS: &[&str] = &[
-        "HUP", "INT", "QUIT", "ILL", "TRAP", "ABRT", "BUS", "FPE", "KILL", "USR1", "SEGV", "USR2",
-        "PIPE", "ALRM", "TERM", "STKFLT", "CHLD", "CONT", "STOP", "TSTP", "TTIN", "TTOU", "URG",
-        "XCPU", "XFSZ", "VTALRM", "PROF", "WINCH", "IO", "PWR", "SYS",
-    ];
-    SIGNALS.iter().map(|name| (*name).to_string()).collect()
+        .or_else(|| state.get("hostname_completion_file"));
+    hostname_names(source.as_deref())
 }
 
 fn job_names(state: &ShellState, action: CompAction, prefix: &str) -> Vec<String> {
@@ -702,8 +678,13 @@ fn job_names(state: &ShellState, action: CompAction, prefix: &str) -> Vec<String
         if action == CompAction::Stopped && job.state != JobState::Stopped {
             continue;
         }
-        if job.command_line.starts_with(prefix) {
-            out.push(job.command_line.clone());
+        let name = job
+            .command_line
+            .split_whitespace()
+            .next()
+            .unwrap_or_default();
+        if name.starts_with(prefix) {
+            out.push(name.to_string());
         }
     }
     out
@@ -724,7 +705,7 @@ fn normalize_matches(matches: &mut Vec<String>, preserve_order: bool) {
         let mut seen = HashSet::new();
         matches.retain(|item| seen.insert(item.clone()));
     } else {
-        matches.sort();
+        locale_sort(matches);
         matches.dedup();
     }
 }
@@ -846,60 +827,6 @@ fn has_glob_meta(value: &str) -> bool {
 static SHELL_KEYWORDS: &[&str] = &[
     "if", "then", "else", "elif", "fi", "case", "esac", "for", "select", "while", "until", "do",
     "done", "in", "function", "time", "{", "}", "!", "[[", "]]", "coproc",
-];
-
-static BINDING_NAMES: &[&str] = &[
-    "abort",
-    "accept-line",
-    "backward-char",
-    "backward-delete-char",
-    "backward-kill-line",
-    "backward-kill-word",
-    "backward-word",
-    "beginning-of-history",
-    "beginning-of-line",
-    "capitalize-word",
-    "clear-screen",
-    "complete",
-    "delete-char",
-    "delete-char-or-list",
-    "downcase-word",
-    "end-of-history",
-    "end-of-line",
-    "forward-char",
-    "forward-search-history",
-    "forward-word",
-    "history-search-backward",
-    "history-search-forward",
-    "insert-completions",
-    "kill-line",
-    "kill-word",
-    "menu-complete",
-    "menu-complete-backward",
-    "next-history",
-    "operate-and-get-next",
-    "possible-completions",
-    "previous-history",
-    "quoted-insert",
-    "redraw-current-line",
-    "reverse-search-history",
-    "revert-line",
-    "self-insert",
-    "tab-insert",
-    "transpose-chars",
-    "transpose-words",
-    "undo",
-    "unix-line-discard",
-    "unix-word-rubout",
-    "upcase-word",
-    "vi-append-eol",
-    "vi-append-mode",
-    "vi-insertion-mode",
-    "vi-movement-mode",
-    "yank",
-    "yank-last-arg",
-    "yank-nth-arg",
-    "yank-pop",
 ];
 
 static HELP_TOPICS: &[&str] = &[

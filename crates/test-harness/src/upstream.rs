@@ -133,7 +133,6 @@ pub fn run_upstream(
     command.env("HOME", &clean_home);
     command.env("THIS_SH", &shell_for_test);
     command.env("BASH", &shell_for_test);
-    command.env("BASH_ORACLE_PATH", oracle_bash_path());
     if oracle_version_dir() == "5.2.21" {
         command.env("CHERUBSH_BASH_COMPAT_VERSION", "5.2.21");
     }

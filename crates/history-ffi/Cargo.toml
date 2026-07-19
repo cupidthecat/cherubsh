@@ -1,5 +1,5 @@
 [package]
-name = "cherubsh-readline-ffi"
+name = "cherubsh-history-ffi"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -7,9 +7,9 @@ repository.workspace = true
 build = "build.rs"
 
 [lib]
-name = "readline"
-path = "src/lib.rs"
-crate-type = ["cdylib", "staticlib", "rlib"]
+name = "history"
+path = "../readline-ffi/src/lib.rs"
+crate-type = ["cdylib", "staticlib"]
 
 [dependencies]
 cherubsh-common = { path = "../common" }

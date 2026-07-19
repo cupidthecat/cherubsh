@@ -128,6 +128,8 @@ clone_tag() {
 
     git clone --filter=blob:none --no-checkout --depth 1 --branch "${tag}" \
         "${repository}" "${destination}"
+    git -C "${destination}" config core.autocrlf false
+    git -C "${destination}" config core.eol lf
     actual_tag_object="$(git -C "${destination}" rev-parse "refs/tags/${tag}")"
     if [[ "${actual_tag_object}" != "${expected_tag_object}" ]]; then
         echo "error: ${tag} resolved to ${actual_tag_object}, expected ${expected_tag_object}" >&2
@@ -200,5 +202,10 @@ if [[ ! -f "${BASH_COMPLETION_MARKER}" ]]; then
         "${BASH_COMPLETION_TAG_OBJECT}" \
         "${BASH_COMPLETION_DIR}"
     printf '%s\n' "${BASH_COMPLETION_TAG}" > "${BASH_COMPLETION_MARKER}"
+fi
+if grep -q $'\r' "${BASH_COMPLETION_DIR}/bash_completion"; then
+    git -C "${BASH_COMPLETION_DIR}" config core.autocrlf false
+    git -C "${BASH_COMPLETION_DIR}" config core.eol lf
+    git -C "${BASH_COMPLETION_DIR}" checkout-index --all --force
 fi
 echo "ready: ${BASH_COMPLETION_DIR}"

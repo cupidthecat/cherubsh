@@ -1288,6 +1288,10 @@ pub trait Environment {
     fn push_diagnostic_line(&mut self, _line: u32) {}
     fn pop_diagnostic_line(&mut self) {}
     fn set_current_command(&mut self, _command: Option<String>) {}
+    fn next_shell_input_line(&mut self) -> Option<String> {
+        None
+    }
+    fn enter_loadable_child(&mut self) {}
     fn arithmetic_expansion_errors_exit_shell(&self) -> bool {
         false
     }
@@ -1748,6 +1752,9 @@ pub trait Environment {
         _clear: completion::CompOpts,
     ) -> bool {
         false
+    }
+    fn completion_options_current(&self) -> Option<(String, completion::CompOpts)> {
+        None
     }
 
     fn keymap_active(&self) -> &str {

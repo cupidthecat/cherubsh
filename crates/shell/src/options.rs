@@ -24,8 +24,19 @@ pub fn parse_long_options(
         let name = &arg[2..];
         match name {
             "debug" => state.debugging = true,
-            "debugger" => state.debugging = true,
-            "dump-po-strings" | "dump-strings" => state.noexec = true,
+            "debugger" => {
+                state.debugging = true;
+                state.debugger_mode = true;
+            }
+            "dump-po-strings" => {
+                state.dump_po_strings = true;
+                state.dump_translatable_strings = true;
+                state.noexec = true;
+            }
+            "dump-strings" => {
+                state.dump_translatable_strings = true;
+                state.noexec = true;
+            }
             "help" => state.want_initial_help = true,
             "init-file" | "rcfile" => {
                 arg_index += 1;
@@ -108,7 +119,8 @@ pub fn parse_shell_options(
                     state.restricted = on;
                 }
                 'D' => {
-                    state.noexec = true;
+                    state.dump_translatable_strings = on;
+                    state.noexec = on;
                 }
                 'o' => {
                     if chars.peek().is_some() {

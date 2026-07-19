@@ -17,15 +17,19 @@ The v0.3.0 parity gates currently report:
 
 The upstream Bash gate uses the original `.right` files. The Brush gate runs each case once with Bash 5.3.15 and once with CherubSH, then compares status, output, and files left behind. Readline tests compile the same C fixtures and upstream examples against GNU Readline and the CherubSH library.
 
+Bash is used only as a test oracle. CherubSH does not call Bash to parse commands, print syntax trees, extract translation strings, expand completions, or run loadable builtins.
+
 ## What works
 
 - Bash parsing and execution for functions, pipelines, subshells, coprocesses, background jobs, traps, redirections, here-documents, and here-strings.
 - Parameter, arithmetic, command, process, brace, pathname, and tilde expansion, including indexed arrays, associative arrays, namerefs, quoting, word splitting, and pattern operators.
 - Bash shell options and `shopt` settings covered by the Bash and Brush compatibility suites.
+- Native `--pretty-print`, `--dump-strings`, `--dump-po-strings`, and `-D` invocation modes for files, standard input, and `-c` command strings.
 - The standard builtins used by the upstream tests, including job control, history, programmable completion, `read`, `mapfile`, `printf`, `test`, `source`, and `wait -n -p`.
+- Bash 5.3.15 loadable builtins through `enable -f`, including scalar, indexed-array, associative-array, input, and child-shell ABI calls used by Bash's example modules.
 - Interactive Emacs and Vi keymaps, UTF-8 cursor movement, undo, kill/yank behavior, history search, terminal-width-aware redisplay, and programmable completion.
-- Bash completion scripts, including lazy-loaded Git completion from bash-completion 2.18.
-- Public Readline 8.3 and History headers, shared libraries, static libraries, public globals, and exported C symbols.
+- Programmable completion resources, callbacks, filters, option ordering, and lazy-loaded Git completion from bash-completion 2.18.
+- Separate Readline 8.3 and History libraries with public headers, C symbols, custom callbacks, macros, keymaps, versioned shared-library names, static archives, and `pkg-config` files.
 
 ## Build and run
 
@@ -42,6 +46,14 @@ You can also run it through Cargo:
 ```sh
 cargo run -p cherubsh
 cargo run -p cherubsh -- -c 'printf "%s\n" "$BASH_VERSION"'
+```
+
+Parser output and translation extraction run without executing the input:
+
+```sh
+target/release/cherubsh --pretty-print -c 'for name in one two; do echo "$name"; done'
+target/release/cherubsh --dump-strings messages.sh
+target/release/cherubsh --dump-po-strings messages.sh
 ```
 
 ## Interactive setup
@@ -63,6 +75,21 @@ fi
 
 The pinned bash-completion source used by development tests is fetched to `target/upstream/bash-completion-2.18.0` by `tools/fetch-upstream.sh`.
 
+## Bash loadable builtins
+
+The parity driver builds the example modules shipped with Bash 5.3.15 and checks every builtin it finds. Each one must load, print help, run, and unload the same way under Bash and CherubSH. Additional C fixtures check data exchange through scalars and arrays, line input, subscript parsing, and the child shell started by the `push` example.
+
+After the oracle modules have been built, you can load one directly:
+
+```sh
+BASH_LOADABLES_PATH=target/oracle/bash-5.3.15/examples/loadables \
+  target/release/cherubsh --norc -c '
+    enable -f printenv printenv
+    printenv HOME
+    enable -d printenv
+  '
+```
+
 ## Readline and History libraries
 
 Build and stage the compatibility libraries with:
@@ -75,7 +102,8 @@ The staged files are split between headers and libraries:
 
 ```text
 target/readline/include/readline/  readline.h, history.h, keymaps.h, tilde.h, ...
-target/readline/lib/               libreadline.so, libreadline.a, libhistory.so, ...
+target/readline/lib/               libreadline.so.8.3, libhistory.so.8.3, static archives
+target/readline/lib/pkgconfig/     readline.pc, history.pc
 ```
 
 For example, a C program can link against the staged shared library like this:
@@ -88,13 +116,21 @@ cc example.c \
   -lreadline -ltermcap
 ```
 
+The staged directory also works with `pkg-config`:
+
+```sh
+export PKG_CONFIG_PATH="$PWD/target/readline/lib/pkgconfig"
+pkg-config --cflags --libs readline
+pkg-config --cflags --libs history
+```
+
 Run the GNU differential gate with:
 
 ```sh
 ./tools/run-readline-parity.sh
 ```
 
-That command builds GNU Readline 8.3 patch 3, checks public symbol coverage, compiles C ABI fixtures against both libraries, exercises a pseudo-terminal Readline loop, and builds every upstream Readline example. Deterministic example output is compared byte for byte. Reports are kept under `target/parity/readline`.
+That command builds GNU Readline 8.3 patch 3, checks public symbol coverage and library names, and compiles the same C fixtures against both implementations. The fixtures exercise a pseudo-terminal Readline loop, user-defined C callbacks, macros, bare keymaps, and History behavior. It also builds every upstream Readline example and compares deterministic output byte for byte. Reports are kept under `target/parity/readline`.
 
 ## Testing
 

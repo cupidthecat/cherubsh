@@ -86,6 +86,7 @@ pub fn exit_shell(state: &mut ShellState, exec_state: &mut ExecState, status: i3
     let _ = std::io::stdout().flush();
     let _ = std::io::stderr().flush();
     unsafe {
+        libc::fflush(std::ptr::null_mut());
         libc::_exit(status);
     }
 }

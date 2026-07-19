@@ -333,33 +333,29 @@ fn wait_for_any_target(
         return (Some(status), pid);
     }
     while !pids.is_empty() {
-        let mut index = 0;
-        while index < pids.len() {
-            let pid = pids[index];
-            let mut status: libc::c_int = 0;
-            let flags = libc::WNOHANG | if force { 0 } else { libc::WUNTRACED };
-            let rc = unsafe { libc::waitpid(pid, &mut status, flags) };
-            if rc > 0 {
-                update_job_table(ctx, rc, status);
-                run_sigchld_trap(ctx);
-                if let Some((status, winner)) = take_completed_job(ctx, Some(&pids)) {
-                    return (Some(status), winner);
+        let mut status: libc::c_int = 0;
+        let flags = libc::WNOHANG | if force { 0 } else { libc::WUNTRACED };
+        let rc = unsafe { libc::waitpid(-1, &mut status, flags) };
+        if rc > 0 {
+            update_job_table(ctx, rc, status);
+            run_sigchld_trap(ctx);
+            if let Some((status, winner)) = take_completed_job(ctx, Some(&pids)) {
+                return (Some(status), winner);
+            }
+            if libc::WIFEXITED(status) || libc::WIFSIGNALED(status) {
+                pids.retain(|pid| *pid != rc);
+            }
+            continue;
+        }
+        if rc < 0 {
+            let errno = unsafe { *libc::__errno_location() };
+            if errno == libc::EINTR {
+                if let Some(status) = run_pending_wait_trap(ctx) {
+                    return (Some(status), None);
                 }
-                pids.remove(index);
                 continue;
             }
-            if rc < 0 {
-                let errno = unsafe { *libc::__errno_location() };
-                if errno == libc::EINTR {
-                    if let Some(status) = run_pending_wait_trap(ctx) {
-                        return (Some(status), None);
-                    }
-                    continue;
-                }
-                pids.remove(index);
-                continue;
-            }
-            index += 1;
+            break;
         }
         thread::sleep(Duration::from_millis(10));
     }
@@ -437,15 +433,19 @@ fn take_completed_job(
 ) -> Option<(i32, Option<i32>)> {
     let (status, winner, pids) = {
         let table = ctx.env_ref().jobs_table()?;
-        let job = table.list().iter().find(|job| {
-            job.state == JobState::Done
-                && !job.flags.contains(JobFlags::WAITED_FOR)
-                && allowed_pids.is_none_or(|allowed| {
-                    job.processes
-                        .iter()
-                        .any(|process| allowed.contains(&process.pid))
-                })
-        })?;
+        let job = table
+            .list()
+            .iter()
+            .filter(|job| {
+                job.state == JobState::Done
+                    && !job.flags.contains(JobFlags::WAITED_FOR)
+                    && allowed_pids.is_none_or(|allowed| {
+                        job.processes
+                            .iter()
+                            .any(|process| allowed.contains(&process.pid))
+                    })
+            })
+            .min_by_key(|job| table.completion_order(job.id))?;
         let status = job.exit_status.unwrap_or_else(|| {
             job.processes
                 .last()

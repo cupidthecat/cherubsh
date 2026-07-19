@@ -122,6 +122,8 @@ pub struct JobTable {
     previous: Option<JobId>,
     pid_to_job: HashMap<i32, JobId>,
     waited_pids: HashSet<i32>,
+    completion_order: HashMap<JobId, u64>,
+    next_completion_order: u64,
 }
 
 impl JobTable {
@@ -132,6 +134,8 @@ impl JobTable {
             previous: None,
             pid_to_job: HashMap::new(),
             waited_pids: HashSet::new(),
+            completion_order: HashMap::new(),
+            next_completion_order: 0,
         }
     }
 
@@ -240,6 +244,7 @@ impl JobTable {
                 self.pid_to_job.remove(&p.pid);
                 self.waited_pids.remove(&p.pid);
             }
+            self.completion_order.remove(&id);
         }
         self.reset_current_previous();
     }
@@ -250,6 +255,10 @@ impl JobTable {
 
     pub fn pid_was_waited(&self, pid: i32) -> bool {
         self.waited_pids.contains(&pid)
+    }
+
+    pub fn completion_order(&self, id: JobId) -> Option<u64> {
+        self.completion_order.get(&id).copied()
     }
 
     pub fn mark_pid_waited(&mut self, pid: i32) {
@@ -326,12 +335,19 @@ impl JobTable {
                     p.state = JobState::Done;
                 }
             }
-            if job.processes.iter().all(|p| p.state == JobState::Done) {
+            if job.state != JobState::Done
+                && job.processes.iter().all(|p| p.state == JobState::Done)
+            {
                 job.state = JobState::Done;
                 let last = job.processes.last().map(|p| p.status_raw).unwrap_or(0);
                 job.exit_status = Some(decode_status(last));
                 completed = true;
             }
+        }
+        if completed {
+            self.completion_order
+                .insert(jid, self.next_completion_order);
+            self.next_completion_order = self.next_completion_order.wrapping_add(1);
         }
         if completed && (self.current == Some(jid) || self.previous == Some(jid)) {
             self.reset_current_previous();
@@ -396,6 +412,7 @@ impl JobTable {
                     self.pid_to_job.remove(&p.pid);
                     self.waited_pids.remove(&p.pid);
                 }
+                self.completion_order.remove(&j.id);
             }
             k
         });

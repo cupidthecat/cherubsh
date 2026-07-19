@@ -330,7 +330,7 @@ fn action_name(action: EditAction) -> &'static str {
     }
 }
 
-fn known_function_names() -> &'static [&'static str] {
+pub fn known_function_names() -> &'static [&'static str] {
     &[
         "abort",
         "accept-line",
@@ -509,6 +509,44 @@ fn known_function_names() -> &'static [&'static str] {
         "yank-nth-arg",
         "yank-pop",
     ]
+}
+
+pub fn bash_line_function(name: &str) -> bool {
+    [
+        "alias-expand-line",
+        "bash-vi-complete",
+        "complete-command",
+        "complete-filename",
+        "complete-hostname",
+        "complete-into-braces",
+        "complete-username",
+        "complete-variable",
+        "dabbrev-expand",
+        "display-shell-version",
+        "dynamic-complete-history",
+        "edit-and-execute-command",
+        "glob-complete-word",
+        "glob-expand-word",
+        "glob-list-expansions",
+        "history-and-alias-expand-line",
+        "history-expand-line",
+        "insert-last-argument",
+        "magic-space",
+        "possible-command-completions",
+        "possible-filename-completions",
+        "possible-hostname-completions",
+        "possible-username-completions",
+        "possible-variable-completions",
+        "shell-backward-kill-word",
+        "shell-backward-word",
+        "shell-expand-line",
+        "shell-forward-word",
+        "shell-kill-word",
+        "shell-transpose-words",
+        "spell-correct-word",
+        "vi-edit-and-execute-command",
+    ]
+    .contains(&name)
 }
 
 fn read_inputrc(ctx: &mut BuiltinCtx<'_>, keymap: &str, path: &str) -> i32 {

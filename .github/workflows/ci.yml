@@ -40,6 +40,12 @@ jobs:
       - name: Install the pinned Rust toolchain
         run: rustup toolchain install 1.93.1 --profile minimal --component clippy,rustfmt
 
+      - name: Check Rust formatting
+        run: cargo fmt --all -- --check
+
+      - name: Lint Rust targets
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
       - name: Verify and prepare upstream sources
         run: ./tools/fetch-upstream.sh
 

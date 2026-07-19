@@ -14,6 +14,7 @@ mod termcap;
 mod vi;
 
 pub use buffer::EditBuffer;
+pub use input::set_input_deadline;
 pub use key::KeyEvent;
 pub use killring::KillRing;
 pub use raw_mode::RawMode;
@@ -80,6 +81,7 @@ pub struct LineEditor {
     pub keymap: Keymap,
     pub last_action: Option<EditAction>,
     pub vi_mode: bool,
+    self_insert_unbound: bool,
     vi_command_keymap: Keymap,
     vi_state: vi::ViState,
     mark: Option<usize>,
@@ -105,6 +107,7 @@ impl LineEditor {
             keymap,
             last_action: None,
             vi_mode: false,
+            self_insert_unbound: true,
             vi_command_keymap,
             vi_state: vi::ViState::new(),
             mark: None,
@@ -118,6 +121,10 @@ impl LineEditor {
 
     pub fn set_vi_command_keymap(&mut self, keymap: Keymap) {
         self.vi_command_keymap = keymap;
+    }
+
+    pub fn set_self_insert_unbound(&mut self, enabled: bool) {
+        self.self_insert_unbound = enabled;
     }
 
     /// Read one line with editing. `history` and `completion` are
@@ -266,7 +273,7 @@ impl LineEditor {
 
         let previous_action = self.last_action;
         let action = self.resolve_action(&key)?.unwrap_or({
-            if !self.vi_mode && matches!(key, KeyEvent::Char(_)) {
+            if !self.vi_mode && self.self_insert_unbound && matches!(key, KeyEvent::Char(_)) {
                 EditAction::SelfInsert
             } else {
                 EditAction::Noop

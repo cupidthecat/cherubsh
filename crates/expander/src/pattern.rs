@@ -307,7 +307,15 @@ fn parse_class_atom(pat: &[u8], j: &mut usize) -> ClassAtom {
 }
 
 fn find_bracket_expr_end(pat: &[u8], start: usize, marker: u8) -> Option<usize> {
-    (start..pat.len()).find(|&k| pat[k] == marker && k + 1 < pat.len() && pat[k + 1] == b']')
+    for k in start..pat.len() {
+        if pat[k] == b']' && marker != b'.' {
+            return None;
+        }
+        if pat[k] == marker && k + 1 < pat.len() && pat[k + 1] == b']' {
+            return Some(k);
+        }
+    }
+    None
 }
 
 fn parse_named_class(name: &[u8]) -> Option<NamedClass> {

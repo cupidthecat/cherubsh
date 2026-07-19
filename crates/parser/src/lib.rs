@@ -7,6 +7,10 @@ use cherubsh_lexer::TokenKind;
 use cherubsh_lexer::TokenValue;
 use std::sync::Arc;
 
+mod pretty;
+
+pub use pretty::pretty_print;
+
 pub const CONN_AND_AND: u32 = 1;
 pub const CONN_OR_OR: u32 = 2;
 pub const CONN_PIPE: u32 = 3;

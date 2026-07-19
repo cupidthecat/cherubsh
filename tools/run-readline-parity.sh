@@ -37,20 +37,31 @@ compile_fixture "${ORACLE_ROOT}" "${WORKSPACE_ROOT}/tests/readline/history_link.
 compile_fixture "${IMPLEMENTATION_ROOT}" "${WORKSPACE_ROOT}/tests/readline/history_link.c" "${REPORT_ROOT}/implementation/history-link" history
 compile_fixture "${ORACLE_ROOT}" "${WORKSPACE_ROOT}/tests/readline/readline_loop.c" "${REPORT_ROOT}/oracle/readline-loop" readline
 compile_fixture "${IMPLEMENTATION_ROOT}" "${WORKSPACE_ROOT}/tests/readline/readline_loop.c" "${REPORT_ROOT}/implementation/readline-loop" readline
+compile_fixture "${ORACLE_ROOT}" "${WORKSPACE_ROOT}/tests/readline/custom_binding.c" "${REPORT_ROOT}/oracle/custom-binding" readline
+compile_fixture "${IMPLEMENTATION_ROOT}" "${WORKSPACE_ROOT}/tests/readline/custom_binding.c" "${REPORT_ROOT}/implementation/custom-binding" readline
+compile_fixture "${ORACLE_ROOT}" "${WORKSPACE_ROOT}/tests/readline/public_behavior.c" "${REPORT_ROOT}/oracle/public-behavior" readline
+compile_fixture "${IMPLEMENTATION_ROOT}" "${WORKSPACE_ROOT}/tests/readline/public_behavior.c" "${REPORT_ROOT}/implementation/public-behavior" readline
 
 for side in oracle implementation; do
     HOME="${REPORT_ROOT}/home" LC_ALL=C.UTF-8 TERM=xterm-256color \
         "${REPORT_ROOT}/${side}/abi-smoke" > "${REPORT_ROOT}/${side}/abi-smoke.out"
     "${REPORT_ROOT}/${side}/history-link" > "${REPORT_ROOT}/${side}/history-link.out"
+    "${REPORT_ROOT}/${side}/public-behavior" > "${REPORT_ROOT}/${side}/public-behavior.out"
     printf 'typed line\n\004' \
         | HOME="${REPORT_ROOT}/home" LC_ALL=C.UTF-8 TERM=xterm-256color \
             python3 "${PTY_CAPTURE}" "${REPORT_ROOT}/${side}/readline-loop" \
         > "${REPORT_ROOT}/${side}/readline-loop.out"
+    printf '\030q\n\030m\nr\n' \
+        | HOME="${REPORT_ROOT}/home" LC_ALL=C.UTF-8 TERM=xterm-256color \
+            python3 "${PTY_CAPTURE}" "${REPORT_ROOT}/${side}/custom-binding" \
+        > "${REPORT_ROOT}/${side}/custom-binding.out"
 done
 
 diff -u "${REPORT_ROOT}/oracle/abi-smoke.out" "${REPORT_ROOT}/implementation/abi-smoke.out"
 diff -u "${REPORT_ROOT}/oracle/history-link.out" "${REPORT_ROOT}/implementation/history-link.out"
 diff -u "${REPORT_ROOT}/oracle/readline-loop.out" "${REPORT_ROOT}/implementation/readline-loop.out"
+diff -u "${REPORT_ROOT}/oracle/custom-binding.out" "${REPORT_ROOT}/implementation/custom-binding.out"
+diff -u "${REPORT_ROOT}/oracle/public-behavior.out" "${REPORT_ROOT}/implementation/public-behavior.out"
 
 perl -ne 'if (/^extern.*?([A-Za-z_][A-Za-z0-9_]*)[[:space:]]*(?:\(|;|\[)/) { print "$1\n" }' \
     "${IMPLEMENTATION_ROOT}"/include/readline/{readline,history,keymaps,tilde}.h \
@@ -60,6 +71,11 @@ nm -D --defined-only --format=posix "${IMPLEMENTATION_ROOT}/lib/libreadline.so" 
 comm -23 "${REPORT_ROOT}/public-symbols.txt" "${REPORT_ROOT}/implementation-symbols.txt" \
     > "${REPORT_ROOT}/missing-symbols.txt"
 test ! -s "${REPORT_ROOT}/missing-symbols.txt"
+
+test "$(readelf -d "${IMPLEMENTATION_ROOT}/lib/libreadline.so.8.3" | sed -n 's/.*SONAME.*\[\(.*\)\].*/\1/p')" = "libreadline.so.8"
+test "$(readelf -d "${IMPLEMENTATION_ROOT}/lib/libhistory.so.8.3" | sed -n 's/.*SONAME.*\[\(.*\)\].*/\1/p')" = "libhistory.so.8"
+test ! "${IMPLEMENTATION_ROOT}/lib/libhistory.so.8.3" -ef "${IMPLEMENTATION_ROOT}/lib/libreadline.so.8.3"
+PKG_CONFIG_PATH="${IMPLEMENTATION_ROOT}/lib/pkgconfig" pkg-config --exists 'readline = 8.3' 'history = 8.3'
 
 capture_plain_example() {
     local output_base="$1"

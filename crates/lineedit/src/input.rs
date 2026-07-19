@@ -1,6 +1,7 @@
 use std::collections::VecDeque;
 use std::io;
 use std::sync::{Mutex, OnceLock};
+use std::time::Instant;
 
 use crate::key::KeyEvent;
 
@@ -164,6 +165,7 @@ fn read_stdin_byte() -> io::Result<Option<u8>> {
     {
         return Ok(Some(byte));
     }
+    wait_for_stdin()?;
     let mut byte = [0u8; 1];
     let count = unsafe {
         libc::read(
@@ -183,6 +185,50 @@ fn read_stdin_byte() -> io::Result<Option<u8>> {
         return Err(error);
     }
     Ok(Some(byte[0]))
+}
+
+fn wait_for_stdin() -> io::Result<()> {
+    let deadline = *input_deadline().lock().expect("input deadline lock");
+    let Some(deadline) = deadline else {
+        return Ok(());
+    };
+    let now = Instant::now();
+    if now >= deadline {
+        return Err(io::Error::new(
+            io::ErrorKind::TimedOut,
+            "readline timed out",
+        ));
+    }
+    let remaining = deadline.saturating_duration_since(now);
+    let milliseconds = remaining
+        .as_millis()
+        .saturating_add(u128::from(remaining.subsec_nanos() % 1_000_000 != 0))
+        .min(libc::c_int::MAX as u128) as libc::c_int;
+    let mut descriptor = libc::pollfd {
+        fd: libc::STDIN_FILENO,
+        events: libc::POLLIN,
+        revents: 0,
+    };
+    let ready = unsafe { libc::poll(&mut descriptor, 1, milliseconds) };
+    if ready == 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::TimedOut,
+            "readline timed out",
+        ));
+    }
+    if ready < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(())
+}
+
+pub fn set_input_deadline(deadline: Option<Instant>) {
+    *input_deadline().lock().expect("input deadline lock") = deadline;
+}
+
+fn input_deadline() -> &'static Mutex<Option<Instant>> {
+    static DEADLINE: OnceLock<Mutex<Option<Instant>>> = OnceLock::new();
+    DEADLINE.get_or_init(|| Mutex::new(None))
 }
 
 fn push_stdin_byte(byte: u8) {

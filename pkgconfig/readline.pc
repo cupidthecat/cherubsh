@@ -1,0 +1,12 @@
+prefix=${pcfiledir}/../..
+exec_prefix=${prefix}
+libdir=${prefix}/lib
+includedir=${prefix}/include
+
+Name: Readline
+Description: Edit command lines and retain command history
+Version: 8.3
+Requires.private:
+Libs: -L${libdir} -lreadline
+Libs.private: -ltermcap
+Cflags: -I${includedir}
