@@ -1,0 +1,16 @@
+[package]
+name = "cherubsh-readline-ffi"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+name = "readline"
+path = "src/lib.rs"
+crate-type = ["cdylib", "staticlib", "rlib"]
+
+[dependencies]
+cherubsh-common = { path = "../common" }
+cherubsh-lineedit = { path = "../lineedit" }
+libc = "0.2"

@@ -731,17 +731,18 @@ fn expand_assoc_subscript(env: &mut dyn Environment, subscript: &str) -> String 
 
 pub fn report_assign_error(env: &dyn Environment, err: &AssignError) {
     if let (Some(source), Some(line)) = (env.diagnostic_source_name(), env.diagnostic_line()) {
+        let prefix = diagnostic_source_prefix(env, &source, line);
         match err {
             AssignError::ReadOnly(name) => {
-                eprintln!("{source}: line {line}: {name}: readonly variable");
+                eprintln!("{prefix}{name}: readonly variable");
                 return;
             }
             AssignError::BadArraySubscript(name) => {
-                eprintln!("{source}: line {line}: {name}: bad array subscript");
+                eprintln!("{prefix}{name}: bad array subscript");
                 return;
             }
             AssignError::InvalidName(name) => {
-                eprintln!("{source}: line {line}: `{name}': not a valid identifier");
+                eprintln!("{prefix}`{name}': not a valid identifier");
                 return;
             }
             AssignError::CircularNameReference(_) => return,
@@ -763,7 +764,10 @@ pub fn report_builtin_assign_error(env: &dyn Environment, builtin: &str, err: &A
 
 pub fn report_builtin_readonly_error(env: &dyn Environment, builtin: &str, name: &str) {
     if let (Some(source), Some(line)) = (env.diagnostic_source_name(), env.diagnostic_line()) {
-        eprintln!("{source}: line {line}: {builtin}: {name}: readonly variable");
+        eprintln!(
+            "{}{builtin}: {name}: readonly variable",
+            diagnostic_source_prefix(env, &source, line)
+        );
     } else {
         eprintln!("cherubsh: {builtin}: {name}: readonly variable");
     }
@@ -772,7 +776,7 @@ pub fn report_builtin_readonly_error(env: &dyn Environment, builtin: &str, name:
 pub fn diagnostic_label(env: &dyn Environment, subject: &str) -> String {
     let subject = diagnostic_subject(subject);
     if let (Some(source), Some(line)) = (env.diagnostic_source_name(), env.diagnostic_line()) {
-        format!("{source}: line {line}: {subject}")
+        format!("{}{subject}", diagnostic_source_prefix(env, &source, line))
     } else {
         format!("cherubsh: {subject}")
     }
@@ -784,7 +788,7 @@ pub fn report_diagnostic(env: &dyn Environment, subject: &str, message: &str) {
 
 pub fn report_bare_diagnostic(env: &dyn Environment, message: &str) {
     if let (Some(source), Some(line)) = (env.diagnostic_source_name(), env.diagnostic_line()) {
-        eprintln!("{source}: line {line}: {message}");
+        eprintln!("{}{message}", diagnostic_source_prefix(env, &source, line));
     } else {
         eprintln!("cherubsh: {message}");
     }
@@ -815,7 +819,10 @@ pub fn errno_message(err: &io::Error) -> String {
 
 fn report_readonly_error(env: &dyn Environment, name: &str) {
     if let (Some(source), Some(line)) = (env.diagnostic_source_name(), env.diagnostic_line()) {
-        eprintln!("{source}: line {line}: {name}: readonly variable");
+        eprintln!(
+            "{}{name}: readonly variable",
+            diagnostic_source_prefix(env, &source, line)
+        );
     } else {
         eprintln!("cherubsh: {name}: readonly variable");
     }
@@ -1429,6 +1436,7 @@ fn ansi_c_quote_bytes(bytes: &[u8]) -> String {
 }
 
 #[cfg(test)]
+#[allow(clippy::items_after_test_module)]
 mod tests {
     use super::{array_reference, assignment_quote, split_assignment_op};
 
@@ -1481,6 +1489,22 @@ pub fn search_path(name: &str, env: &dyn Environment) -> Option<PathBuf> {
         let candidate = PathBuf::from(".").join(name);
         return is_executable(&candidate).then_some(candidate);
     };
+    search_path_value(name, &path)
+}
+
+fn diagnostic_source_prefix(env: &dyn Environment, source: &str, line: u32) -> String {
+    if env.option("gnu_errfmt") {
+        format!("{source}:{line}: ")
+    } else {
+        format!("{source}: line {line}: ")
+    }
+}
+
+pub fn search_path_value(name: &str, path: &str) -> Option<PathBuf> {
+    if name.contains('/') {
+        let candidate = PathBuf::from(name);
+        return is_executable(&candidate).then_some(candidate);
+    }
     for dir in path.split(':') {
         let mut candidate = PathBuf::from(if dir.is_empty() { "." } else { dir });
         candidate.push(name);

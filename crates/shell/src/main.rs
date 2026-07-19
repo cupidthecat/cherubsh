@@ -1,6 +1,5 @@
 mod completion;
 mod exit;
-mod histexpand;
 mod input;
 mod lifecycle;
 mod options;

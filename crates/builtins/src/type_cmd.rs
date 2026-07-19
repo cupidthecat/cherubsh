@@ -941,9 +941,7 @@ fn render_redirect(redirect: &Redirect) -> String {
         }
         Redirectee::Fd(fd) => fd.to_string(),
     };
-    if is_heredoc_redirect(redirect) {
-        format!("{prefix}{op}{target}")
-    } else if redirect_spacing_elided(redirect) {
+    if is_heredoc_redirect(redirect) || redirect_spacing_elided(redirect) {
         format!("{prefix}{op}{target}")
     } else {
         format!("{prefix}{op} {target}")

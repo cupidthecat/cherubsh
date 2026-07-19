@@ -10,7 +10,7 @@ use cherubsh_expander::{
 use cherubsh_parser::{CondCommand, CondType, WordDesc};
 
 pub fn evaluate(cmd: &CondCommand, env: &mut dyn Environment) -> i32 {
-    let mut runner = NullRunner::default();
+    let mut runner = NullRunner;
     evaluate_with_runner(cmd, env, &mut runner)
 }
 
@@ -98,7 +98,7 @@ fn eval_inner(
                     let ch = rest.chars().next().unwrap();
                     match ch {
                         'v' => {
-                            return Ok(var_word_is_set(env, &term, runner));
+                            return Ok(var_word_is_set(env, term, runner));
                         }
                         'R' => {
                             return Ok(env.kind(&val) == VarKind::Nameref);
@@ -300,7 +300,7 @@ fn var_word_is_set(env: &mut dyn Environment, word: &str, runner: &mut dyn Comma
                     env.array_len(base) > 0
                 } else {
                     let expanded = expand_word(subscript, env, runner);
-                    let mut null_runner = NullRunner::default();
+                    let mut null_runner = NullRunner;
                     let Ok(index) =
                         arith::eval_preexpanded(&expanded, &mut ExpCtx::new(env, &mut null_runner))
                     else {
@@ -343,9 +343,9 @@ fn array_element_is_set(env: &mut dyn Environment, base: &str, subscript: &str) 
             if matches!(subscript, "@" | "*") {
                 return env.array_len(base) > 0;
             }
-            let mut expand_runner = NullRunner::default();
+            let mut expand_runner = NullRunner;
             let expanded = expand_word(subscript, env, &mut expand_runner);
-            let mut runner = NullRunner::default();
+            let mut runner = NullRunner;
             let Ok(index) = arith::eval_preexpanded(&expanded, &mut ExpCtx::new(env, &mut runner))
             else {
                 return false;
@@ -356,14 +356,14 @@ fn array_element_is_set(env: &mut dyn Environment, base: &str, subscript: &str) 
             if matches!(subscript, "@" | "*") {
                 return env.assoc_keys(base).is_some_and(|keys| !keys.is_empty());
             }
-            let mut expand_runner = NullRunner::default();
+            let mut expand_runner = NullRunner;
             let key = expand_word(subscript, env, &mut expand_runner);
             env.get_array_assoc(base, &key).is_some()
         }
         _ => {
-            let mut expand_runner = NullRunner::default();
+            let mut expand_runner = NullRunner;
             let expanded = expand_word(subscript, env, &mut expand_runner);
-            let mut runner = NullRunner::default();
+            let mut runner = NullRunner;
             let Ok(index) = arith::eval_preexpanded(&expanded, &mut ExpCtx::new(env, &mut runner))
             else {
                 return false;
@@ -465,9 +465,7 @@ fn strip_quoted_nulls(bytes: &[u8]) -> Vec<u8> {
             continue;
         }
         let b = bytes[i];
-        if b == CTLNUL && i > 0 && bytes[i - 1] == b'\\' {
-            out.push(b);
-        } else if b != CTLNUL {
+        if b != CTLNUL || i > 0 && bytes[i - 1] == b'\\' {
             out.push(b);
         }
         i += 1;

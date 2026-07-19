@@ -90,6 +90,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cherubsh-readline-ffi"
+version = "0.3.0"
+dependencies = [
+ "cherubsh-common",
+ "cherubsh-lineedit",
+ "libc",
+]
+
+[[package]]
 name = "cherubsh-test-harness"
 version = "0.3.0"
 dependencies = [

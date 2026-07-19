@@ -1,0 +1,28 @@
+# Shell entry points and Bash test fixtures must remain LF on Windows checkouts.
+*.sh text eol=lf
+*.bash text eol=lf
+*.tests text eol=lf
+*.sub text eol=lf
+*.right text eol=lf
+*.list text eol=lf
+*.args text eol=lf
+*.env text eol=lf
+*.stdin text eol=lf
+*.stdout text eol=lf
+*.stderr text eol=lf
+*.status text eol=lf
+vendor/bash-*/tests/run-* text eol=lf
+vendor/bash-*/configure text eol=lf
+tools/** text eol=lf
+oracle/** text eol=lf
+examples/** text eol=lf
+
+# Keep ordinary project text stable without forcing binary vendor fixtures.
+*.rs text eol=lf
+*.toml text eol=lf
+*.lock text eol=lf
+*.sha256 text eol=lf
+*.md text eol=lf
+*.json text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf

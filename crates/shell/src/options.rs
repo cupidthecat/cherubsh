@@ -32,7 +32,7 @@ pub fn parse_long_options(
                 let value = args.get(arg_index).ok_or_else(|| {
                     ShellError::with_code(format!("--{name} requires an argument"), 2)
                 })?;
-                state.bashrc_file = PathBuf::from(value);
+                state.rc_file = PathBuf::from(value);
             }
             "login" => state.make_login_shell = true,
             "noediting" => state.no_line_editing = true,
@@ -61,9 +61,9 @@ pub fn parse_long_options(
     Ok(arg_index)
 }
 
-/// Parse short shell options (-c, -s, -i, -e, …). Mirrors shell.c:893-984
-/// + flags.c:165-203. The `+` prefix clears a flag. Stops on the first
-/// non-option argument.
+/// Parses short shell options such as `-c`, `-s`, `-i`, and `-e`.
+///
+/// A `+` prefix clears a flag. Parsing stops at the first non-option argument.
 pub fn parse_shell_options(
     args: &[String],
     mut arg_index: usize,
@@ -233,10 +233,10 @@ pub fn set_shell_name(argv0: &str, state: &mut ShellState) {
     state.shell_name = base;
 }
 
-pub const SHELL_VERSION: &str = "5.3.0";
+pub const SHELL_VERSION: &str = "5.3.15";
 pub const MAJOR_VERSION: u32 = 5;
 pub const MINOR_VERSION: u32 = 3;
-pub const PATCH_LEVEL: u32 = 0;
+pub const PATCH_LEVEL: u32 = 15;
 pub const BUILD_VERSION: u32 = 1;
 pub const DIST_VERSION: &str = "5.3";
 pub const MACHTYPE: &str = "x86_64-pc-linux-gnu";
@@ -315,7 +315,7 @@ pub fn show_shell_version() {
     let dist = compat_dist_version();
     println!("cherubsh, version {version}-release (bash-{dist} parity, x86_64-rust-linux-gnu)");
     println!("Copyright (C) 2025 cherubsh contributors");
-    println!("License: GPLv3+ (mirrors bash; see bash-5.3/COPYING)");
+    println!("License: GPLv3+ (see vendor/bash-5.3.15/COPYING)");
 }
 
 pub fn show_shell_usage() {

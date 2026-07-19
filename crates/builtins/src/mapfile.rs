@@ -231,18 +231,16 @@ fn run_mapfile(ctx: &mut BuiltinCtx<'_>) -> i32 {
         if idx_seen <= skip {
             continue;
         }
-        if trim_delim || delim == [0] {
-            if buf.ends_with(&delim) {
-                let new_len = buf.len().saturating_sub(delim.len());
-                buf.truncate(new_len);
-            }
+        if (trim_delim || delim == [0]) && buf.ends_with(&delim) {
+            let new_len = buf.len().saturating_sub(delim.len());
+            buf.truncate(new_len);
         }
 
         let line = bytes_to_shell_string(&buf);
         let array_index = origin + stored as i64;
         stored += 1;
         if let Some(cb) = callback.as_deref() {
-            if stored % callback_quantum == 0 {
+            if stored.is_multiple_of(callback_quantum) {
                 let command = format!("{cb} {array_index} {}", single_quote(&line));
                 let _ = ctx.shell.run_source(&command);
             }

@@ -314,8 +314,10 @@ fn parse_globsort(value: &str) -> GlobSort {
 fn sort_glob_paths(paths: &mut [PathBuf], sort: GlobSort) {
     match sort {
         GlobSort::NoSort => {}
-        GlobSort::NameAsc => paths.sort_by(|a, b| path_bytes(a).cmp(&path_bytes(b))),
-        GlobSort::NameDesc => paths.sort_by(|a, b| path_bytes(b).cmp(&path_bytes(a))),
+        GlobSort::NameAsc => paths.sort_by_key(|path| path_bytes(path)),
+        GlobSort::NameDesc => {
+            paths.sort_by_key(|path| std::cmp::Reverse(path_bytes(path)));
+        }
         GlobSort::AtimeAsc => paths.sort_by(|a, b| {
             path_atime_key(a)
                 .cmp(&path_atime_key(b))

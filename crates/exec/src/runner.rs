@@ -391,17 +391,12 @@ fn run_inner(
     lex.set_extglob_patterns(env.option("extglob"));
     lex.set_posix_mode(env.option("posix"));
     let mut tokens = Vec::new();
-    loop {
-        match lex.next_token() {
-            Some(tok) => {
-                if tok.kind == TokenKind::End {
-                    tokens.push(tok);
-                    break;
-                }
-                tokens.push(tok);
-            }
-            None => break,
+    while let Some(tok) = lex.next_token() {
+        if tok.kind == TokenKind::End {
+            tokens.push(tok);
+            break;
         }
+        tokens.push(tok);
     }
     let mut parser = Parser::new(tokens, &parse_src);
     match parser.parse() {
@@ -444,17 +439,12 @@ fn run_current_inner(
     lex.set_extglob_patterns(env.option("extglob"));
     lex.set_posix_mode(env.option("posix"));
     let mut tokens = Vec::new();
-    loop {
-        match lex.next_token() {
-            Some(tok) => {
-                if tok.kind == TokenKind::End {
-                    tokens.push(tok);
-                    break;
-                }
-                tokens.push(tok);
-            }
-            None => break,
+    while let Some(tok) = lex.next_token() {
+        if tok.kind == TokenKind::End {
+            tokens.push(tok);
+            break;
         }
+        tokens.push(tok);
     }
     let mut parser = Parser::new(tokens, &parse_src);
     match parser.parse() {

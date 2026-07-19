@@ -31,3 +31,19 @@ declare -p p"#,
         ..RunSpec::default()
     });
 }
+
+#[test]
+fn nounset_arithmetic_treats_declared_array_elements_as_zero() {
+    assert_parity_strict(&RunSpec {
+        script: Some(
+            r#"set -u
+declare -a indexed=()
+declare -A assoc=()
+printf 'before:%d:%d\n' "$((indexed[2]))" "$((assoc[key]))"
+((indexed[2] += 3))
+((assoc[key] += 4))
+printf 'after:%d:%d\n' "${indexed[2]}" "${assoc[key]}""#,
+        ),
+        ..RunSpec::default()
+    });
+}

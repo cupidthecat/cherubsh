@@ -150,7 +150,7 @@ impl Builtin for ReadBuiltin {
 
         let rest_start = parser.index;
         let rest = parser.remaining(ctx.args);
-        let names: Vec<String> = rest.iter().cloned().collect();
+        let names: Vec<String> = rest.to_vec();
         let mut name_flags: Vec<u32> = (0..names.len())
             .map(|i| ctx.arg_flag(rest_start + i))
             .collect();
@@ -418,11 +418,7 @@ impl Builtin for ReadBuiltin {
         } else {
             let fields = split_read_variables_marked(&line, &ifs, target_names.len());
             for (i, name) in target_names.iter().enumerate() {
-                let value = if i + 1 == target_names.len() {
-                    fields.get(i).cloned().unwrap_or_default()
-                } else {
-                    fields.get(i).cloned().unwrap_or_default()
-                };
+                let value = fields.get(i).cloned().unwrap_or_default();
                 if let Err(err) = assign_direct_target_with_flags(
                     ctx.env(),
                     name,
@@ -752,6 +748,7 @@ fn strip_trailing_ifs_whitespace_items(chars: &[(char, bool)], ifs: &str) -> Str
 }
 
 #[cfg(test)]
+#[allow(clippy::items_after_test_module)]
 mod tests {
     use super::*;
 

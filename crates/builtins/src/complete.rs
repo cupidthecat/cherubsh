@@ -385,7 +385,7 @@ fn compgen_eval(
 }
 
 fn expand_wordlist(env: &mut dyn Environment, words: &str) -> String {
-    let mut runner = cherubsh_expander::NullRunner::default();
+    let mut runner = cherubsh_expander::NullRunner;
     cherubsh_expander::expand_string_to_string(words, env, &mut runner)
         .unwrap_or_else(|_| words.to_string())
 }
@@ -878,6 +878,17 @@ impl Builtin for Compopt {
         } else {
             CompSlot::Command
         };
+        if targets.is_empty() && slot == CompSlot::Command {
+            if ctx.env().completion_options_update(set_opts, clear_opts) {
+                return 0;
+            }
+            report_diagnostic(
+                ctx.env_ref(),
+                "compopt",
+                "not currently executing completion function",
+            );
+            return 1;
+        }
         if targets.is_empty() && slot != CompSlot::Command {
             if let Some(mut spec) = ctx.env_ref().compspec_get(slot, None) {
                 spec.options |= set_opts;

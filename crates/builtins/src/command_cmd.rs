@@ -1,4 +1,4 @@
-use crate::common::{report_diagnostic, search_path};
+use crate::common::{report_diagnostic, search_path, search_path_value};
 use crate::getopt::{GetOpt, OptParser};
 use crate::type_cmd::print_function_definition;
 use crate::{is_special, lookup_raw, Builtin, BuiltinCtx};
@@ -152,16 +152,7 @@ fn describe(
     }
     let env_ref: &dyn cherubsh_common::Environment = ctx.env_ref();
     let target_path = if use_default_path {
-        // Approximate PATH override by walking DEFAULT_PATH directly.
-        let mut found = None;
-        for dir in DEFAULT_PATH.split(':') {
-            let candidate = std::path::Path::new(dir).join(name);
-            if crate::common::is_executable(&candidate) {
-                found = Some(candidate);
-                break;
-            }
-        }
-        found
+        search_path_value(name, DEFAULT_PATH)
     } else {
         search_path(name, env_ref)
     };

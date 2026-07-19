@@ -198,12 +198,8 @@ pub fn run_arith_string(s: &str, ctx: &mut ExpCtx) -> Result<String, ExpandError
 
 /// Expand a word inside the context of an operator (e.g. `${var:-WORD}`):
 /// runs tilde + internal but does NOT split or glob.
-pub fn run_word_inner(s: &str, ctx: &mut ExpCtx, quoted: bool) -> Result<Vec<u8>, ExpandError> {
+pub fn run_word_inner(s: &str, ctx: &mut ExpCtx, _quoted: bool) -> Result<Vec<u8>, ExpandError> {
     let wd = Wd::from_bytes_with_flags(s.as_bytes().to_vec(), 0, Span::dummy());
     let exp = internal::expand_word_internal(&wd, ctx, false)?;
-    if quoted {
-        Ok(exp.buf.bytes)
-    } else {
-        Ok(exp.buf.bytes)
-    }
+    Ok(exp.buf.bytes)
 }

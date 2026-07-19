@@ -1,4 +1,4 @@
-set -- -a -b foo bar
+set -- -a -b foo ba
 while getopts "ab:" opt; do
   case $opt in
     a) echo "got a" ;;

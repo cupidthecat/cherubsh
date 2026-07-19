@@ -1,3 +1,0 @@
-verdict	name	status	timed_out	stdout_path	stderr_path	tstout_path
-xfail	arith	1	false	target/parity/focused-parser-fixes/arith.stdout	target/parity/focused-parser-fixes/arith.stderr	/tmp/cupid-bashtst-744351-arith-1778866723147173222.out
-xfail	case	1	false	target/parity/focused-parser-fixes/case.stdout	target/parity/focused-parser-fixes/case.stderr	/tmp/cupid-bashtst-744351-case-1778866723447822363.out

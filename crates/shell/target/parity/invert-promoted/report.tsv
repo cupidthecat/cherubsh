@@ -1,2 +1,0 @@
-verdict	name	status	timed_out	stdout_path	stderr_path	tstout_path
-PASS	invert	0	false	target/parity/invert-promoted/invert.stdout	target/parity/invert-promoted/invert.stderr	

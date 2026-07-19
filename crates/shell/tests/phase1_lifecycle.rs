@@ -4,6 +4,8 @@ use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use cherubsh_test_harness::{cherub_path, oracle_bash_path, oracle_version};
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Output {
     status: i32,
@@ -19,15 +21,11 @@ struct Spec<'a> {
 }
 
 fn cherub() -> PathBuf {
-    std::env::var_os("CARGO_BIN_EXE_cherubsh")
-        .map(PathBuf::from)
-        .expect("CARGO_BIN_EXE_cherubsh is set by cargo integration tests")
+    cherub_path().expect("find cherubsh test binary")
 }
 
-fn bash_521() -> PathBuf {
-    std::env::var_os("BASH_521_PATH")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("/home/frank/bash-rust/bash-5.2.21/bash"))
+fn bash_oracle() -> PathBuf {
+    oracle_bash_path()
 }
 
 fn run_shell(path: PathBuf, spec: &Spec<'_>) -> Output {
@@ -70,10 +68,11 @@ fn run_shell(path: PathBuf, spec: &Spec<'_>) -> Output {
 }
 
 fn run_both(spec: &Spec<'_>) -> (Output, Output) {
-    let bash = bash_521();
+    let bash = bash_oracle();
     assert!(
         bash.exists(),
-        "bash-5.2.21 oracle missing at {}; set BASH_521_PATH",
+        "bash {} oracle missing at {}",
+        oracle_version(),
         bash.display()
     );
     (run_shell(bash, spec), run_shell(cherub(), spec))
@@ -114,6 +113,41 @@ fn run_cherub_with_args(args: &[&str], stdin: Option<&str>) -> Output {
     }
 }
 
+fn run_cherub_in_home(args: &[&str], stdin: Option<&str>, home: &std::path::Path) -> Output {
+    let mut command = Command::new(cherub());
+    command.args(args);
+    command.env_clear();
+    command.env("PATH", "/usr/bin:/bin");
+    command.env("HOME", home);
+    command.env("LANG", "C");
+    if stdin.is_some() {
+        command.stdin(Stdio::piped());
+    } else {
+        command.stdin(Stdio::null());
+    }
+    command.stdout(Stdio::piped()).stderr(Stdio::piped());
+
+    let mut child = command.spawn().expect("spawn cherub");
+    if let Some(input) = stdin {
+        child
+            .stdin
+            .take()
+            .expect("stdin pipe")
+            .write_all(input.as_bytes())
+            .expect("write stdin");
+    }
+    let output = child.wait_with_output().expect("wait cherub");
+    let status = output.status.code().unwrap_or_else(|| {
+        use std::os::unix::process::ExitStatusExt;
+        128 + output.status.signal().unwrap_or(0)
+    });
+    Output {
+        status,
+        stdout: String::from_utf8_lossy(&output.stdout).to_string(),
+        stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+    }
+}
+
 fn temp_file(name: &str, content: &str) -> PathBuf {
     let nonce = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -123,6 +157,74 @@ fn temp_file(name: &str, content: &str) -> PathBuf {
         std::env::temp_dir().join(format!("cherubsh-{name}-{}-{nonce}.sh", std::process::id()));
     fs::write(&path, content).expect("write temp script");
     path
+}
+
+fn temp_dir(name: &str) -> PathBuf {
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("time")
+        .as_nanos();
+    let path = std::env::temp_dir().join(format!("cherubsh-{name}-{}-{nonce}", std::process::id()));
+    fs::create_dir_all(&path).expect("create temp directory");
+    path
+}
+
+#[test]
+fn interactive_shell_reads_cherubrc_and_ignores_bashrc() {
+    let home = temp_dir("cherubrc-default");
+    fs::write(home.join(".cherubrc"), "printf 'from-cherubrc\\n'\n").expect("write cherubrc");
+    fs::write(home.join(".bashrc"), "printf 'from-bashrc\\n'\n").expect("write bashrc");
+
+    let output = run_cherub_in_home(&["--noprofile", "-i", "-c", "true"], None, &home);
+    let _ = fs::remove_dir_all(home);
+
+    assert_eq!(output.status, 0);
+    assert!(output.stdout.contains("from-cherubrc"));
+    assert!(!output.stdout.contains("from-bashrc"));
+}
+
+#[test]
+fn missing_cherubrc_does_not_fall_back_to_bashrc() {
+    let home = temp_dir("cherubrc-missing");
+    fs::write(home.join(".bashrc"), "printf 'from-bashrc\\n'\n").expect("write bashrc");
+
+    let output = run_cherub_in_home(&["--noprofile", "-i", "-c", "true"], None, &home);
+    let _ = fs::remove_dir_all(home);
+
+    assert_eq!(output.status, 0);
+    assert!(!output.stdout.contains("from-bashrc"));
+}
+
+#[test]
+fn norc_skips_cherubrc() {
+    let home = temp_dir("cherubrc-norc");
+    fs::write(home.join(".cherubrc"), "printf 'from-cherubrc\\n'\n").expect("write cherubrc");
+
+    let output = run_cherub_in_home(&["--noprofile", "--norc", "-i", "-c", "true"], None, &home);
+    let _ = fs::remove_dir_all(home);
+
+    assert_eq!(output.status, 0);
+    assert!(!output.stdout.contains("from-cherubrc"));
+}
+
+#[test]
+fn rcfile_overrides_cherubrc() {
+    let home = temp_dir("cherubrc-override");
+    let custom = home.join("custom.rc");
+    fs::write(home.join(".cherubrc"), "printf 'from-cherubrc\\n'\n").expect("write cherubrc");
+    fs::write(&custom, "printf 'from-custom\\n'\n").expect("write custom rc");
+    let custom_arg = custom.display().to_string();
+
+    let output = run_cherub_in_home(
+        &["--noprofile", "--rcfile", &custom_arg, "-i", "-c", "true"],
+        None,
+        &home,
+    );
+    let _ = fs::remove_dir_all(home);
+
+    assert_eq!(output.status, 0);
+    assert!(output.stdout.contains("from-custom"));
+    assert!(!output.stdout.contains("from-cherubrc"));
 }
 
 #[test]
@@ -209,6 +311,19 @@ fn just_one_command_from_stdin_reads_one_line() {
     let (bash, cherub) = run_both(&spec);
     assert_eq!(cherub.status, bash.status);
     assert_eq!(cherub.stdout, bash.stdout);
+}
+
+#[test]
+fn noninteractive_shell_does_not_create_mailcheck() {
+    let spec = Spec {
+        args: vec![
+            "-c",
+            "if [[ -v MAILCHECK ]]; then echo set; else echo unset; fi",
+        ],
+        ..Spec::default()
+    };
+    let (bash, cherub) = run_both(&spec);
+    assert_eq!(cherub, bash);
 }
 
 #[test]
@@ -461,7 +576,7 @@ show `echo "(\")"`
 }
 
 #[test]
-fn script_eof_backslash_is_line_continuation_without_newline() {
+fn script_eof_backslash_matches_bash_53() {
     let spec = Spec {
         stdin: Some(r#"printf '[%s]\n' \"#),
         ..Spec::default()
@@ -469,7 +584,7 @@ fn script_eof_backslash_is_line_continuation_without_newline() {
     let (bash, cherub) = run_both(&spec);
     assert_eq!(cherub.status, bash.status);
     assert_eq!(cherub.stdout, bash.stdout);
-    assert_eq!(cherub.stdout, "[]\n");
+    assert_eq!(cherub.stdout, "[\\]\n");
     assert_eq!(cherub.stderr, bash.stderr);
 }
 
@@ -666,7 +781,7 @@ fn redirected_stdin_is_shared_with_child_shells() {
         "read line\necho \"child read: $line\"\n",
     );
     let sub_arg = sub.to_string_lossy().to_string();
-    let bash_arg = bash_521().to_string_lossy().to_string();
+    let bash_arg = bash_oracle().to_string_lossy().to_string();
     let cherub_arg = cherub().to_string_lossy().to_string();
     let bash_stdin = format!("\"{bash_arg}\" \"{sub_arg}\"\nline from parent stdin\necho done\n");
     let cherub_stdin =
@@ -679,7 +794,7 @@ fn redirected_stdin_is_shared_with_child_shells() {
         stdin: Some(&cherub_stdin),
         ..Spec::default()
     };
-    let bash = run_shell(bash_521(), &bash_spec);
+    let bash = run_shell(bash_oracle(), &bash_spec);
     let cherub = run_shell(cherub(), &cherub_spec);
     let _ = fs::remove_file(sub);
     assert_eq!(cherub.status, bash.status);

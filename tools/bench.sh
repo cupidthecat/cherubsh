@@ -5,9 +5,10 @@
 #   RUNS=15              measured runs per case
 #   WARMUPS=3            warmup runs per case
 #   CHERUBSH=path        CherubSH binary to test
-#   BASH_ORACLE_VERSION  Bash oracle version: 5.3 default, or 5.2.21
+#   BASH_ORACLE_VERSION  Bash oracle version: 5.3.15 default, or 5.2.21
 #   BASH_ORACLE_PATH     explicit Bash oracle binary path
-#   BASH_53_PATH=path    Bash 5.3 oracle binary
+#   BASH_5315_PATH=path  Bash 5.3.15 oracle binary
+#   BASH_53_PATH=path    compatibility alias for BASH_5315_PATH
 #   BASH_521_PATH=path   Bash 5.2.21 oracle binary
 #   BENCH_BUILD=0        skip cargo release build
 
@@ -19,7 +20,7 @@ RUNS="${RUNS:-15}"
 WARMUPS="${WARMUPS:-3}"
 CHERUBSH="${CHERUBSH:-${WS_ROOT}/target/release/cherubsh}"
 BENCH_BUILD="${BENCH_BUILD:-1}"
-ORACLE_VERSION="${BASH_ORACLE_VERSION:-5.3}"
+ORACLE_VERSION="${BASH_ORACLE_VERSION:-5.3.15}"
 
 case "${ORACLE_VERSION}" in
     5.2|5.2.21)
@@ -30,13 +31,13 @@ case "${ORACLE_VERSION}" in
         ORACLE_BUILDER="${WS_ROOT}/oracle/build-bash-5.2.21.sh"
         VERSION_RE='version 5\.2\.21'
         ;;
-    5.3|5.3.0)
-        ORACLE_VERSION="5.3"
-        ORACLE_LABEL="bash-5.3"
-        RATIO_COLUMN="ratio_vs_bash_53"
-        ORACLE="${BASH_ORACLE_PATH:-${BASH_53_PATH:-${WS_ROOT}/target/oracle/bash-5.3/bash}}"
-        ORACLE_BUILDER="${WS_ROOT}/oracle/build-bash-5.3.sh"
-        VERSION_RE='version 5\.3(\.0)?'
+    5.3|5.3.0|5.3.15)
+        ORACLE_VERSION="5.3.15"
+        ORACLE_LABEL="bash-5.3.15"
+        RATIO_COLUMN="ratio_vs_bash_5315"
+        ORACLE="${BASH_ORACLE_PATH:-${BASH_5315_PATH:-${BASH_53_PATH:-${WS_ROOT}/target/oracle/bash-5.3.15/bash}}}"
+        ORACLE_BUILDER="${WS_ROOT}/oracle/build-bash-5.3.15.sh"
+        VERSION_RE='version 5\.3\.15'
         ;;
     *)
         echo "error: unsupported BASH_ORACLE_VERSION=${ORACLE_VERSION}" >&2

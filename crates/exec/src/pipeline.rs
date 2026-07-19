@@ -56,10 +56,8 @@ pub(crate) fn execute<'a>(
         let is_last_fork = index + 1 == stages_to_fork && !lastpipe;
         let mut pipe_fds = [0i32; 2];
         let needs_pipe = index + 1 < total;
-        if needs_pipe {
-            if unsafe { libc::pipe(pipe_fds.as_mut_ptr()) } < 0 {
-                return 1;
-            }
+        if needs_pipe && unsafe { libc::pipe(pipe_fds.as_mut_ptr()) } < 0 {
+            return 1;
         }
         let pid = unsafe { libc::fork() };
         if pid < 0 {

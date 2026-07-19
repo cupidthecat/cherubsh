@@ -384,12 +384,15 @@ fn create_test_files(root: &Path, case: &BrushCase) -> Result<(), HarnessError> 
         if let Some(parent) = dest.parent() {
             fs::create_dir_all(parent).map_err(HarnessError::Io)?;
         }
-        let contents = if let Some(source_path) = &file.source_path {
+        let mut contents = if let Some(source_path) = &file.source_path {
             let source = case.source_dir.join(source_path);
             fs::read_to_string(source).map_err(HarnessError::Io)?
         } else {
             file.contents.clone()
         };
+        if file.executable || dest.extension().is_some_and(|ext| ext == "sh") {
+            contents = contents.replace("\r\n", "\n");
+        }
         fs::write(&dest, contents).map_err(HarnessError::Io)?;
         if file.executable {
             let mut perms = fs::metadata(&dest).map_err(HarnessError::Io)?.permissions();
@@ -457,11 +460,9 @@ fn run_shell_for_case(
 impl RawCase {
     fn removed_default_arg(&self, arg: &str) -> bool {
         // Keep this value-level to tolerate numeric or oddly-typed YAML.
-        false
-            || self
-                .get_removed_default_args()
-                .iter()
-                .any(|value| value == arg)
+        self.get_removed_default_args()
+            .iter()
+            .any(|value| value == arg)
     }
 
     fn get_removed_default_args(&self) -> Vec<String> {

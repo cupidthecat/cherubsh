@@ -287,7 +287,7 @@ fn print_one(spec: LimitSpec, value: libc::rlim_t, print_description: bool) {
     if value == libc::RLIM_INFINITY {
         println!("unlimited");
     } else {
-        println!("{}", (value as u64) / spec.factor);
+        println!("{}", value / spec.factor);
     }
 }
 

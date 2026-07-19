@@ -37,9 +37,17 @@ pub fn exit_shell(state: &mut ShellState, exec_state: &mut ExecState, status: i3
         if !histfile_disabled && !matches!(state.get("HISTFILE"), Some(value) if value.is_empty()) {
             if let Some(path) = state.histfile() {
                 let with_ts = state.get("HISTTIMEFORMAT").is_some();
-                let _ = state
-                    .history_table
-                    .write_to(&path, state.histfilesize, with_ts);
+                if state.option("histappend") {
+                    let _ = state.history_table.append_to(&path, with_ts);
+                    let mut disk = cherubsh_common::HistoryTable::new(usize::MAX);
+                    if disk.load_from(&path).is_ok() {
+                        let _ = disk.write_to(&path, state.histfilesize, with_ts);
+                    }
+                } else {
+                    let _ = state
+                        .history_table
+                        .write_to(&path, state.histfilesize, with_ts);
+                }
             }
         }
     } else if state.option("history") {
@@ -50,6 +58,22 @@ pub fn exit_shell(state: &mut ShellState, exec_state: &mut ExecState, status: i3
         if !histfile_disabled && !matches!(state.get("HISTFILE"), Some(value) if value.is_empty()) {
             if let Some(path) = state.histfile() {
                 let _ = state.history_table.append_to(&path, false);
+            }
+        }
+    }
+
+    if state.interactive_shell && state.login_shell != 0 && state.option("huponexit") {
+        for job in state.jobs.list() {
+            if job.state == cherubsh_common::JobState::Done
+                || job.flags.contains(cherubsh_common::JobFlags::NOHUP)
+            {
+                continue;
+            }
+            unsafe {
+                libc::kill(-job.pgid, libc::SIGHUP);
+                if job.state == cherubsh_common::JobState::Stopped {
+                    libc::kill(-job.pgid, libc::SIGCONT);
+                }
             }
         }
     }

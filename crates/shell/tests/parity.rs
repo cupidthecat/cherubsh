@@ -1,20 +1,13 @@
-//! fixture-level differential parity sweep.
+//! Differential fixture tests against the selected Bash oracle.
 //!
-//! Runs every fixture under `crates/test-harness/tests/fixtures/` against
-//! the bash-5.2.21 oracle, classifies each as Pass/Fail/XFail/XPass against
-//! `crates/test-harness/fixtures-xfail.txt`, and fails the test only on
-//! unexpected outcomes (Fail or XPass). Mirrors upstream_parity.rs.
-//!
-//! Gated on `RUN_PARITY_TESTS=1`. When `BASH_521_PATH` is set, demands the
-//! 5.2.21 oracle is available - partial fallback to /bin/bash is reserved
-//! for unconfigured local development.
+//! Set `RUN_PARITY_TESTS=1` to run the full 99-case sweep.
 
 use std::path::PathBuf;
 
 use cherubsh_test_harness::upstream::load_xfail;
 use cherubsh_test_harness::{
-    cherub_path, default_bash_path, diff, discover_fixtures, load_fixture, oracle_available,
-    oracle_bash_path, run_cherub, run_shell_spec, workspace_root, RunSpec,
+    cherub_path, diff, discover_fixtures, load_fixture, oracle_available, oracle_bash_path,
+    oracle_version, run_cherub, run_shell_spec, workspace_root, RunSpec,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -39,29 +32,14 @@ fn parity_all_fixtures() {
         return;
     }
 
-    let strict = std::env::var_os("BASH_521_PATH").is_some();
-    if strict && !oracle_available() {
+    if !oracle_available() {
         panic!(
-            "BASH_521_PATH is set but oracle not available at {}; build via oracle/build-bash-5.2.21.sh",
+            "bash {} oracle is not available at {}",
+            oracle_version(),
             oracle_bash_path().display()
         );
     }
-
-    let bash_path = if oracle_available() {
-        oracle_bash_path()
-    } else {
-        let fallback = default_bash_path();
-        if !fallback.exists() {
-            eprintln!("skip: bash not at {}", fallback.display());
-            return;
-        }
-        eprintln!(
-            "warn: bash-5.2.21 oracle missing at {}; falling back to {}",
-            oracle_bash_path().display(),
-            fallback.display(),
-        );
-        fallback
-    };
+    let bash_path = oracle_bash_path();
 
     let _ = cherub_path().expect("CARGO_BIN_EXE_cherubsh");
     let dir = fixtures_dir();

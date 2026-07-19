@@ -1,6 +1,4 @@
-//! Internal word descriptor used during expansion. Distinct from
-//! `parser::WordDesc` to carry quoting/state information that's only meaningful
-//! during the expansion pipeline.
+//! Word state used while the expansion pipeline is running.
 
 use cherubsh_common::Span;
 use cherubsh_parser::WordDesc as PWordDesc;
@@ -8,17 +6,12 @@ use cherubsh_parser::WordDesc as PWordDesc;
 use crate::buf::{dequote_bytes, ExpandBuf};
 use crate::quote::bytes_to_shell_string;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum QuotedState {
+    #[default]
     Unquoted,
     Partially,
     Wholly,
-}
-
-impl Default for QuotedState {
-    fn default() -> Self {
-        QuotedState::Unquoted
-    }
 }
 
 #[derive(Clone, Debug)]

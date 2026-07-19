@@ -50,7 +50,7 @@ impl Builtin for Cd {
             return 1;
         }
         let target_arg = rest.first().cloned();
-        let print_after;
+        let mut print_after;
         let mut effective_target;
         match target_arg.as_deref() {
             None => {
@@ -92,6 +92,23 @@ impl Builtin for Cd {
                         resolved_via_cdpath = true;
                         break;
                     }
+                }
+            }
+        }
+
+        if !directory_exists(ctx, &effective_target) {
+            let variable_target = target_arg
+                .as_deref()
+                .filter(|_| ctx.env_ref().option("cdable_vars"))
+                .and_then(|name| ctx.env_ref().get(name))
+                .filter(|value| directory_exists(ctx, value));
+            if let Some(value) = variable_target {
+                effective_target = value;
+                print_after = true;
+            } else if ctx.env_ref().option("interactive") && ctx.env_ref().option("cdspell") {
+                if let Some(corrected) = spell_directory(ctx, &effective_target) {
+                    effective_target = corrected;
+                    print_after = true;
                 }
             }
         }
@@ -201,4 +218,108 @@ fn normalize_logical_path(p: &Path) -> PathBuf {
         out.push(part);
     }
     out
+}
+
+fn directory_exists(ctx: &BuiltinCtx<'_>, target: &str) -> bool {
+    let path = PathBuf::from(target);
+    let path = if path.is_absolute() {
+        path
+    } else {
+        ctx.env_ref()
+            .logical_pwd()
+            .map(PathBuf::from)
+            .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")))
+            .join(path)
+    };
+    path.is_dir()
+}
+
+fn spell_directory(ctx: &BuiltinCtx<'_>, target: &str) -> Option<String> {
+    let absolute = target.starts_with('/');
+    let mut lookup = if absolute {
+        PathBuf::from("/")
+    } else {
+        ctx.env_ref()
+            .logical_pwd()
+            .map(PathBuf::from)
+            .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")))
+    };
+    let mut rendered = PathBuf::new();
+    let mut changed = false;
+
+    for component in Path::new(target).components() {
+        use std::path::Component;
+        let Component::Normal(wanted) = component else {
+            if matches!(component, Component::ParentDir) {
+                lookup.push("..");
+                rendered.push("..");
+            } else if matches!(component, Component::CurDir) {
+                rendered.push(".");
+            }
+            continue;
+        };
+        let wanted = wanted.to_string_lossy();
+        let mut best: Option<(u8, String)> = None;
+        for entry in std::fs::read_dir(&lookup).ok()?.flatten() {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            let distance = spelling_distance(&name, &wanted);
+            if distance >= 3 {
+                continue;
+            }
+            if best
+                .as_ref()
+                .is_none_or(|(current, _)| distance <= *current)
+            {
+                best = Some((distance, name));
+            }
+            if distance == 0 {
+                break;
+            }
+        }
+        let (_, chosen) = best?;
+        changed |= chosen != wanted;
+        lookup.push(&chosen);
+        rendered.push(chosen);
+    }
+    if !changed || !lookup.is_dir() {
+        return None;
+    }
+    if absolute {
+        Some(Path::new("/").join(rendered).to_string_lossy().into_owned())
+    } else {
+        Some(rendered.to_string_lossy().into_owned())
+    }
+}
+
+fn spelling_distance(current: &str, wanted: &str) -> u8 {
+    if current == wanted {
+        return 0;
+    }
+    let current = current.as_bytes();
+    let wanted = wanted.as_bytes();
+    let first = current
+        .iter()
+        .zip(wanted)
+        .position(|(left, right)| left != right)
+        .unwrap_or(current.len().min(wanted.len()));
+    let left = &current[first..];
+    let right = &wanted[first..];
+    if left.len() >= 2
+        && right.len() >= 2
+        && left[0] == right[1]
+        && left[1] == right[0]
+        && left[2..] == right[2..]
+    {
+        return 1;
+    }
+    if !left.is_empty() && !right.is_empty() && left[1..] == right[1..] {
+        return 2;
+    }
+    if !left.is_empty() && left[1..] == *right {
+        return 2;
+    }
+    if !right.is_empty() && *left == right[1..] {
+        return 2;
+    }
+    3
 }

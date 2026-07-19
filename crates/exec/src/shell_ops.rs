@@ -230,17 +230,12 @@ fn run_source_inner(
     lex.set_extglob_patterns(adapter.ctx.env.option("extglob"));
     lex.set_posix_mode(adapter.ctx.env.option("posix"));
     let mut tokens = Vec::new();
-    loop {
-        match lex.next_token() {
-            Some(tok) => {
-                if tok.kind == TokenKind::End {
-                    tokens.push(tok);
-                    break;
-                }
-                tokens.push(tok);
-            }
-            None => break,
+    while let Some(tok) = lex.next_token() {
+        if tok.kind == TokenKind::End {
+            tokens.push(tok);
+            break;
         }
+        tokens.push(tok);
     }
     let mut parser = Parser::new(tokens, &parse_src);
     match parser.parse_input_unit() {

@@ -1,2 +1,0 @@
-verdict	name	status	timed_out	stdout_path	stderr_path	tstout_path
-xfail	input-test	1	false	target/parity/input-promote-check3/input-test.stdout	target/parity/input-promote-check3/input-test.stderr	/tmp/cupid-bashtst-900309-input-test-1778870261602825649.out

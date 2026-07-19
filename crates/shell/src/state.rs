@@ -1,7 +1,7 @@
 use std::borrow::Cow;
 use std::cell::Cell;
 use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use cherubsh_common::{
@@ -19,14 +19,14 @@ use crate::input::BashInput;
 
 const NAMEREF_MAX_DEPTH: usize = 8;
 
-/// Default rc file path: bash's DEFAULT_BASHRC is "~/.bashrc".
-fn default_bashrc() -> PathBuf {
+/// Default startup file for an interactive, non-login CherubSH session.
+fn default_rc_file() -> PathBuf {
     if let Some(home) = std::env::var_os("HOME") {
         let mut path = PathBuf::from(home);
-        path.push(".bashrc");
+        path.push(".cherubrc");
         path
     } else {
-        PathBuf::from(".bashrc")
+        PathBuf::from(".cherubrc")
     }
 }
 
@@ -154,6 +154,32 @@ fn default_shopt_value(name: &str, interactive: bool, posix: bool) -> bool {
     }
 }
 
+const COMPAT_SHOPT_OPTIONS: &[&str] = &[
+    "compat31", "compat32", "compat40", "compat41", "compat42", "compat43", "compat44",
+];
+
+fn compatibility_level(value: &str) -> Option<u32> {
+    let trimmed = value.trim();
+    if let Some((major, minor)) = trimmed.split_once('.') {
+        return Some(major.parse::<u32>().ok()? * 10 + minor.parse::<u32>().ok()?);
+    }
+    trimmed.parse().ok()
+}
+
+fn compatibility_option(level: u32) -> Option<&'static str> {
+    COMPAT_SHOPT_OPTIONS
+        .iter()
+        .copied()
+        .find(|option| option["compat".len()..].parse::<u32>().ok() == Some(level))
+}
+
+#[derive(Clone, Copy)]
+struct MailStatus {
+    modified: i64,
+    accessed: i64,
+    size: u64,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StartupMode {
     Script = 0,
@@ -236,10 +262,8 @@ impl IndexedArray {
         }
         if index >= 0 {
             let idx = index as usize;
-            if idx < self.dense.len() {
-                if self.dense[idx].take().is_some() {
-                    self.len = self.len.saturating_sub(1);
-                }
+            if idx < self.dense.len() && self.dense[idx].take().is_some() {
+                self.len = self.len.saturating_sub(1);
             }
         }
         if self.sparse.insert(index, value).is_none() {
@@ -399,7 +423,7 @@ pub struct ShellState {
     pub shell_script_filename: Option<PathBuf>,
     pub shell_name: String,
     pub shell_invocation_name: String,
-    pub bashrc_file: PathBuf,
+    pub rc_file: PathBuf,
     pub dollar_vars: Vec<String>,
     pub last_command_exit_value: i32,
     pub indirection_level: i32,
@@ -407,6 +431,8 @@ pub struct ShellState {
     pub executing: bool,
     pub eof_reached: bool,
     pub current_command_line_count: u32,
+    mail_last_check: Option<Instant>,
+    mail_status: HashMap<PathBuf, MailStatus>,
     pub diagnostic_line_stack: Vec<u32>,
     pub seconds_start: Instant,
     pub shell_start_epoch: i64,
@@ -497,6 +523,7 @@ pub struct ShellState {
     pub default_compspec: Option<CompSpec>,
     pub initial_compspec: Option<CompSpec>,
     pub empty_compspec: Option<CompSpec>,
+    pub active_completion_options: Option<cherubsh_common::completion::CompOpts>,
     pub keymaps: HashMap<String, Keymap>,
     pub active_keymap: String,
     pub line_editor: Option<LineEditor>,
@@ -537,7 +564,7 @@ impl Default for ShellState {
             shell_script_filename: None,
             shell_name: String::from("cherubsh"),
             shell_invocation_name: String::from("cherubsh"),
-            bashrc_file: default_bashrc(),
+            rc_file: default_rc_file(),
             dollar_vars: vec![String::from("cherubsh")],
             last_command_exit_value: 0,
             indirection_level: 0,
@@ -545,6 +572,8 @@ impl Default for ShellState {
             executing: false,
             eof_reached: false,
             current_command_line_count: 0,
+            mail_last_check: None,
+            mail_status: HashMap::default(),
             diagnostic_line_stack: Vec::new(),
             seconds_start: Instant::now(),
             shell_start_epoch: current_epoch_seconds() as i64,
@@ -634,6 +663,7 @@ impl Default for ShellState {
             default_compspec: None,
             initial_compspec: None,
             empty_compspec: None,
+            active_completion_options: None,
             keymaps: HashMap::default(),
             active_keymap: String::from("emacs"),
             line_editor: None,
@@ -989,7 +1019,7 @@ impl ShellState {
     }
 
     fn can_assign_simple_local_direct(&self, name: &str) -> bool {
-        !matches!(
+        !(matches!(
             name,
             "RANDOM"
                 | "BASH_ARGV0"
@@ -1005,7 +1035,7 @@ impl ShellState {
                 | "HISTCONTROL"
                 | "HISTFILE"
                 | "IGNOREEOF"
-        ) && !(self.restricted && matches!(name, "PATH" | "SHELL"))
+        ) || self.restricted && matches!(name, "PATH" | "SHELL"))
     }
 
     pub fn configure_history_from_vars(&mut self, load_file: bool, default_histfile: bool) {
@@ -1098,9 +1128,95 @@ impl ShellState {
             return None;
         }
         match &self.input {
-            BashInput::Stream { name, .. } if !name.is_empty() => Some(name.clone()),
+            BashInput::Stream { name, .. } if !name.is_empty() => Some(self.source_name(name)),
             _ => None,
         }
+    }
+
+    pub fn update_window_size(&mut self) {
+        if !self.option("checkwinsize") {
+            return;
+        }
+        let fd = self.tty_fd_value.unwrap_or(libc::STDIN_FILENO);
+        let mut size: libc::winsize = unsafe { std::mem::zeroed() };
+        if unsafe { libc::ioctl(fd, libc::TIOCGWINSZ, &mut size) } != 0 {
+            return;
+        }
+        if size.ws_col > 0 {
+            let _ = self.assign("COLUMNS", size.ws_col.to_string());
+        }
+        if size.ws_row > 0 {
+            let _ = self.assign("LINES", size.ws_row.to_string());
+        }
+    }
+
+    pub fn check_mail(&mut self) {
+        use std::os::unix::fs::MetadataExt;
+
+        let interval = self
+            .get("MAILCHECK")
+            .and_then(|value| value.parse::<u64>().ok())
+            .unwrap_or(60);
+        if interval == 0
+            || self
+                .mail_last_check
+                .is_some_and(|last| last.elapsed().as_secs() < interval)
+        {
+            return;
+        }
+        self.mail_last_check = Some(Instant::now());
+
+        let entries = self
+            .get("MAILPATH")
+            .filter(|value| !value.is_empty())
+            .map(|value| value.split(':').map(str::to_string).collect::<Vec<_>>())
+            .or_else(|| self.get("MAIL").map(|value| vec![value]))
+            .unwrap_or_default();
+        for entry in entries {
+            let (path, message) = entry
+                .split_once('?')
+                .or_else(|| entry.split_once('%'))
+                .map(|(path, message)| (path, Some(message)))
+                .unwrap_or((entry.as_str(), None));
+            if path.is_empty() {
+                continue;
+            }
+            let Ok(metadata) = std::fs::metadata(path) else {
+                self.mail_status.remove(Path::new(path));
+                continue;
+            };
+            let current = MailStatus {
+                modified: metadata.mtime(),
+                accessed: metadata.atime(),
+                size: metadata.len(),
+            };
+            let previous = self.mail_status.insert(PathBuf::from(path), current);
+            let new_mail = current.size > 0
+                && current.modified >= current.accessed
+                && previous
+                    .is_none_or(|old| current.modified > old.modified || current.size > old.size);
+            if new_mail {
+                if let Some(message) = message {
+                    eprintln!("{}", message.replace("$_", path));
+                } else {
+                    eprintln!("You have new mail in {path}");
+                }
+            } else if self.option("mailwarn")
+                && previous.is_some_and(|old| current.accessed > old.accessed)
+            {
+                eprintln!("The mail in {path} has been read");
+            }
+        }
+    }
+
+    fn source_name(&self, source: &str) -> String {
+        if !self.option("bash_source_fullpath") || source == "main" {
+            return source.to_string();
+        }
+        std::fs::canonicalize(source)
+            .ok()
+            .map(|path| path.to_string_lossy().into_owned())
+            .unwrap_or_else(|| source.to_string())
     }
 
     fn main_source_name(&self) -> String {
@@ -1233,6 +1349,7 @@ impl ShellState {
 }
 
 #[cfg(test)]
+#[allow(clippy::items_after_test_module)]
 mod tests {
     use super::*;
 
@@ -1466,7 +1583,9 @@ impl Environment for ShellState {
                 self.report_circular_name_reference(name);
                 return None;
             }
-            return entry.has_value.then(|| Cow::Borrowed(entry.value.as_str()));
+            return entry
+                .has_value
+                .then_some(Cow::Borrowed(entry.value.as_str()));
         }
         std::env::var(name).ok().map(Cow::Owned)
     }
@@ -1611,6 +1730,15 @@ impl Environment for ShellState {
                 attrs: prev_attrs,
             },
         );
+        if name == "BASH_COMPAT" {
+            let level = compatibility_level(&value);
+            for option in COMPAT_SHOPT_OPTIONS {
+                self.shopt_options.insert((*option).to_string(), false);
+            }
+            if let Some(option) = level.and_then(compatibility_option) {
+                self.shopt_options.insert(option.to_string(), true);
+            }
+        }
         self.apply_history_special_var(name, &value);
         if name == "IGNOREEOF" {
             self.shopt_options.insert("ignoreeof".to_string(), true);
@@ -1864,7 +1992,11 @@ impl Environment for ShellState {
             "notify" | "b" => self.notify,
             "monitor" | "m" => self.monitor,
             "ignoreeof" => self.shopt_options.get(name).copied().unwrap_or(false),
-            "interactive-comments" => self.shopt_options.get(name).copied().unwrap_or(true),
+            "interactive-comments" | "interactive_comments" => self
+                .shopt_options
+                .get("interactive_comments")
+                .copied()
+                .unwrap_or(true),
             "emacs" | "history" | "nolog" | "vi" => {
                 self.shopt_options.get(name).copied().unwrap_or(false)
             }
@@ -1878,6 +2010,7 @@ impl Environment for ShellState {
                 .copied()
                 .unwrap_or(false),
             "restricted" | "r" => self.restricted,
+            "restricted_shell" => self.restricted,
             "posix" => self.posixly_correct,
             "interactive" | "i" => self.interactive,
             "login_shell" => self.login_shell != 0,
@@ -1952,8 +2085,9 @@ impl Environment for ShellState {
                     std::env::remove_var("IGNOREEOF");
                 }
             }
-            "interactive-comments" => {
-                self.shopt_options.insert(name.to_string(), on);
+            "interactive-comments" | "interactive_comments" => {
+                self.shopt_options
+                    .insert("interactive_comments".to_string(), on);
             }
             "noexec" | "n" => self.noexec = on,
             "onecmd" | "t" => self.just_one_command = on,
@@ -1982,6 +2116,21 @@ impl Environment for ShellState {
                     self.shopt_options.insert("emacs".to_string(), false);
                     self.keymap_set_active("vi-insert");
                 }
+            }
+            "login_shell" | "restricted_shell" => {}
+            name if COMPAT_SHOPT_OPTIONS.contains(&name) => {
+                if on {
+                    for option in COMPAT_SHOPT_OPTIONS {
+                        self.shopt_options.insert((*option).to_string(), false);
+                    }
+                }
+                self.shopt_options.insert(name.to_string(), on);
+                let level = COMPAT_SHOPT_OPTIONS
+                    .iter()
+                    .find(|option| self.shopt_options.get(**option).copied().unwrap_or(false))
+                    .and_then(|option| option.strip_prefix("compat"))
+                    .unwrap_or("53");
+                self.set("BASH_COMPAT", level.to_string());
             }
             "nolog" => {
                 self.shopt_options.insert("nolog".to_string(), on);
@@ -2098,7 +2247,7 @@ impl Environment for ShellState {
 
     fn funcname_push_with_source(&mut self, name: &str, args: &[String], source: &str) {
         self.funcname_stack.push(name.to_string());
-        self.funcname_source_stack.push(source.to_string());
+        self.funcname_source_stack.push(self.source_name(source));
         self.funcname_lineno_stack.push(self.current_call_line());
         self.funcname_source_frame_stack.push(false);
         self.bash_argc_stack.push(args.len());
@@ -2120,7 +2269,8 @@ impl Environment for ShellState {
 
     fn source_frame_push(&mut self, source_name: &str) {
         self.funcname_stack.push("source".to_string());
-        self.funcname_source_stack.push(source_name.to_string());
+        self.funcname_source_stack
+            .push(self.source_name(source_name));
         self.funcname_lineno_stack.push(self.current_call_line());
         self.funcname_source_frame_stack.push(true);
         self.bash_argc_stack.push(0);
@@ -2151,7 +2301,7 @@ impl Environment for ShellState {
             .into_iter()
             .map(|value| apply_case_attrs(value, prior_attrs))
             .collect::<Vec<_>>();
-        let scalar = values.get(0).cloned().unwrap_or_default();
+        let scalar = values.first().cloned().unwrap_or_default();
         let has_value = !values.is_empty();
         self.variables.insert(
             name.to_string(),
@@ -2622,13 +2772,11 @@ impl Environment for ShellState {
             entry.attrs.remove(attr);
         }
         if attr.contains(VarAttrs::ARRAY) && on {
-            if existed && !had_indexed && !was_array {
-                if entry.has_value {
-                    let scalar = entry.value.clone();
-                    let bt = self.indexed_arrays.entry(name.to_string()).or_default();
-                    if bt.get(0).is_none() {
-                        bt.insert(0, scalar);
-                    }
+            if existed && !had_indexed && !was_array && entry.has_value {
+                let scalar = entry.value.clone();
+                let bt = self.indexed_arrays.entry(name.to_string()).or_default();
+                if bt.get(0).is_none() {
+                    bt.insert(0, scalar);
                 }
             }
             self.assoc_arrays.remove(name);
@@ -3685,6 +3833,19 @@ impl Environment for ShellState {
             out.push((CompSlot::Empty, None, e.clone()));
         }
         out
+    }
+
+    fn completion_options_update(
+        &mut self,
+        set: cherubsh_common::completion::CompOpts,
+        clear: cherubsh_common::completion::CompOpts,
+    ) -> bool {
+        let Some(options) = self.active_completion_options.as_mut() else {
+            return false;
+        };
+        *options |= set;
+        *options &= !clear;
+        true
     }
 
     fn keymap_active(&self) -> &str {

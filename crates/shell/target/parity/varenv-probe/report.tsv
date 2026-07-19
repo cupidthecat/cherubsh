@@ -1,2 +1,0 @@
-verdict	name	status	timed_out	stdout_path	stderr_path	tstout_path
-xfail	varenv	1	false	target/parity/varenv-probe/varenv.stdout	target/parity/varenv-probe/varenv.stderr	/tmp/cupid-bashtst-774725-varenv-1778868317602706682.out

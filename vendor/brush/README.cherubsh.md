@@ -1,17 +1,13 @@
-# Vendored brush tests
+# Vendored Brush tests
 
-This directory vendors the YAML shell compatibility cases from the brush
-project:
+This directory contains the YAML compatibility cases from Brush:
 
 - Source: https://github.com/reubeno/brush/tree/main/brush-shell/tests/cases
 - Commit: `5a50c12ed59e610dae038db9acf642286c585e2d`
 - Date: 2026-05-17
 - License: MIT; see `LICENSE`
 
-CherubSH runs the `brush-shell/tests/cases/compat` corpus against the local
-Bash 5.2.21 oracle. The `brush-shell/tests/cases/brush` files are retained as
-source context, but they exercise brush-specific CLI behavior and are not part
-of the Bash-compatibility parity gate.
+CherubSH runs `brush-shell/tests/cases/compat` against the pinned Bash 5.3.15 oracle. The files under `brush-shell/tests/cases/brush` remain here for source context, but they test Brush-specific command-line behavior and are not part of CherubSH's Bash parity gate.
 
 Run the compat sweep with:
 
@@ -20,3 +16,5 @@ RUN_BRUSH_PARITY=1 cargo test -p cherubsh --test brush_parity -- --nocapture
 ```
 
 Use `BRUSH_PARITY_FILTER` to run a subset by qualified case-name substring.
+
+The full corpus currently has 2,105 cases: 2,077 pass, 28 are skipped by Brush metadata or Bash-version constraints, and none fail.

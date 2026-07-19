@@ -3,6 +3,7 @@ use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use cherubsh_common::Environment;
+use cherubsh_exec::ExecState;
 
 use crate::options::{compat_dist_version, compat_release_version};
 use crate::state::ShellState;
@@ -25,7 +26,7 @@ impl Clock for SystemClock {
 
 /// `prompt_again(state, level)` - print PS1 or PS2 (level 1 vs 2) to stderr.
 /// Mirrors parse.y:5577.
-pub fn prompt_again(state: &ShellState, level: u8) {
+pub fn prompt_again(state: &mut ShellState, exec_state: &mut ExecState, level: u8) {
     let key = match level {
         2 => "PS2",
         _ => "PS1",
@@ -37,18 +38,43 @@ pub fn prompt_again(state: &ShellState, level: u8) {
             String::from("\\s-\\v\\$ ")
         }
     });
-    let decoded = decode_prompt_string(state, &raw);
+    let decoded = expand_prompt_string(state, exec_state, &raw);
     use std::io::Write;
     let mut stderr = std::io::stderr();
     let _ = stderr.write_all(decoded.as_bytes());
     let _ = stderr.flush();
 }
 
+#[cfg(test)]
 pub fn decode_prompt_string(state: &ShellState, raw: &str) -> String {
     decode_with_clock(state, raw, &SystemClock)
 }
 
+pub fn expand_prompt_string(
+    state: &mut ShellState,
+    exec_state: &mut ExecState,
+    raw: &str,
+) -> String {
+    let decoded = decode_escapes_with_clock(state, raw, &SystemClock);
+    if !state.option("promptvars") {
+        return decoded;
+    }
+    let saved_status = state.last_command_exit_value;
+    let expanded = exec_state.expand_string(&decoded, state).unwrap_or(decoded);
+    state.last_command_exit_value = saved_status;
+    expanded
+}
+
+#[cfg(test)]
 pub fn decode_with_clock(state: &ShellState, raw: &str, clock: &dyn Clock) -> String {
+    let decoded = decode_escapes_with_clock(state, raw, clock);
+    if !state.option("promptvars") {
+        return decoded;
+    }
+    expand_dollar_vars(state, &decoded)
+}
+
+fn decode_escapes_with_clock(state: &ShellState, raw: &str, clock: &dyn Clock) -> String {
     let mut out = String::with_capacity(raw.len());
     let bytes = raw.as_bytes();
     let mut i = 0;
@@ -234,45 +260,42 @@ pub fn decode_with_clock(state: &ShellState, raw: &str, clock: &dyn Clock) -> St
             }
         }
     }
-    expand_dollar_vars(state, &out)
+    out
 }
 
+#[cfg(test)]
 fn expand_dollar_vars(state: &ShellState, raw: &str) -> String {
-    // Minimal `$NAME` / `${NAME}` expansion so prompts read PS1='${USER}\$' look right
-    // before the full expander lands. Other expansions (command substitution, etc.) wait
     let bytes = raw.as_bytes();
     let mut out = String::with_capacity(raw.len());
     let mut i = 0;
     while i < bytes.len() {
-        let c = bytes[i];
-        if c != b'$' || i + 1 >= bytes.len() {
-            out.push(c as char);
+        if bytes[i] != b'$' || i + 1 >= bytes.len() {
+            out.push(bytes[i] as char);
             i += 1;
             continue;
         }
-        let next = bytes[i + 1];
-        if next == b'{' {
-            if let Some(end) = bytes[i + 2..].iter().position(|b| *b == b'}') {
+        if bytes[i + 1] == b'{' {
+            if let Some(end) = bytes[i + 2..].iter().position(|byte| *byte == b'}') {
                 let name = std::str::from_utf8(&bytes[i + 2..i + 2 + end]).unwrap_or("");
                 if let Some(value) = state.get(name) {
                     out.push_str(&value);
                 }
-                i = i + 2 + end + 1;
+                i += end + 3;
                 continue;
             }
-        } else if next.is_ascii_alphabetic() || next == b'_' {
-            let mut j = i + 1;
-            while j < bytes.len() && (bytes[j].is_ascii_alphanumeric() || bytes[j] == b'_') {
-                j += 1;
+        } else if bytes[i + 1].is_ascii_alphabetic() || bytes[i + 1] == b'_' {
+            let mut end = i + 2;
+            while end < bytes.len() && (bytes[end].is_ascii_alphanumeric() || bytes[end] == b'_') {
+                end += 1;
             }
-            let name = std::str::from_utf8(&bytes[i + 1..j]).unwrap_or("");
+            let name = std::str::from_utf8(&bytes[i + 1..end]).unwrap_or("");
             if let Some(value) = state.get(name) {
                 out.push_str(&value);
             }
-            i = j;
+            i = end;
             continue;
         }
-        out.push(c as char);
+        out.push('$');
         i += 1;
     }
     out
@@ -320,7 +343,7 @@ fn render_pwd(state: &ShellState, basename_only: bool) -> String {
         .or_else(|| {
             std::env::current_dir()
                 .ok()
-                .and_then(|p| Some(p.display().to_string()))
+                .map(|p| p.display().to_string())
         })
         .unwrap_or_else(|| ".".to_string());
     if basename_only {
@@ -363,11 +386,11 @@ fn tty_basename() -> String {
         }
         let cstr = CStr::from_ptr(name);
         let s = cstr.to_string_lossy();
-        return Path::new(s.as_ref())
+        Path::new(s.as_ref())
             .file_name()
             .and_then(|s| s.to_str())
             .map(|s| s.to_string())
-            .unwrap_or_else(|| s.to_string());
+            .unwrap_or_else(|| s.to_string())
     }
 }
 
@@ -447,7 +470,7 @@ mod tests {
     fn decode_version() {
         let s = state();
         assert_eq!(decode_prompt_string(&s, "\\v"), "5.3");
-        assert_eq!(decode_prompt_string(&s, "\\V"), "5.3.0");
+        assert_eq!(decode_prompt_string(&s, "\\V"), "5.3.15");
     }
 
     #[test]
@@ -520,5 +543,18 @@ mod tests {
         s.set("FOO", "bar".into());
         assert_eq!(decode_prompt_string(&s, "$FOO"), "bar");
         assert_eq!(decode_prompt_string(&s, "${FOO}!"), "bar!");
+    }
+
+    #[test]
+    fn prompt_expansion_preserves_previous_exit_status() {
+        let mut s = state();
+        s.last_command_exit_value = 7;
+        let mut exec_state = ExecState::default();
+
+        assert_eq!(
+            expand_prompt_string(&mut s, &mut exec_state, "$(printf prompt)"),
+            "prompt"
+        );
+        assert_eq!(s.last_command_exit_value, 7);
     }
 }

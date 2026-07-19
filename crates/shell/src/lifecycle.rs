@@ -113,6 +113,9 @@ pub fn shell_initialize(state: &mut ShellState) {
     if state.get("OPTERR").is_none() {
         bind(state, "OPTERR", String::from("1"));
     }
+    if state.interactive && state.get("MAILCHECK").is_none() {
+        bind(state, "MAILCHECK", String::from("60"));
+    }
     if state.get("PS1").is_none() {
         bind(state, "PS1", String::from("\\s-\\v\\$ "));
     }

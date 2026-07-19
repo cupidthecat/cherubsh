@@ -505,7 +505,7 @@ fn collect_explicit_dot_ends(
 fn match_tokens(toks: &[Tok], text: &[u8], opts: GlobOpts) -> bool {
     let mut ends = Vec::new();
     collect_match_ends(toks, 0, text, 0, opts, &mut ends);
-    ends.iter().any(|&e| e == text.len())
+    ends.contains(&text.len())
 }
 
 fn collect_match_ends(
@@ -674,7 +674,7 @@ pub fn remove_pattern_with_opts(
         for k in 0..=s.len() {
             let mut ends = Vec::new();
             collect_match_ends(&toks, 0, s, k, opts, &mut ends);
-            if ends.iter().any(|e| *e == s.len()) {
+            if ends.contains(&s.len()) {
                 match best {
                     None => best = Some(k),
                     Some(b) => {
@@ -772,7 +772,7 @@ pub fn pat_subst_with_replacer(
             for k in 0..=s.len() {
                 let mut ends = Vec::new();
                 collect_match_ends(&toks, 0, s, k, opts, &mut ends);
-                if ends.iter().any(|e| *e == s.len()) {
+                if ends.contains(&s.len()) {
                     match best {
                         None => best = Some(k),
                         Some(b) => best = Some(b.min(k)),
@@ -1034,10 +1034,8 @@ pub fn has_glob_meta(s: &[u8], opts: GlobOpts) -> bool {
         if b == b'[' && try_parse_pathname_class_end(s, i).is_some() {
             return true;
         }
-        if opts.extglob {
-            if matches!(b, b'@' | b'+' | b'!') && i + 1 < s.len() && s[i + 1] == b'(' {
-                return true;
-            }
+        if opts.extglob && matches!(b, b'@' | b'+' | b'!') && i + 1 < s.len() && s[i + 1] == b'(' {
+            return true;
         }
         i += 1;
     }
@@ -1102,11 +1100,7 @@ mod tests {
             &[b'\\', CTLNUL],
             GlobOpts::default()
         ));
-        assert!(fnmatch(
-            &[b'\\', CTLESC, b'x'],
-            &[b'\\', b'x'],
-            GlobOpts::default()
-        ));
+        assert!(fnmatch(&[b'\\', CTLESC, b'x'], b"\\x", GlobOpts::default()));
         assert!(fnmatch(
             &[CTLESC, CTLRAW, CTLNUL],
             &[CTLNUL],

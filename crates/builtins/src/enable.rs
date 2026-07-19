@@ -16,7 +16,6 @@ impl Builtin for Enable {
         let mut list_all = false;
         let mut disable = false;
         let mut delete = false;
-        let mut list_only = false;
         let mut posix_only = false;
         let mut load: Option<String> = None;
         let mut parser = OptParser::new(ctx.args, "adnpsf:");
@@ -25,7 +24,7 @@ impl Builtin for Enable {
                 GetOpt::Opt { ch: 'a', .. } => list_all = true,
                 GetOpt::Opt { ch: 'd', .. } => delete = true,
                 GetOpt::Opt { ch: 'n', .. } => disable = true,
-                GetOpt::Opt { ch: 'p', .. } => list_only = true,
+                GetOpt::Opt { ch: 'p', .. } => {}
                 GetOpt::Opt { ch: 's', .. } => posix_only = true,
                 GetOpt::Opt { ch: 'f', arg, .. } => load = arg,
                 GetOpt::Opt { .. } => {}
@@ -103,11 +102,7 @@ impl Builtin for Enable {
                         continue;
                     }
                 }
-                if list_only {
-                    println!("enable {}{}", if on { "" } else { "-n " }, b.name());
-                } else {
-                    println!("enable {}{}", if on { "" } else { "-n " }, b.name());
-                }
+                println!("enable {}{}", if on { "" } else { "-n " }, b.name());
             }
             return 0;
         }

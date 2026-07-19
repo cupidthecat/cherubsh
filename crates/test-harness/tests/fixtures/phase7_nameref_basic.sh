@@ -2,7 +2,7 @@ bar=one
 flow=two
 flip=three
 
-foo=bar
+foo=ba
 typeset -n foo
 typeset -n fee=flow
 
@@ -13,17 +13,17 @@ typeset -n fee=flip
 echo "$fee"
 typeset -n
 
-typeset +n foo=other
+typeset +n foo=othe
 echo "$foo"
 echo "bar=$bar"
 
-foo=bar
+foo=ba
 typeset -n foo
 declare foo=two
 echo "after-declare:$foo/$bar"
 declare -n foo=baz
 echo "after-retarget:${foo-unset}/${bar-unset}/${baz-unset}"
-declare -p foo bar
+declare -p foo ba
 
 first=alpha
 second=beta

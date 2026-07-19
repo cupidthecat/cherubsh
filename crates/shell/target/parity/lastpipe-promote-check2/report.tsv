@@ -1,2 +1,0 @@
-verdict	name	status	timed_out	stdout_path	stderr_path	tstout_path
-XPASS	lastpipe	0	false	target/parity/lastpipe-promote-check2/lastpipe.stdout	target/parity/lastpipe-promote-check2/lastpipe.stderr	

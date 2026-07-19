@@ -1,5 +1,0 @@
-verdict	name	status	timed_out	stdout_path	stderr_path	tstout_path
-xfail	complete	1	false	target/parity/probe/complete.stdout	target/parity/probe/complete.stderr	/tmp/cupid-bashtst-490212-complete-1778857000490880009.out
-xfail	coproc	1	false	target/parity/probe/coproc.stdout	target/parity/probe/coproc.stderr	/tmp/cupid-bashtst-490212-coproc-1778857000591543044.out
-xfail	read	1	false	target/parity/probe/read.stdout	target/parity/probe/read.stderr	/tmp/cupid-bashtst-490212-read-1778857003695016790.out
-xfail	trap	1	false	target/parity/probe/trap.stdout	target/parity/probe/trap.stderr	/tmp/cupid-bashtst-490212-trap-1778857007798932200.out

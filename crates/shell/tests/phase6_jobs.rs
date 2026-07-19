@@ -56,6 +56,16 @@ fn wait_n_p_reports_completed_child() {
 }
 
 #[test]
+fn wait_n_consumes_completed_jobs_separately() {
+    assert_parity(&RunSpec {
+        script: Some(
+            "{ sleep 0.01; exit 0; } & { sleep 0.08; exit 5; } & wait -n; echo first:$?; wait -n; echo second:$?",
+        ),
+        ..RunSpec::default()
+    });
+}
+
+#[test]
 fn jobs_x_substitutes_jobspec_with_process_group() {
     let out = run_cherub(&RunSpec {
         script: Some("sleep 0.05 & jobs -x test %1 -gt 0; echo status:$?; wait"),

@@ -278,59 +278,22 @@ fn resolve_history_position(
 }
 
 fn expand_args(ctx: &mut BuiltinCtx<'_>, args: &[String]) -> i32 {
-    // We expand via the same engine the reader_loop uses. Since that lives
-    // in crates/shell, we approximate by checking the history table for
-    // simple `!!`/`!n`/`!str` lookups.
-    let Some(table) = ctx.env_ref().history() else {
+    let env = ctx.env_ref();
+    let Some(table) = env.history() else {
         return 1;
     };
+    let posix = env.option("posix");
     let mut status = 0;
     for arg in args {
-        match expand_one(table, arg) {
-            Some(s) => println!("{}", s),
-            None => {
-                if arg.starts_with("!!:") {
-                    crate::common::report_diagnostic(
-                        ctx.env_ref(),
-                        "history",
-                        &format!("{arg}: history expansion failed"),
-                    );
-                } else {
-                    crate::common::report_diagnostic(
-                        ctx.env_ref(),
-                        "history",
-                        &format!("{arg}: event not found"),
-                    );
-                }
-                status = 1;
-            }
+        let expanded = cherubsh_common::histexpand::expand_with_options(arg, table, posix);
+        if let Some(error) = expanded.error {
+            crate::common::report_diagnostic(env, "history", &error);
+            status = 1;
+        } else {
+            println!("{}", expanded.line);
         }
     }
     status
-}
-
-fn expand_one(table: &cherubsh_common::history::HistoryTable, s: &str) -> Option<String> {
-    if s == "!!" {
-        return table.last().map(|e| e.line.clone());
-    }
-    if let Some(rest) = s.strip_prefix('!') {
-        if let Ok(n) = rest.parse::<i64>() {
-            if n > 0 {
-                return table.get(n as usize).map(|e| e.line.clone());
-            }
-            if n < 0 {
-                return table.nth_last((-n) as usize).map(|e| e.line.clone());
-            }
-            return None;
-        }
-        for entry in table.iter().rev() {
-            if entry.line.starts_with(rest) {
-                return Some(entry.line.clone());
-            }
-        }
-        return None;
-    }
-    Some(s.to_string())
 }
 
 fn file_op(

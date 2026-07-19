@@ -45,6 +45,7 @@ impl<'a> OptParser<'a> {
         }
     }
 
+    #[allow(clippy::should_implement_trait)]
     pub fn next(&mut self) -> GetOpt {
         if self.pos >= self.args.len() {
             self.index = self.pos;

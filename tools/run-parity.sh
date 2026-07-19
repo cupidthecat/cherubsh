@@ -1,27 +1,25 @@
 #!/usr/bin/env bash
-# CI driver: build the selected bash oracle if needed, then run the
-# full parity sweep (fixture-level + upstream test suite). Tallies results
-# and exits non-zero on any unexpected outcome.
+# Build the pinned oracles and run every compatibility suite.
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WS_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-ORACLE_VERSION="${BASH_ORACLE_VERSION:-5.3}"
+ORACLE_VERSION="${BASH_ORACLE_VERSION:-5.3.15}"
 case "${ORACLE_VERSION}" in
     5.2|5.2.21)
         ORACLE_VERSION="5.2.21"
         ORACLE="${BASH_ORACLE_PATH:-${BASH_521_PATH:-${WS_ROOT}/target/oracle/bash-5.2.21/bash}}"
         ORACLE_BUILDER="${WS_ROOT}/oracle/build-bash-5.2.21.sh"
         VERSION_RE='version 5\.2\.21'
-        DEFAULT_TESTS_DIR="${WS_ROOT}/vendor/bash-5.2.21/tests"
+        DEFAULT_TESTS_DIR="${WS_ROOT}/target/oracle/bash-5.2.21/tests"
         ;;
-    5.3|5.3.0)
-        ORACLE_VERSION="5.3"
-        ORACLE="${BASH_ORACLE_PATH:-${BASH_53_PATH:-${WS_ROOT}/target/oracle/bash-5.3/bash}}"
-        ORACLE_BUILDER="${WS_ROOT}/oracle/build-bash-5.3.sh"
-        VERSION_RE='version 5\.3(\.0)?'
-        DEFAULT_TESTS_DIR="${WS_ROOT}/vendor/bash-5.3/tests"
+    5.3|5.3.0|5.3.15)
+        ORACLE_VERSION="5.3.15"
+        ORACLE="${BASH_ORACLE_PATH:-${BASH_5315_PATH:-${BASH_53_PATH:-${WS_ROOT}/target/oracle/bash-5.3.15/bash}}}"
+        ORACLE_BUILDER="${WS_ROOT}/oracle/build-bash-5.3.15.sh"
+        VERSION_RE='version 5\.3\.15'
+        DEFAULT_TESTS_DIR="${WS_ROOT}/target/oracle/bash-5.3.15/tests"
         ;;
     *)
         echo "error: unsupported BASH_ORACLE_VERSION=${ORACLE_VERSION}" >&2
@@ -42,8 +40,10 @@ if [[ "${ORACLE_VERSION}" == "5.2.21" ]]; then
     export BASH_521_PATH="${ORACLE}"
     export BASH_521_TESTS_DIR="${BASH_TESTS_DIR:-${BASH_521_TESTS_DIR:-${DEFAULT_TESTS_DIR}}}"
 else
+    export BASH_5315_PATH="${ORACLE}"
     export BASH_53_PATH="${ORACLE}"
-    export BASH_53_TESTS_DIR="${BASH_TESTS_DIR:-${BASH_53_TESTS_DIR:-${DEFAULT_TESTS_DIR}}}"
+    export BASH_5315_TESTS_DIR="${BASH_TESTS_DIR:-${BASH_5315_TESTS_DIR:-${BASH_53_TESTS_DIR:-${DEFAULT_TESTS_DIR}}}}"
+    export BASH_53_TESTS_DIR="${BASH_5315_TESTS_DIR}"
 fi
 export BASH_TESTS_DIR="${BASH_TESTS_DIR:-${DEFAULT_TESTS_DIR}}"
 export RUN_PARITY_TESTS=1
@@ -59,8 +59,16 @@ export SYSTEMD_BYPASS_USERDB="${SYSTEMD_BYPASS_USERDB:-1}"
 LOG="${WS_ROOT}/parity.log"
 echo ">> running cargo test --workspace (log: ${LOG})"
 set +e
-cargo test --workspace -- --nocapture 2>&1 | tee "${LOG}"
+cargo test --workspace --locked -- --nocapture 2>&1 | tee "${LOG}"
 CARGO_RC=${PIPESTATUS[0]}
+set -e
+
+READLINE_LOG="${WS_ROOT}/target/parity/readline.log"
+mkdir -p "$(dirname "${READLINE_LOG}")"
+echo ">> running GNU Readline 8.3 parity (log: ${READLINE_LOG})"
+set +e
+bash "${WS_ROOT}/tools/run-readline-parity.sh" 2>&1 | tee "${READLINE_LOG}"
+READLINE_RC=${PIPESTATUS[0]}
 set -e
 
 # Tally upstream parity outcomes from the log.
@@ -71,7 +79,7 @@ XFAIL=$(grep -cE '^xfail '        "${LOG}" || true)
 XPASS=$(grep -cE '^XPASS '        "${LOG}" || true)
 
 echo
-echo ">> upstream parity: PASS=${PASS} FAIL=${FAIL} TIMEOUT=${TIMEOUT} XFAIL=${XFAIL} XPASS=${XPASS}"
+echo ">> Bash comparisons: PASS=${PASS} FAIL=${FAIL} TIMEOUT=${TIMEOUT} XFAIL=${XFAIL} XPASS=${XPASS}"
 if [[ -f "${UPSTREAM_PARITY_REPORT_DIR}/report.tsv" ]]; then
     echo ">> upstream report: ${UPSTREAM_PARITY_REPORT_DIR}/report.tsv"
 fi
@@ -83,8 +91,9 @@ if [[ "${RUN_BRUSH_PARITY:-}" == "1" ]] && [[ -f "${BRUSH_PARITY_REPORT_DIR}/rep
     echo ">> brush report: ${BRUSH_PARITY_REPORT_DIR}/report.tsv"
 fi
 echo ">> cargo test exit: ${CARGO_RC}"
+echo ">> readline parity exit: ${READLINE_RC}"
 
-if [[ ${CARGO_RC} -ne 0 ]] || [[ ${FAIL} -ne 0 ]] || [[ ${TIMEOUT} -ne 0 ]] || [[ ${XPASS} -ne 0 ]]; then
+if [[ ${CARGO_RC} -ne 0 ]] || [[ ${READLINE_RC} -ne 0 ]] || [[ ${FAIL} -ne 0 ]] || [[ ${TIMEOUT} -ne 0 ]] || [[ ${XPASS} -ne 0 ]]; then
     echo ">> FAIL: parity sweep has unexpected outcomes" >&2
     exit 1
 fi

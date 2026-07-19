@@ -1,4 +1,0 @@
-2c2
-< line read by ./input-line.sub was `'
----
-> line read by ./input-line.sub was `this line for input-line.sub'

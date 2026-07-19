@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 pub mod brush;
+pub mod readline;
 pub mod upstream;
 
 #[derive(Debug)]
@@ -156,32 +157,29 @@ pub fn default_bash_path() -> PathBuf {
         .unwrap_or_else(|_| PathBuf::from("/bin/bash"))
 }
 
-/// Workspace root resolved relative to this crate's manifest dir
-/// (`crates/test-harness` → workspace root is two levels up).
+/// Returns the workspace root that contains `crates/test-harness`.
 pub fn workspace_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .and_then(Path::parent)
-        .map(Path::to_path_buf)
-        .unwrap_or_else(|| PathBuf::from("/home/frank/bash-rust/cherubsh"))
+        .expect("test-harness must be inside the workspace's crates directory")
+        .to_path_buf()
 }
 
-/// Selected Bash oracle version. Defaults to Bash 5.3 while preserving an
-/// explicit Bash 5.2.21 gate for legacy comparisons.
+/// Returns the selected Bash oracle version.
 pub fn oracle_version() -> String {
-    std::env::var("BASH_ORACLE_VERSION").unwrap_or_else(|_| "5.3".to_string())
+    std::env::var("BASH_ORACLE_VERSION").unwrap_or_else(|_| "5.3.15".to_string())
 }
 
 pub fn oracle_version_dir() -> String {
     match oracle_version().as_str() {
         "5.2" | "5.2.21" => "5.2.21".to_string(),
-        "5.3" | "5.3.0" => "5.3".to_string(),
+        "5.3" | "5.3.0" | "5.3.15" => "5.3.15".to_string(),
         other => other.to_string(),
     }
 }
 
-/// Path to the selected bash oracle binary. Reads the generic
-/// `BASH_ORACLE_PATH` first, then the version-specific legacy variables.
+/// Returns the selected Bash oracle binary.
 pub fn oracle_bash_path() -> PathBuf {
     if let Ok(path) = std::env::var("BASH_ORACLE_PATH") {
         return PathBuf::from(path);
@@ -193,11 +191,14 @@ pub fn oracle_bash_path() -> PathBuf {
             }
             workspace_root().join("target/oracle/bash-5.2.21/bash")
         }
-        "5.3" => {
+        "5.3.15" => {
+            if let Ok(path) = std::env::var("BASH_5315_PATH") {
+                return PathBuf::from(path);
+            }
             if let Ok(path) = std::env::var("BASH_53_PATH") {
                 return PathBuf::from(path);
             }
-            workspace_root().join("target/oracle/bash-5.3/bash")
+            workspace_root().join("target/oracle/bash-5.3.15/bash")
         }
         other => workspace_root().join(format!("target/oracle/bash-{other}/bash")),
     }
@@ -220,7 +221,7 @@ pub fn oracle_available() -> bool {
             let banner = String::from_utf8_lossy(&out.stdout);
             match oracle_version_dir().as_str() {
                 "5.2.21" => banner.contains("version 5.2.21"),
-                "5.3" => banner.contains("version 5.3.0") || banner.contains("version 5.3"),
+                "5.3.15" => banner.contains("version 5.3.15"),
                 other => banner.contains(&format!("version {other}")),
             }
         }
@@ -229,10 +230,21 @@ pub fn oracle_available() -> bool {
 }
 
 pub fn cherub_path() -> Result<PathBuf, HarnessError> {
-    match std::env::var_os("CARGO_BIN_EXE_cherubsh") {
-        Some(value) => Ok(PathBuf::from(value)),
-        None => Err(HarnessError::MissingCherubBinary),
+    if let Some(value) =
+        std::env::var_os("CHERUBSH_BIN").or_else(|| std::env::var_os("CARGO_BIN_EXE_cherubsh"))
+    {
+        return Ok(PathBuf::from(value));
     }
+
+    let current = std::env::current_exe().map_err(HarnessError::Io)?;
+    let Some(profile_dir) = current.parent().and_then(Path::parent) else {
+        return Err(HarnessError::MissingCherubBinary);
+    };
+    let candidate = profile_dir.join(format!("cherubsh{}", std::env::consts::EXE_SUFFIX));
+    candidate
+        .is_file()
+        .then_some(candidate)
+        .ok_or(HarnessError::MissingCherubBinary)
 }
 
 pub fn run_bash(spec: &RunSpec<'_>) -> Result<RunOutput, HarnessError> {

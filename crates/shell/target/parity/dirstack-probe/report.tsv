@@ -1,2 +1,0 @@
-verdict	name	status	timed_out	stdout_path	stderr_path	tstout_path
-xfail	dirstack	1	false	target/parity/dirstack-probe/dirstack.stdout	target/parity/dirstack-probe/dirstack.stderr	/tmp/cupid-bashtst-774707-dirstack-1778868317592248554.out

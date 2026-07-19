@@ -1,2 +1,0 @@
-verdict	name	status	timed_out	stdout_path	stderr_path	tstout_path
-XPASS	braces	0	false	target/parity/braces-pass-check2/braces.stdout	target/parity/braces-pass-check2/braces.stderr	

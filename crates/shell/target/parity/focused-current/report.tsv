@@ -1,4 +1,0 @@
-verdict	name	status	timed_out	stdout_path	stderr_path	tstout_path
-xfail	alias	1	false	target/parity/focused-current/alias.stdout	target/parity/focused-current/alias.stderr	/tmp/cupid-bashtst-557146-alias-1778858625248891885.out
-xfail	exp-tests	1	false	target/parity/focused-current/exp-tests.stdout	target/parity/focused-current/exp-tests.stderr	/tmp/cupid-bashtst-557146-exp-tests-1778858625349329742.out
-xfail	parser	1	false	target/parity/focused-current/parser.stdout	target/parity/focused-current/parser.stderr	/tmp/cupid-bashtst-557146-parser-1778858625649956434.out

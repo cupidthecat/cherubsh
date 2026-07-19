@@ -1,2 +1,0 @@
-verdict	name	status	timed_out	stdout_path	stderr_path	tstout_path
-xfail	printf	124	true	target/parity/printf-probe/printf.stdout	target/parity/printf-probe/printf.stderr	/tmp/cupid-bashtst-775208-printf-1778868338394456548.out

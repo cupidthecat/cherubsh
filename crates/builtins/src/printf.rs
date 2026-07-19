@@ -906,9 +906,9 @@ fn format_time(secs: i64, spec: ResolvedFormat) -> String {
     unsafe {
         tzset();
     }
-    let mut time_value = secs as libc::time_t;
+    let time_value = secs as libc::time_t;
     let mut tm: libc::tm = unsafe { std::mem::zeroed() };
-    let tm_ptr = unsafe { libc::localtime_r(&mut time_value, &mut tm) };
+    let tm_ptr = unsafe { libc::localtime_r(&time_value, &mut tm) };
     if tm_ptr.is_null() {
         return String::new();
     }

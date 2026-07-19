@@ -1,6 +1,6 @@
-x=outer
+x=oute
 f() {
-  local x=inner
+  local x=inne
   echo "in=$x"
 }
 f

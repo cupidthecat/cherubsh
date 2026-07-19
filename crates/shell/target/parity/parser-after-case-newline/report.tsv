@@ -1,2 +1,0 @@
-verdict	name	status	timed_out	stdout_path	stderr_path	tstout_path
-xfail	parser	1	false	target/parity/parser-after-case-newline/parser.stdout	target/parity/parser-after-case-newline/parser.stderr	/tmp/cupid-bashtst-552609-parser-1778858515061843513.out

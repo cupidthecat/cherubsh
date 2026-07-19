@@ -1127,11 +1127,15 @@ fn load_lvalue_value(lvalue: &LValue, ctx: &mut ExpCtx) -> Result<i64, ExpandErr
             } else if *index == 0 {
                 if let Some(v) = ctx.env.get_cow(name) {
                     finish_loaded_value(prepare_loaded_value(v), ctx, 0)
+                } else if ctx.env.kind(name) == VarKind::Indexed {
+                    Ok(0)
                 } else if ctx.eval_unbound_error {
                     Err(ExpandError::UnboundVariable(name.clone()))
                 } else {
                     Ok(0)
                 }
+            } else if ctx.env.kind(name) == VarKind::Indexed {
+                Ok(0)
             } else if ctx.eval_unbound_error {
                 Err(ExpandError::UnboundVariable(format!("{name}[{index}]")))
             } else {
@@ -1141,8 +1145,6 @@ fn load_lvalue_value(lvalue: &LValue, ctx: &mut ExpCtx) -> Result<i64, ExpandErr
         LValue::Assoc { name, key } => {
             if let Some(v) = ctx.env.get_array_assoc_cow(name, key) {
                 finish_loaded_value(prepare_loaded_value(v), ctx, 0)
-            } else if ctx.eval_unbound_error {
-                Err(ExpandError::UnboundVariable(format!("{name}[{key}]")))
             } else {
                 Ok(0)
             }
@@ -1458,17 +1460,10 @@ mod tests {
     use crate::ctx::{ExpCtx, NullRunner};
     use std::collections::HashMap;
 
+    #[derive(Default)]
     struct E {
         vars: HashMap<String, String>,
         arrays: HashMap<String, HashMap<i64, String>>,
-    }
-    impl Default for E {
-        fn default() -> Self {
-            Self {
-                vars: HashMap::new(),
-                arrays: HashMap::new(),
-            }
-        }
     }
     impl Environment for E {
         fn get(&self, n: &str) -> Option<String> {
@@ -1521,7 +1516,7 @@ mod tests {
     }
 
     fn ev(expr: &str, env: &mut E) -> i64 {
-        let mut runner = NullRunner::default();
+        let mut runner = NullRunner;
         let mut ctx = ExpCtx::new(env, &mut runner);
         eval(expr, &mut ctx).unwrap()
     }
@@ -1590,7 +1585,7 @@ mod tests {
     #[test]
     fn arithmetic_expansion_disables_process_substitution() {
         let mut e = E::default();
-        let mut runner = NullRunner::default();
+        let mut runner = NullRunner;
 
         assert_eq!(
             crate::expand_for_arith("4>(2+3) ? 1 : 32", &mut e, &mut runner).unwrap(),
