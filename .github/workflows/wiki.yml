@@ -52,7 +52,7 @@ jobs:
             exit 1
           fi
           install -d -m 700 "$HOME/.ssh"
-          printf '%s' "$WIKI_DEPLOY_KEY" | tr -d '\r' > "$HOME/.ssh/wiki_deploy_key"
+          printf '%s\n' "$WIKI_DEPLOY_KEY" | tr -d '\r' > "$HOME/.ssh/wiki_deploy_key"
           chmod 600 "$HOME/.ssh/wiki_deploy_key"
           if ! ssh-keygen -y -f "$HOME/.ssh/wiki_deploy_key" >/dev/null 2>&1; then
             echo 'WIKI_DEPLOY_KEY must contain an unencrypted OpenSSH private key' >&2
