@@ -81,8 +81,15 @@ fn return_trap_requires_functrace_for_functions() {
 fn coproc_inherits_debug_trap_without_running_it_internally() {
     parity(
         r#"trap 'echo "[debug]"' DEBUG
-coproc { trap -p DEBUG; echo "coproc"; }
-cat <&${COPROC[0]}
+coproc { trap -p DEBUG; echo "coproc"; read; }
+read_fd=${COPROC[0]}
+write_fd=${COPROC[1]}
+exec {drain_fd}<&"$read_fd"
+read -u "$read_fd" trap_line
+read -u "$read_fd" coproc_line
+printf '%s\n' "$trap_line" "$coproc_line"
+printf '\n' >&$write_fd
+cat <&$drain_fd
 wait"#,
     );
 }
