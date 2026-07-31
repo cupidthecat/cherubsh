@@ -261,6 +261,17 @@ pub fn pending_signal_take(sig: i32) -> u32 {
     PENDING_COUNTS[sig as usize].swap(0, Ordering::SeqCst)
 }
 
+pub fn acknowledge_trapped_signal(sig: i32) {
+    match sig {
+        libc::SIGINT => SIGINT_RECEIVED.store(false, Ordering::SeqCst),
+        libc::SIGALRM => ALARM_FIRED.store(false, Ordering::SeqCst),
+        libc::SIGTERM | libc::SIGHUP | libc::SIGQUIT => {
+            let _ = TERM_RECEIVED.compare_exchange(sig, 0, Ordering::SeqCst, Ordering::SeqCst);
+        }
+        _ => {}
+    }
+}
+
 /// Iterator over all signals with pending events (non-zero counter).
 pub fn pending_signals_snapshot() -> Vec<i32> {
     let mut out = Vec::new();

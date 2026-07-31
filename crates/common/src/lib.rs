@@ -1777,6 +1777,7 @@ pub trait Environment {
     fn pending_signal_take(&mut self, _sig: i32) -> u32 {
         0
     }
+    fn acknowledge_trapped_signal(&mut self, _sig: i32) {}
     fn running_trap(&self) -> Option<i32> {
         None
     }

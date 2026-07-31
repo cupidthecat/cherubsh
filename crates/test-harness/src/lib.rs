@@ -297,6 +297,14 @@ fn strip_shell_diagnostic_prefix(line: &str) -> &str {
     if let Some(rest) = line.strip_prefix("bash: ") {
         return strip_bash_line_prefix(rest).unwrap_or(rest);
     }
+    if let Some((program, rest)) = line.split_once(": ") {
+        let file_name = Path::new(program)
+            .file_name()
+            .and_then(|name| name.to_str());
+        if matches!(file_name, Some("bash" | "cherubsh")) {
+            return strip_bash_line_prefix(rest).unwrap_or(rest);
+        }
+    }
     line.strip_prefix("cherubsh: ").unwrap_or(line)
 }
 
@@ -584,6 +592,10 @@ mod tests {
         assert_eq!(
             normalize_stderr("/tmp/bash: line 12: complete: missing: no completion specification"),
             "complete: missing: no completion specification"
+        );
+        assert_eq!(
+            normalize_stderr("/tmp/oracle/bash: connect: Connection refused"),
+            "connect: Connection refused"
         );
     }
 

@@ -64,10 +64,14 @@ pub(crate) fn execute<'a>(
             return 1;
         }
         if pid == 0 {
-            // child: set process group then reset signal dispositions.
-            unsafe {
-                let target_pgid = pgid.unwrap_or(0);
-                libc::setpgid(0, target_pgid);
+            // Job-controlled pipelines need a dedicated process group. In a
+            // non-job-control shell, keeping stages in the shell's group lets
+            // a foreground terminal signal reach every stage.
+            if job_control {
+                unsafe {
+                    let target_pgid = pgid.unwrap_or(0);
+                    libc::setpgid(0, target_pgid);
+                }
             }
             ctx.env.enter_subshell();
             ctx.env.suppress_inherited_exit_trap();
@@ -111,11 +115,13 @@ pub(crate) fn execute<'a>(
             }
             unsafe { libc::_exit(final_status) };
         }
-        if pgid.is_none() {
-            pgid = Some(pid);
-        }
-        unsafe {
-            libc::setpgid(pid, pgid.unwrap_or(pid));
+        if job_control {
+            if pgid.is_none() {
+                pgid = Some(pid);
+            }
+            unsafe {
+                libc::setpgid(pid, pgid.unwrap_or(pid));
+            }
         }
         if let Some(read_fd) = previous_read {
             unsafe { libc::close(read_fd) };

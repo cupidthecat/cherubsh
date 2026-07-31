@@ -217,13 +217,20 @@ impl Builtin for ReadBuiltin {
         }
 
         let mut termios_saved: Option<libc::termios> = None;
-        if silent && unsafe { libc::isatty(active_fd) } == 1 {
+        if (silent || nchars.is_some()) && unsafe { libc::isatty(active_fd) } == 1 {
             unsafe {
                 let mut t: libc::termios = std::mem::zeroed();
                 if libc::tcgetattr(active_fd, &mut t) == 0 {
                     termios_saved = Some(t);
                     let mut nt = t;
-                    nt.c_lflag &= !libc::ECHO;
+                    if silent {
+                        nt.c_lflag &= !libc::ECHO;
+                    }
+                    if nchars.is_some() {
+                        nt.c_lflag &= !libc::ICANON;
+                        nt.c_cc[libc::VMIN] = 1;
+                        nt.c_cc[libc::VTIME] = 0;
+                    }
                     libc::tcsetattr(active_fd, libc::TCSANOW, &nt);
                 }
             }
@@ -354,7 +361,9 @@ impl Builtin for ReadBuiltin {
 
         if let Some(t) = termios_saved {
             unsafe { libc::tcsetattr(active_fd, libc::TCSANOW, &t) };
-            eprintln!();
+            if silent || (edit_mode && nchars.is_some()) {
+                eprintln!();
+            }
         }
 
         let line = marked_line;

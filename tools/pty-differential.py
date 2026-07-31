@@ -314,6 +314,51 @@ def build_scenarios() -> tuple[Scenario, ...]:
                 ("completed-value", r"^__PTY_COMPLETION__:(alpha)$"),
             ),
         ),
+        Scenario(
+            name="misc-read-nchars",
+            actions=(
+                send(
+                    b"read -n 3 -p 'enter three chars: ' value; printf '\\n__PTY_MISC_READ_RAW__:%s\\n' \"$value\"\n"
+                ),
+                pause(0.05),
+                send(b"abc"),
+                wait(b"__PTY_MISC_READ_RAW__:abc"),
+                send(
+                    b"read -e -n 3 -p 'enter three chars: ' value; printf '__PTY_MISC_READ_EDIT__:%s\\n' \"$value\"\n"
+                ),
+                pause(0.05),
+                send(b"xyz"),
+                wait(b"__PTY_MISC_READ_EDIT__:xyz"),
+                send(b"exit\n"),
+            ),
+            expected_markers=(
+                "__PTY_MISC_READ_RAW__:abc",
+                "__PTY_MISC_READ_EDIT__:xyz",
+            ),
+            observation_patterns=(
+                ("raw-value", r"^__PTY_MISC_READ_RAW__:(abc)$"),
+                ("readline-value", r"^__PTY_MISC_READ_EDIT__:(xyz)$"),
+            ),
+        ),
+        Scenario(
+            name="misc-redir-tty",
+            actions=(
+                send(
+                    b"printf 'file-one\\nfile-three\\n' >\"$HOME/input\"; \"$PTY_SHELL\" --noprofile --norc -c 'read line1; exec 4<&0; exec 0</dev/tty; read line2; exec 0<&4; read line3; printf \"__PTY_MISC_TTY__:%s:%s:%s\\n\" \"$line1\" \"$line2\" \"$line3\"' <\"$HOME/input\"\n"
+                ),
+                pause(0.05),
+                send(b"tty-two\n"),
+                wait(b"__PTY_MISC_TTY__:file-one:tty-two:file-three"),
+                send(b"exit\n"),
+            ),
+            expected_markers=("__PTY_MISC_TTY__:file-one:tty-two:file-three",),
+            observation_patterns=(
+                (
+                    "redirected-lines",
+                    r"^__PTY_MISC_TTY__:(file-one:tty-two:file-three)$",
+                ),
+            ),
+        ),
     )
 
 
@@ -472,6 +517,7 @@ def run_shell(executable: Path, scenario: Scenario, timeout: float) -> ShellResu
             "PATH": "/usr/bin:/bin",
             "PS1": PROMPT,
             "TERM": "xterm-256color",
+            "PTY_SHELL": str(executable),
         }
         for name in ("ASAN_OPTIONS", "LSAN_OPTIONS", "UBSAN_OPTIONS"):
             if value := os.environ.get(name):
