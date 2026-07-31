@@ -40,7 +40,7 @@ Run a file by passing its path:
 target/release/cherubsh examples/01-basics.sh
 ```
 
-The repository has five small examples. Run them through Cargo while you are developing:
+The repository has six small examples. Run them through Cargo while you are developing:
 
 ```sh
 cargo run -p cherubsh -- examples/01-basics.sh
@@ -48,9 +48,26 @@ cargo run -p cherubsh -- examples/02-expansion-and-redirection.sh
 cargo run -p cherubsh -- examples/03-traps-coproc-and-jobs.sh
 cargo run -p cherubsh -- examples/04-log-summary.sh
 cargo run -p cherubsh -- examples/05-parallel-checks.sh
+cargo run -p cherubsh -- examples/06-completion-and-history.sh
 ```
 
 The last example intentionally includes a failed child check and exits with status 1 after its report. That result is part of the example.
+
+Run every non-interactive example with the debug binary:
+
+```sh
+./tools/check-examples.sh
+```
+
+## Set up an interactive configuration
+
+Interactive, non-login CherubSH shells read `~/.cherubrc`. They do not source `~/.bashrc` as a fallback. Copy the starter configuration only when you do not already have a CherubSH configuration:
+
+```sh
+./tools/install-cherubrc.sh
+```
+
+The installer never replaces a file that already exists. Use `--path FILE` to copy the starter configuration to another location.
 
 ## Check the local build
 
@@ -60,6 +77,8 @@ Run the normal workspace tests before trying the slower compatibility gate:
 cargo test --workspace --locked
 ```
 
+When a generated Bash oracle is absent, local comparison tests use `BASH_PATH` or `/bin/bash`. The full parity driver sets `RUN_PARITY_TESTS=1` and still requires the pinned Bash build.
+
 For the full sequence, fetch and verify the pinned sources, then run the parity driver:
 
 ```sh
@@ -68,6 +87,18 @@ RUN_BRUSH_PARITY=1 ./tools/run-parity.sh
 ```
 
 The full gate builds upstream programs and can take much longer than the workspace tests. [Testing](Testing) lists focused alternatives.
+
+## Build a release archive
+
+Build the release binary, then create a versioned Linux archive and checksum file:
+
+```sh
+cargo build --release --locked -p cherubsh
+./tools/package-release.sh --version 0.3.1
+sha256sum --check dist/SHA256SUMS
+```
+
+The archive contains the binary, license, README, starter configuration, and configuration installer. Pushing a `v*` tag runs the same packaging steps before publishing the archive and checksum as a GitHub release.
 
 ## Next steps
 

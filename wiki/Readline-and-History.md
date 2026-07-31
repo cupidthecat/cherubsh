@@ -29,7 +29,7 @@ cc example.c \
   -Itarget/readline/include \
   -Ltarget/readline/lib \
   -Wl,-rpath,"$PWD/target/readline/lib" \
-  -lreadline -ltermcap
+  -lreadline
 ```
 
 For History, link `-lhistory` as appropriate for the program. The staged pkg-config files provide the same include and link information:
@@ -38,6 +38,18 @@ For History, link `-lhistory` as appropriate for the program. The staged pkg-con
 export PKG_CONFIG_PATH="$PWD/target/readline/lib/pkgconfig"
 pkg-config --cflags --libs readline
 pkg-config --cflags --libs history
+```
+
+`examples/readline-client.c` is a small client that reads a name and records it in History. Build it against the staged libraries with:
+
+```sh
+cc examples/readline-client.c \
+  -Itarget/readline/include \
+  -Ltarget/readline/lib \
+  -Wl,-rpath,"$PWD/target/readline/lib" \
+  -lreadline -lhistory \
+  -o target/readline-client
+target/readline-client
 ```
 
 ## Run the library parity gate

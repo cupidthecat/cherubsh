@@ -36,7 +36,7 @@ Those figures describe the v0.3.0 parity gates in this repository. Run the check
 | `crates/lineedit` | UTF-8 interactive line editing. |
 | `crates/readline-ffi`, `history-ffi` | C-compatible Readline and History libraries. |
 | `crates/test-harness` | Oracle, fixture, and Brush test support. |
-| `tools` | Build, fetch, parity, and wiki maintenance commands. |
+| `tools` | Build, fetch, parity, hardening, packaging, and wiki maintenance commands. |
 | `vendor` | Checked-in upstream sources and test material. |
 
 ## License and upstream material
