@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if git diff --cached --quiet -- wiki/; then
+  exit 0
+fi
+
+repo_root=$(git rev-parse --show-toplevel)
+staged_root=$(mktemp -d "${TMPDIR:-/tmp}/cherubsh-wiki-hook.XXXXXX")
+cleanup() {
+  rm -rf "$staged_root"
+}
+trap cleanup EXIT
+
+if git cat-file -e HEAD:wiki 2>/dev/null; then
+  git archive --format=tar HEAD -- wiki | tar -xf - -C "$staged_root"
+fi
+
+(
+  cd "$staged_root"
+  git -C "$repo_root" diff --cached --binary -- wiki | git apply
+)
+"$repo_root/tools/check-wiki-source.sh" "$staged_root/wiki"

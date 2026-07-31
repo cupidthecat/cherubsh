@@ -4,6 +4,10 @@ CherubSH (`cherubsh`), formerly cupidshell, is a Rust implementation of Bash 5.3
 
 CherubSH is developed and tested on Linux. The same build and test commands work under WSL.
 
+## Documentation
+
+The repository keeps the source for its GitHub Wiki in [`wiki/`](wiki/). Read the [wiki home page](wiki/Home.md) from the checkout, or use the GitHub Wiki once it has been enabled and published. Contributors should edit the versioned source pages rather than the rendered wiki; [Publishing the wiki](wiki/Publishing-the-wiki.md) explains the validation and publication workflow.
+
 ## Compatibility status
 
 The v0.3.0 parity gates currently report:
