@@ -11,7 +11,7 @@ use std::collections::BTreeSet;
 use std::ffi::{CStr, CString, OsString};
 use std::fs;
 use std::io::Read;
-use std::os::fd::RawFd;
+use std::os::fd::{FromRawFd, RawFd};
 use std::os::unix::fs::symlink;
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::process::CommandExt;
@@ -147,11 +147,17 @@ pub fn run_upstream(
         nanos_suffix(),
     ));
     command.env("BASH_TSTOUT", &tstout);
-    command.stdin(Stdio::null());
     command.stdout(Stdio::piped());
     command.stderr(Stdio::piped());
     let mut controlling_pty = ControllingPty::open();
     if let Some(pty) = controlling_pty.as_ref() {
+        let stdin_fd = unsafe { libc::dup(pty.slave) };
+        if stdin_fd >= 0 {
+            let stdin = unsafe { fs::File::from_raw_fd(stdin_fd) };
+            command.stdin(Stdio::from(stdin));
+        } else {
+            command.stdin(Stdio::null());
+        }
         let slave_path = pty.slave_path.clone();
         let inherited_slave = pty.slave;
         unsafe {
@@ -168,6 +174,7 @@ pub fn run_upstream(
             });
         }
     } else {
+        command.stdin(Stdio::null());
         command.process_group(0);
         unsafe {
             command.pre_exec(|| {

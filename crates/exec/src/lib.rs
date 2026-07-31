@@ -243,6 +243,7 @@ pub(crate) struct ExecContext<'a> {
     pub(crate) funcnest_max: u32,
     pub(crate) reuse_current_subshell: bool,
     pub(crate) allow_child_external_exec: bool,
+    pub(crate) stdin_redirect_depth: u32,
     pub(crate) env: &'a mut (dyn Environment + 'a),
 }
 
@@ -310,6 +311,7 @@ impl<'a> ExecContext<'a> {
             funcnest_max,
             reuse_current_subshell: false,
             allow_child_external_exec: false,
+            stdin_redirect_depth: 0,
             env,
         }
     }
@@ -362,6 +364,10 @@ impl<'a> ExecContext<'a> {
         if suppress_errexit {
             self.errexit_suppressed += 1;
         }
+        let redirects_stdin = command_redirects_stdin(command);
+        if redirects_stdin {
+            self.stdin_redirect_depth += 1;
+        }
         let raw = match mode {
             ExecMode::Parent => {
                 if command.redirects.is_empty() {
@@ -404,6 +410,9 @@ impl<'a> ExecContext<'a> {
                 }
             }
         };
+        if redirects_stdin {
+            self.stdin_redirect_depth -= 1;
+        }
         if suppress_errexit {
             self.errexit_suppressed -= 1;
         }
@@ -689,6 +698,27 @@ impl<'a> ExecContext<'a> {
         }
         crate::trap::run_debug_trap(self)
     }
+}
+
+pub(crate) fn command_redirects_stdin(command: &Command) -> bool {
+    if command.redirects.iter().any(redirect_targets_stdin)
+        || matches!(
+            &command.data,
+            CommandData::Simple(simple) if simple.redirects.iter().any(redirect_targets_stdin)
+        )
+    {
+        return true;
+    }
+    matches!(
+        &command.data,
+        CommandData::Connection(connection)
+            if matches!(connection.connector, CONN_PIPE | CONN_BAR_AND)
+                && command_redirects_stdin(&connection.first)
+    )
+}
+
+fn redirect_targets_stdin(redirect: &Redirect) -> bool {
+    matches!(redirect.redirector, Redirector::Fd(libc::STDIN_FILENO))
 }
 
 fn redirection_error_runs_err_trap(command: &Command) -> bool {

@@ -39,6 +39,7 @@ pub struct BrushCase {
     pub source_file: PathBuf,
     pub source_dir: PathBuf,
     ported: bool,
+    scheduler_sensitive: bool,
     raw: RawCase,
     common_test_files: Vec<TestFile>,
 }
@@ -55,12 +56,17 @@ impl BrushCase {
     pub fn ported(&self) -> bool {
         self.ported
     }
+
+    pub fn scheduler_sensitive(&self) -> bool {
+        self.scheduler_sensitive
+    }
 }
 
 #[derive(Debug, Clone)]
 pub struct BrushOutcome {
     pub id: String,
     pub ported: bool,
+    pub scheduler_sensitive: bool,
     pub known_failure: bool,
     pub passed: bool,
     pub timed_out: bool,
@@ -152,7 +158,18 @@ pub fn default_brush_cases_dir() -> PathBuf {
 }
 
 pub fn ported_brush_case_ids() -> Result<BTreeSet<String>, HarnessError> {
-    let path = workspace_root().join("crates/test-harness/brush-ported-cases.txt");
+    load_case_id_manifest("brush-ported-cases.txt", "ported")
+}
+
+pub fn scheduler_sensitive_brush_case_ids() -> Result<BTreeSet<String>, HarnessError> {
+    load_case_id_manifest("brush-nondeterministic-cases.txt", "scheduler-sensitive")
+}
+
+fn load_case_id_manifest(
+    filename: &str,
+    classification: &str,
+) -> Result<BTreeSet<String>, HarnessError> {
+    let path = workspace_root().join("crates/test-harness").join(filename);
     let text = fs::read_to_string(path).map_err(HarnessError::Io)?;
     let mut ids = BTreeSet::new();
     for (line_number, line) in text.lines().enumerate() {
@@ -164,7 +181,7 @@ pub fn ported_brush_case_ids() -> Result<BTreeSet<String>, HarnessError> {
             return Err(HarnessError::Io(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
                 format!(
-                    "duplicate ported Brush case on line {}: {id}",
+                    "duplicate {classification} Brush case on line {}: {id}",
                     line_number + 1
                 ),
             )));
@@ -175,6 +192,18 @@ pub fn ported_brush_case_ids() -> Result<BTreeSet<String>, HarnessError> {
 
 pub fn discover_brush_cases(cases_dir: &Path) -> Result<Vec<BrushCase>, HarnessError> {
     let ported_ids = ported_brush_case_ids()?;
+    let scheduler_sensitive_ids = scheduler_sensitive_brush_case_ids()?;
+    if !scheduler_sensitive_ids.is_subset(&ported_ids) {
+        let unported = scheduler_sensitive_ids
+            .difference(&ported_ids)
+            .cloned()
+            .collect::<Vec<_>>()
+            .join(", ");
+        return Err(HarnessError::Io(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!("scheduler-sensitive Brush cases must also be ported: {unported}"),
+        )));
+    }
     let mut files = Vec::new();
     discover_yaml_files(cases_dir, &mut files)?;
     files.sort();
@@ -210,6 +239,7 @@ pub fn discover_brush_cases(cases_dir: &Path) -> Result<Vec<BrushCase>, HarnessE
                 source_file: file.clone(),
                 source_dir: source_dir.clone(),
                 ported: ported_ids.contains(&id),
+                scheduler_sensitive: scheduler_sensitive_ids.contains(&id),
                 raw: case,
                 common_test_files: raw.common_test_files.clone(),
             });
@@ -224,6 +254,7 @@ pub fn run_brush_case(case: &BrushCase, report_dir: &Path) -> Result<BrushOutcom
         return Ok(BrushOutcome {
             id,
             ported: case.ported,
+            scheduler_sensitive: case.scheduler_sensitive,
             known_failure: case.raw.known_failure,
             passed: true,
             timed_out: false,
@@ -264,7 +295,14 @@ pub fn run_brush_case(case: &BrushCase, report_dir: &Path) -> Result<BrushOutcom
         passed = false;
         status_diff = format!("bash={} cherub={}", bash.status, cherub.status);
     }
-    if !case.raw.ignore_stdout && !case_stdout_matches(case, &bash.stdout, &cherub.stdout) {
+    if case.scheduler_sensitive {
+        if !scheduler_sensitive_stdout_is_valid(&bash.stdout)
+            || !scheduler_sensitive_stdout_is_valid(&cherub.stdout)
+        {
+            passed = false;
+            stdout_diff = format_string_diff(&bash.stdout, &cherub.stdout);
+        }
+    } else if !case.raw.ignore_stdout && !case_stdout_matches(case, &bash.stdout, &cherub.stdout) {
         passed = false;
         stdout_diff = format_string_diff(&bash.stdout, &cherub.stdout);
     }
@@ -309,6 +347,7 @@ pub fn run_brush_case(case: &BrushCase, report_dir: &Path) -> Result<BrushOutcom
     Ok(BrushOutcome {
         id,
         ported: case.ported,
+        scheduler_sensitive: case.scheduler_sensitive,
         known_failure: case.raw.known_failure,
         passed,
         timed_out,
@@ -322,6 +361,10 @@ pub fn run_brush_case(case: &BrushCase, report_dir: &Path) -> Result<BrushOutcom
         dir_diff,
         expectation_diff,
     })
+}
+
+fn scheduler_sensitive_stdout_is_valid(stdout: &str) -> bool {
+    matches!(stdout, "exit: 0\n" | "exit: 1\n")
 }
 
 fn discover_yaml_files(dir: &Path, out: &mut Vec<PathBuf>) -> Result<(), HarnessError> {
