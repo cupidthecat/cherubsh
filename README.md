@@ -212,13 +212,25 @@ FUZZ_ARTIFACT_DIR=target/hardening/fuzz \
 ./tools/run-fuzz-smoke.sh
 ```
 
-The PTY probe starts an interactive shell, interrupts a foreground `sleep`, and checks that the shell accepts another command. It is useful when changing job control, signals, or line editing:
+The PTY differential runner opens isolated interactive sessions under the pinned Bash oracle and CherubSH. Its scenarios cover resize handling, job control, pipelines, EOF, Unicode editing, bracketed paste, Vi and Emacs modes, completion, and interrupt recovery. The JSON report compares scenario-specific results such as edited input, job state, and deferred paste execution. Raw and normalized transcripts remain available for investigating screen redraw differences.
 
 ```sh
-python3 tools/pty-stress.py --cherub target/debug/cherubsh --rounds 20
+python3 tools/pty-differential.py \
+  --bash target/oracle/bash-5.3.15/bash \
+  --cherub target/debug/cherubsh \
+  --report-dir target/hardening/pty
 ```
 
-The scheduled `hardening` workflow runs both probes and a nightly AddressSanitizer build. To run the sanitizer check locally, install nightly Rust with `rust-src` and use the same command as CI:
+Pass `--list` to print the scenario names or repeat `--scenario NAME` to run a subset. `tools/pty-stress.py` repeats the interrupt-recovery scenario:
+
+```sh
+python3 tools/pty-stress.py \
+  --bash target/oracle/bash-5.3.15/bash \
+  --cherub target/debug/cherubsh \
+  --rounds 20
+```
+
+The scheduled `hardening` workflow runs the generated comparisons, the PTY matrix, the repeated interrupt check, and an AddressSanitizer build. To run the sanitizer check locally, install nightly Rust with `rust-src` and use the same command as CI:
 
 ```sh
 rustup toolchain install nightly --component rust-src

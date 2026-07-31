@@ -1,8 +1,9 @@
 use cherubsh_builtins::common::{array_reference, is_valid_name, split_assignment_op};
 use cherubsh_builtins::{is_assignment_builtin, is_special, lookup, BuiltinCtx};
+use cherubsh_common::jobs::Process;
 use cherubsh_common::{
-    Environment, VarAttrs, VarSnapshot, CMD_IGNORE_RETURN, CMD_INVERT_RETURN, W_ASSIGNMENT,
-    W_COMPASSIGN,
+    Environment, JobState, VarAttrs, VarSnapshot, CMD_IGNORE_RETURN, CMD_INVERT_RETURN,
+    W_ASSIGNMENT, W_COMPASSIGN,
 };
 use cherubsh_expander::assignment::ExpandedAssignment;
 use cherubsh_expander::assignment::{expand_assignment_word, looks_like_assignment};
@@ -16,7 +17,7 @@ use crate::shell_ops::ExecAdapter;
 use crate::util::{
     apply_assignment, execv_or_script, expand_one, expand_words, report_expand_error,
     report_expand_error_with_source_line, search_path, search_path_with, try_expand_words,
-    wait_for_pid, wait_for_pid_ignoring_stops,
+    wait_for_pid_ignoring_stops, wait_for_pid_status,
 };
 use crate::{ExecContext, ExecMode, Unwind};
 
@@ -1303,7 +1304,20 @@ fn execute_external_parent<'a>(
             crate::util::tcsetpgrp_blocked(fd, pid);
         }
     }
-    let status = wait_for_pid(pid);
+    let (status, raw_status) = wait_for_pid_status(pid);
+    if job_control && raw_status.is_some_and(|raw| libc::WIFSTOPPED(raw)) {
+        let command_line = crate::simple_command_label(simple);
+        let process = Process {
+            pid,
+            status_raw: raw_status.unwrap_or_default(),
+            state: JobState::Stopped,
+            command: command_line.clone(),
+        };
+        if let Some(table) = ctx.env.jobs_table_mut() {
+            table.add(pid, pid, command_line, false, true, vec![process]);
+            table.mark_stopped(pid, libc::WSTOPSIG(raw_status.unwrap_or_default()));
+        }
+    }
     crate::trap::run_sigchld_trap_once(ctx);
     if job_control {
         if let Some(fd) = tty_fd {

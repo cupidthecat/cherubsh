@@ -523,6 +523,10 @@ fn report_readonly_error(env: &dyn Environment, name: &str) {
 }
 
 pub(crate) fn wait_for_pid(pid: libc::pid_t) -> i32 {
+    wait_for_pid_status(pid).0
+}
+
+pub(crate) fn wait_for_pid_status(pid: libc::pid_t) -> (i32, Option<i32>) {
     let mut status = 0;
     loop {
         let rc = unsafe { libc::waitpid(pid, &mut status, libc::WUNTRACED) };
@@ -531,14 +535,14 @@ pub(crate) fn wait_for_pid(pid: libc::pid_t) -> i32 {
             if errno == libc::EINTR {
                 continue;
             }
-            return 1;
+            return (1, None);
         }
         if libc::WIFSTOPPED(status) {
             // Foreground process stopped (e.g. ^Z): return immediately so
             // the shell regains the terminal. Status follows bash 128+sig.
-            return 128 + libc::WSTOPSIG(status);
+            return (128 + libc::WSTOPSIG(status), Some(status));
         }
-        return decode_wait_status(status);
+        return (decode_wait_status(status), Some(status));
     }
 }
 

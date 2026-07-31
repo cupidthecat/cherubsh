@@ -54,8 +54,17 @@ jobs:
           FUZZ_ARTIFACT_DIR: target/hardening/fuzz
         run: ./tools/run-fuzz-smoke.sh
 
-      - name: Run PTY interrupt and recovery stress
-        run: python3 tools/pty-stress.py --cherub target/debug/cherubsh --rounds 20
+      - name: Run interactive PTY comparisons
+        run: |
+          python3 tools/pty-differential.py \
+            --bash target/oracle/bash-5.3.15/bash \
+            --cherub target/debug/cherubsh \
+            --report-dir target/hardening/pty
+          python3 tools/pty-stress.py \
+            --bash target/oracle/bash-5.3.15/bash \
+            --cherub target/debug/cherubsh \
+            --rounds 20 \
+            --report-dir target/hardening/pty-stress
 
       - name: Preserve hardening artifacts
         if: failure()
