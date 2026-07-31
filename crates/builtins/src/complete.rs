@@ -1,6 +1,5 @@
 //! `complete` / `compgen` / `compopt` builtins.
 
-use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 
 use cherubsh_common::completion::{
@@ -10,7 +9,7 @@ use cherubsh_common::completion::{
 use cherubsh_common::{Environment, JobState, VarAttrs, VarKind, W_QUOTED};
 use cherubsh_expander::pattern::{fnmatch, GlobOpts};
 
-use crate::common::{is_valid_name, report_diagnostic};
+use crate::common::{is_executable, is_valid_name, report_diagnostic};
 use crate::{Builtin, BuiltinCtx};
 
 #[derive(Default)]
@@ -784,13 +783,7 @@ fn command_names(ctx: &BuiltinCtx<'_>, prefix: &str) -> Vec<String> {
     if prefix.contains('/') {
         return list_entries(prefix, false, false, None, false)
             .into_iter()
-            .filter(|name| {
-                std::fs::metadata(name)
-                    .map(|metadata| {
-                        metadata.is_file() && metadata.permissions().mode() & 0o111 != 0
-                    })
-                    .unwrap_or(false)
-            })
+            .filter(|name| is_executable(std::path::Path::new(name)))
             .collect();
     }
     let mut out = Vec::new();
@@ -920,10 +913,7 @@ fn path_executables(env: &dyn Environment, prefix: &str) -> Vec<String> {
             if !name.starts_with(prefix) {
                 continue;
             }
-            let Ok(meta) = std::fs::metadata(entry.path()) else {
-                continue;
-            };
-            if meta.is_file() && meta.permissions().mode() & 0o111 != 0 {
+            if is_executable(&entry.path()) {
                 out.push(name);
             }
         }

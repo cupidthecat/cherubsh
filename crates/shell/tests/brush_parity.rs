@@ -2,37 +2,60 @@
 //!
 //! Set `RUN_BRUSH_PARITY=1` to include this slower suite.
 
+use std::collections::BTreeSet;
 use std::fs;
 
 use cherubsh_test_harness::brush::{
     default_brush_cases_dir, discover_brush_cases, ported_brush_case_ids, run_brush_case,
+    scheduler_sensitive_brush_case_ids,
 };
 use cherubsh_test_harness::{oracle_available, oracle_bash_path, oracle_version, workspace_root};
 
 #[test]
-fn ported_job_and_coproc_case_ids_match_the_upstream_skip_set() {
+fn ported_case_ids_match_the_upstream_skip_set() {
     let cases = discover_brush_cases(&default_brush_cases_dir()).expect("discover Brush cases");
     let manifest = ported_brush_case_ids().expect("read ported Brush case manifest");
     let upstream_skips = cases
         .iter()
-        .filter(|case| {
-            case.marked_skip()
-                && matches!(
-                    case.set_name.as_str(),
-                    "Background jobs" | "Compound commands: coproc"
-                )
-        })
+        .filter(|case| case.marked_skip())
         .map(|case| case.id())
         .collect();
 
     assert_eq!(manifest, upstream_skips);
-    assert_eq!(manifest.len(), 14);
+    assert_eq!(manifest.len(), 27);
     for id in manifest {
         let case = cases
             .iter()
             .find(|case| case.id() == id)
             .unwrap_or_else(|| panic!("missing ported Brush case: {id}"));
         assert!(case.ported(), "manifest case is not enabled: {id}");
+    }
+}
+
+#[test]
+fn scheduler_sensitive_case_ids_are_the_two_zero_timeout_races() {
+    let cases = discover_brush_cases(&default_brush_cases_dir()).expect("discover Brush cases");
+    let manifest =
+        scheduler_sensitive_brush_case_ids().expect("read scheduler-sensitive Brush case manifest");
+    let expected = BTreeSet::from([
+        "Builtins: read::read -t 0 with data available in pipe".to_string(),
+        "Builtins: read::read -t 0 with no data (empty pipe)".to_string(),
+    ]);
+
+    assert_eq!(manifest, expected);
+    for id in manifest {
+        let case = cases
+            .iter()
+            .find(|case| case.id() == id)
+            .unwrap_or_else(|| panic!("missing scheduler-sensitive Brush case: {id}"));
+        assert!(
+            case.ported(),
+            "scheduler-sensitive case is not ported: {id}"
+        );
+        assert!(
+            case.scheduler_sensitive(),
+            "manifest case is not classified as scheduler-sensitive: {id}"
+        );
     }
 }
 
@@ -98,12 +121,20 @@ fn brush_compat_parity_all() {
         if outcome.passed {
             pass += 1;
             eprintln!("brush PASS {}", outcome.id);
-            let reason = if outcome.known_failure {
+            let reason = if outcome.scheduler_sensitive {
+                "scheduler-sensitive readiness result is within the documented Bash outcomes"
+            } else if outcome.known_failure {
                 "brush marked known_failure, but CherubSH matched Bash"
             } else {
                 ""
             };
-            let classification = if outcome.ported { "ported" } else { "baseline" };
+            let classification = if outcome.scheduler_sensitive {
+                "ported-nondeterministic"
+            } else if outcome.ported {
+                "ported"
+            } else {
+                "baseline"
+            };
             report.push_str(&format!(
                 "PASS\t{classification}\t{}\t{}\n",
                 outcome.id, reason
@@ -125,7 +156,13 @@ fn brush_compat_parity_all() {
             "unexpected difference"
         };
         eprintln!("brush FAIL {} ({reason})", outcome.id);
-        let classification = if outcome.ported { "ported" } else { "baseline" };
+        let classification = if outcome.scheduler_sensitive {
+            "ported-nondeterministic"
+        } else if outcome.ported {
+            "ported"
+        } else {
+            "baseline"
+        };
         report.push_str(&format!(
             "FAIL\t{classification}\t{}\t{}\n",
             outcome.id, reason

@@ -12,3 +12,16 @@ Compound commands: coproc::Bidirectional communication
 Compound commands: coproc::Named coproc bidirectional
 Compound commands: coproc::Close write FD to signal EOF
 Compound commands: coproc::Bidirectional with cat for EOF
+Builtins: compgen::compgen -A command
+Builtins: read::read -t 0 with data available in pipe
+Builtins: read::read -t 0 with no data (empty pipe)
+Builtins: read::read -N ignores delimiter
+Builtins: trap::process substitution output trap inheritance
+Builtins: trap::coproc - EXIT trap behavior
+Builtins: trap::coproc - DEBUG trap inheritance
+Builtins: trap::coproc - ERR trap with errtrace
+Interactive::Simple tab completion
+Redirection::Process substitution: output redirection
+Redirection::Input file descriptor duplication from stdin
+Well-known variable tests::GROUPS
+Parameter expansion::Substring on string with multi-byte chars

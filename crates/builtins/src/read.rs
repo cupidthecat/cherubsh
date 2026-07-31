@@ -179,6 +179,11 @@ impl Builtin for ReadBuiltin {
 
         // Apply timeout via select() on fd.
         if let Some(t) = timeout {
+            if t == 0.0 {
+                let ready = wait_for_input(active_fd, t).unwrap_or(false);
+                close_optional_fd(readline_tty);
+                return if ready { 0 } else { 1 };
+            }
             if let Some(false) = wait_for_input(active_fd, t) {
                 close_optional_fd(readline_tty);
                 assign_timeout_empty(

@@ -76,3 +76,13 @@ fn return_trap_requires_functrace_for_functions() {
     parity("trap 'echo RETURN' RETURN; f(){ echo body; }; f; echo after");
     parity("set -T; trap 'echo RETURN' RETURN; f(){ echo body; }; f; echo after");
 }
+
+#[test]
+fn coproc_inherits_debug_trap_without_running_it_internally() {
+    parity(
+        r#"trap 'echo "[debug]"' DEBUG
+coproc { trap -p DEBUG; echo "coproc"; }
+cat <&${COPROC[0]}
+wait"#,
+    );
+}

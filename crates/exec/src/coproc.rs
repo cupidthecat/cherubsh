@@ -58,6 +58,12 @@ pub(crate) fn execute<'a>(ctx: &mut ExecContext<'a>, coproc: &CoprocCommand) -> 
         }
         reset_child_signal_handlers(ctx.env);
         ctx.env.enter_subshell();
+        if !ctx.env.option("errtrace") && !ctx.env.option("extdebug") {
+            ctx.suppress_err_traps = true;
+        }
+        if !ctx.env.option("functrace") && !ctx.env.option("extdebug") {
+            ctx.suppress_debug_traps = true;
+        }
         let status = ctx.execute_child_command(&coproc.command);
         let final_status = match ctx.pending.take() {
             Some(crate::Unwind::Exit(n)) => n,

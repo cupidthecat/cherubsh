@@ -29,3 +29,30 @@ read -t -3 foo 2>/dev/null; echo t=$?"#,
         ..RunSpec::default()
     });
 }
+
+#[test]
+fn zero_timeout_checks_readiness_without_consuming_input() {
+    assert_parity_strict(&RunSpec {
+        script: Some(
+            r#"value=old
+read -t 0 value <<< "ready"
+printf 'scalar=%s value=<%s>\n' "$?" "$value"
+REPLY=old-reply
+read -t 0 <<< "ready"
+printf 'reply=%s value=<%s>\n' "$?" "$REPLY"
+items=(old values)
+read -t 0 -a items <<< "ready"
+printf 'array=%s value=<%s>\n' "$?" "${items[*]}"
+coproc { read; }
+fd=${COPROC[0]}
+pid=$COPROC_PID
+value=old
+read -t 0 -u "$fd" value
+printf 'pending=%s value=<%s>\n' "$?" "$value"
+kill "$pid"
+wait "$pid" 2>/dev/null
+:"#,
+        ),
+        ..RunSpec::default()
+    });
+}

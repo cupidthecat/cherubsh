@@ -1522,7 +1522,7 @@ pub fn is_executable(path: &std::path::Path) -> bool {
     let Ok(cpath) = std::ffi::CString::new(path.as_os_str().as_encoded_bytes()) else {
         return false;
     };
-    unsafe { libc::access(cpath.as_ptr(), libc::X_OK) == 0 }
+    unsafe { libc::faccessat(libc::AT_FDCWD, cpath.as_ptr(), libc::X_OK, libc::AT_EACCESS) == 0 }
 }
 
 /// `set` no-arg / `export -p` / `readonly -p` formatting helper: emit a single

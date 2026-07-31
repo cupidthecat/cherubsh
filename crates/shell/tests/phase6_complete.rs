@@ -124,6 +124,25 @@ fn compgen_action_catalog_parity() {
 }
 
 #[test]
+fn compgen_command_checks_effective_execute_access() {
+    assert_parity(&RunSpec {
+        script: Some(
+            r#"
+                directory=$(mktemp -d)
+                remover=$(command -v rm)
+                trap '"$remover" -rf "$directory"' EXIT
+                touch "$directory/cherub_inaccessible"
+                chmod 010 "$directory/cherub_inaccessible"
+                PATH="$directory"
+                compgen -A command cherub_inaccessible
+                printf 'status=%s\n' "$?"
+            "#,
+        ),
+        ..RunSpec::default()
+    });
+}
+
+#[test]
 fn compgen_generators_and_callbacks_parity() {
     assert_parity(&RunSpec {
         script: Some(

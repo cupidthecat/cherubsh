@@ -16,10 +16,10 @@ The v0.3.0 parity gates currently report:
 | --- | ---: |
 | Upstream Bash 5.3 `run-*` drivers | 86 / 86 passing |
 | CherubSH differential fixtures | 99 / 99 passing |
-| Runnable Brush compatibility cases | 2,091 / 2,091 passing |
-| Brush cases skipped by their metadata or Bash version | 14 |
+| Runnable Brush compatibility cases | 2,104 / 2,104 passing |
+| Brush cases skipped by their metadata or Bash version | 1 |
 
-The upstream Bash gate uses the original `.right` files. The Brush gate runs each case once with Bash 5.3.15 and once with CherubSH, then compares status, output, and files left behind. Readline tests compile the same C fixtures and upstream examples against GNU Readline and the CherubSH library.
+The upstream Bash gate uses the original `.right` files. The Brush gate runs each case once with Bash 5.3.15 and once with CherubSH, then compares status, output, and files left behind. Two `read -t 0` pipeline cases are labeled `ported-nondeterministic` because Bash can report either readiness result depending on process scheduling; only those documented results are accepted. Readline tests compile the same C fixtures and upstream examples against GNU Readline and the CherubSH library.
 
 Bash is used only as a test oracle. CherubSH does not call Bash to parse commands, print syntax trees, extract translation strings, expand completions, or run loadable builtins.
 
