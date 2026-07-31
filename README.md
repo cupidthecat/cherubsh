@@ -16,8 +16,8 @@ The v0.3.0 parity gates currently report:
 | --- | ---: |
 | Upstream Bash 5.3 `run-*` drivers | 86 / 86 passing |
 | CherubSH differential fixtures | 99 / 99 passing |
-| Runnable Brush compatibility cases | 2,077 / 2,077 passing |
-| Brush cases skipped by their metadata or Bash version | 28 |
+| Runnable Brush compatibility cases | 2,091 / 2,091 passing |
+| Brush cases skipped by their metadata or Bash version | 14 |
 
 The upstream Bash gate uses the original `.right` files. The Brush gate runs each case once with Bash 5.3.15 and once with CherubSH, then compares status, output, and files left behind. Readline tests compile the same C fixtures and upstream examples against GNU Readline and the CherubSH library.
 

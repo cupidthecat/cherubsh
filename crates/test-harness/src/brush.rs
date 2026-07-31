@@ -38,6 +38,7 @@ pub struct BrushCase {
     pub case_name: String,
     pub source_file: PathBuf,
     pub source_dir: PathBuf,
+    ported: bool,
     raw: RawCase,
     common_test_files: Vec<TestFile>,
 }
@@ -46,11 +47,20 @@ impl BrushCase {
     pub fn id(&self) -> String {
         format!("{}::{}", self.set_name, self.case_name)
     }
+
+    pub fn marked_skip(&self) -> bool {
+        self.raw.skip
+    }
+
+    pub fn ported(&self) -> bool {
+        self.ported
+    }
 }
 
 #[derive(Debug, Clone)]
 pub struct BrushOutcome {
     pub id: String,
+    pub ported: bool,
     pub known_failure: bool,
     pub passed: bool,
     pub timed_out: bool,
@@ -141,7 +151,30 @@ pub fn default_brush_cases_dir() -> PathBuf {
     workspace_root().join("vendor/brush/brush-shell/tests/cases/compat")
 }
 
+pub fn ported_brush_case_ids() -> Result<BTreeSet<String>, HarnessError> {
+    let path = workspace_root().join("crates/test-harness/brush-ported-cases.txt");
+    let text = fs::read_to_string(path).map_err(HarnessError::Io)?;
+    let mut ids = BTreeSet::new();
+    for (line_number, line) in text.lines().enumerate() {
+        let id = line.trim();
+        if id.is_empty() || id.starts_with('#') {
+            continue;
+        }
+        if !ids.insert(id.to_string()) {
+            return Err(HarnessError::Io(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!(
+                    "duplicate ported Brush case on line {}: {id}",
+                    line_number + 1
+                ),
+            )));
+        }
+    }
+    Ok(ids)
+}
+
 pub fn discover_brush_cases(cases_dir: &Path) -> Result<Vec<BrushCase>, HarnessError> {
+    let ported_ids = ported_brush_case_ids()?;
     let mut files = Vec::new();
     discover_yaml_files(cases_dir, &mut files)?;
     files.sort();
@@ -169,11 +202,14 @@ pub fn discover_brush_cases(cases_dir: &Path) -> Result<Vec<BrushCase>, HarnessE
         }
 
         for (idx, case) in raw.cases.into_iter().enumerate() {
+            let case_name = case.name.clone().unwrap_or_else(|| format!("case {idx}"));
+            let id = format!("{set_name}::{case_name}");
             cases.push(BrushCase {
                 set_name: set_name.clone(),
-                case_name: case.name.clone().unwrap_or_else(|| format!("case {idx}")),
+                case_name,
                 source_file: file.clone(),
                 source_dir: source_dir.clone(),
+                ported: ported_ids.contains(&id),
                 raw: case,
                 common_test_files: raw.common_test_files.clone(),
             });
@@ -187,6 +223,7 @@ pub fn run_brush_case(case: &BrushCase, report_dir: &Path) -> Result<BrushOutcom
     if let Some(reason) = skip_reason(case) {
         return Ok(BrushOutcome {
             id,
+            ported: case.ported,
             known_failure: case.raw.known_failure,
             passed: true,
             timed_out: false,
@@ -271,6 +308,7 @@ pub fn run_brush_case(case: &BrushCase, report_dir: &Path) -> Result<BrushOutcom
 
     Ok(BrushOutcome {
         id,
+        ported: case.ported,
         known_failure: case.raw.known_failure,
         passed,
         timed_out,
@@ -305,7 +343,7 @@ fn discover_yaml_files(dir: &Path, out: &mut Vec<PathBuf>) -> Result<(), Harness
 }
 
 fn skip_reason(case: &BrushCase) -> Option<String> {
-    if case.raw.skip {
+    if case.raw.skip && !case.ported {
         return Some("marked skip by brush".to_string());
     }
     if case.raw.incompatible_configs.contains("bash") {

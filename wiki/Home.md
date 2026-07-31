@@ -21,8 +21,8 @@ The repository's current compatibility report lists:
 | --- | ---: |
 | Upstream Bash 5.3 `run-*` drivers | 86 / 86 passing |
 | CherubSH differential fixtures | 99 / 99 passing |
-| Runnable Brush cases | 2,077 / 2,077 passing |
-| Brush cases skipped by metadata or Bash version | 28 |
+| Runnable Brush cases | 2,091 / 2,091 passing |
+| Brush cases skipped by metadata or Bash version | 14 |
 
 Those figures describe the v0.3.0 parity gates in this repository. Run the checks yourself before relying on a new revision. [Compatibility](Compatibility) explains what each suite proves, and [Testing](Testing) gives the commands.
 
