@@ -49,6 +49,7 @@ fi
 export BASH_TESTS_DIR="${BASH_TESTS_DIR:-${DEFAULT_TESTS_DIR}}"
 export RUN_PARITY_TESTS=1
 export RUN_UPSTREAM_PARITY=1
+export RUN_LOADABLE_PARITY=1
 export UPSTREAM_PARITY_REPORT_DIR="${UPSTREAM_PARITY_REPORT_DIR:-${WS_ROOT}/target/parity/upstream}"
 if [[ "${RUN_BRUSH_PARITY:-}" == "1" ]]; then
     export BRUSH_PARITY_REPORT_DIR="${BRUSH_PARITY_REPORT_DIR:-${WS_ROOT}/target/parity/brush}"

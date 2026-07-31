@@ -1,0 +1,90 @@
+name: hardening
+
+on:
+  schedule:
+    - cron: "23 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hardening-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  generated-parity:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install system packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes \
+            autoconf \
+            bison \
+            build-essential \
+            clang \
+            curl \
+            git \
+            gpgv \
+            libncurses-dev \
+            patch \
+            perl \
+            python3 \
+            texinfo \
+            util-linux
+
+      - name: Install the pinned Rust toolchain
+        run: rustup toolchain install 1.93.1 --profile minimal
+
+      - name: Prepare the Bash oracle
+        run: |
+          ./tools/fetch-upstream.sh
+          oracle/build-bash-5.3.15.sh
+
+      - name: Build CherubSH
+        run: cargo build --locked -p cherubsh
+
+      - name: Run generated Bash comparisons
+        env:
+          FUZZ_CASES: "500"
+          FUZZ_ARTIFACT_DIR: target/hardening/fuzz
+        run: ./tools/run-fuzz-smoke.sh
+
+      - name: Run PTY interrupt and recovery stress
+        run: python3 tools/pty-stress.py --cherub target/debug/cherubsh --rounds 20
+
+      - name: Preserve hardening artifacts
+        if: failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: hardening-artifacts
+          path: target/hardening
+          if-no-files-found: ignore
+
+  address-sanitizer:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Clang
+        run: sudo apt-get update && sudo apt-get install --yes clang
+
+      - name: Install the sanitizer toolchain
+        run: rustup toolchain install nightly --profile minimal --component rust-src
+
+      - name: Run the Rust and C bridge tests under AddressSanitizer
+        env:
+          ASAN_OPTIONS: detect_leaks=1:halt_on_error=1
+          CC: clang
+          CHERUBSH_C_SANITIZER: address
+          RUSTFLAGS: -Zsanitizer=address
+        run: |
+          cargo +nightly test -Zbuild-std \
+            --target x86_64-unknown-linux-gnu \
+            --workspace \
+            --locked

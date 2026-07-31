@@ -1,0 +1,11 @@
+# CherubSH reads this file for interactive, non-login shells.
+# Change or remove settings that do not suit the way you work.
+# This file is separate from ~/.bashrc.
+
+export EDITOR="${EDITOR:-vi}"
+set -o vi
+alias ll='ls -alF'
+
+if [[ -r /usr/share/bash-completion/bash_completion ]]; then
+    source /usr/share/bash-completion/bash_completion
+fi

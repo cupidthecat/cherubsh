@@ -64,18 +64,13 @@ target/release/cherubsh --dump-po-strings messages.sh
 
 CherubSH reads `~/.cherubrc` for an interactive non-login shell. It does not silently fall back to `~/.bashrc`. Use `--norc` to skip the file or `--rcfile path` to choose another one.
 
-A small starting file might look like this:
+A starter file lives at `examples/cherubrc`. Copy it when you do not already have a configuration:
 
 ```sh
-# ~/.cherubrc
-export EDITOR=vi
-set -o vi
-alias ll='ls -alF'
-
-if [[ -r /usr/share/bash-completion/bash_completion ]]; then
-    source /usr/share/bash-completion/bash_completion
-fi
+./tools/install-cherubrc.sh
 ```
+
+The installer refuses to replace an existing file. Pass `--path FILE` when you want to place the starter file somewhere else.
 
 The pinned bash-completion source used by development tests is fetched to `target/upstream/bash-completion-2.18.0` by `tools/fetch-upstream.sh`.
 
@@ -117,7 +112,7 @@ cc example.c \
   -Itarget/readline/include \
   -Ltarget/readline/lib \
   -Wl,-rpath,"$PWD/target/readline/lib" \
-  -lreadline -ltermcap
+  -lreadline
 ```
 
 The staged directory also works with `pkg-config`:
@@ -126,6 +121,18 @@ The staged directory also works with `pkg-config`:
 export PKG_CONFIG_PATH="$PWD/target/readline/lib/pkgconfig"
 pkg-config --cflags --libs readline
 pkg-config --cflags --libs history
+```
+
+`examples/readline-client.c` is a small interactive client that uses both libraries. Build it after staging the compatibility files:
+
+```sh
+cc examples/readline-client.c \
+  -Itarget/readline/include \
+  -Ltarget/readline/lib \
+  -Wl,-rpath,"$PWD/target/readline/lib" \
+  -lreadline -lhistory \
+  -o target/readline-client
+target/readline-client
 ```
 
 Run the GNU differential gate with:
@@ -143,6 +150,8 @@ Run the ordinary Rust test suite first:
 ```sh
 cargo test --workspace --locked
 ```
+
+When the generated Bash oracle is absent, the targeted comparison tests use `BASH_PATH` or `/bin/bash` for local feedback. `tools/run-parity.sh` sets `RUN_PARITY_TESTS=1`, so the full gate still requires the pinned oracle.
 
 The full parity gate needs common build tools, `bison`, `texinfo`, `gpgv`, ncurses development headers, Perl, Python 3, and util-linux. On Debian or Ubuntu:
 
@@ -176,11 +185,50 @@ RUN_BRUSH_PARITY=1 \
 BRUSH_PARITY_FILTER='Builtins: wait' \
 cargo test -p cherubsh --test brush_parity -- --nocapture
 
+# Bash loadable ABI only, after building the oracle modules
+oracle/build-bash-5.3.15-loadables.sh
+RUN_LOADABLE_PARITY=1 \
+cargo test -p cherubsh --test loadable_abi -- --nocapture
+
 # Readline and History only
 ./tools/run-readline-parity.sh
 ```
 
 Parity reports are written below `target/parity`.
+
+## Hardening checks
+
+The generated differential fuzzer creates small, bounded shell programs and compares their status, standard output, and standard error with the pinned Bash oracle. Run the full parity driver first so the oracle exists, then run a local batch:
+
+```sh
+FUZZ_CASES=250 ./tools/run-fuzz-smoke.sh
+```
+
+Failures can be saved for inspection without changing the checked-in corpus:
+
+```sh
+FUZZ_CASES=250 \
+FUZZ_ARTIFACT_DIR=target/hardening/fuzz \
+./tools/run-fuzz-smoke.sh
+```
+
+The PTY probe starts an interactive shell, interrupts a foreground `sleep`, and checks that the shell accepts another command. It is useful when changing job control, signals, or line editing:
+
+```sh
+python3 tools/pty-stress.py --cherub target/debug/cherubsh --rounds 20
+```
+
+The scheduled `hardening` workflow runs both probes and a nightly AddressSanitizer build. To run the sanitizer check locally, install nightly Rust with `rust-src` and use the same command as CI:
+
+```sh
+rustup toolchain install nightly --component rust-src
+CHERUBSH_C_SANITIZER=address \
+CC=clang \
+RUSTFLAGS='-Zsanitizer=address' \
+cargo +nightly test -Zbuild-std \
+  --target x86_64-unknown-linux-gnu \
+  --workspace --locked
+```
 
 ## Reference source trees
 
@@ -202,6 +250,13 @@ cargo run -p cherubsh -- examples/02-expansion-and-redirection.sh
 cargo run -p cherubsh -- examples/03-traps-coproc-and-jobs.sh
 cargo run -p cherubsh -- examples/04-log-summary.sh
 cargo run -p cherubsh -- examples/05-parallel-checks.sh
+cargo run -p cherubsh -- examples/06-completion-and-history.sh
+```
+
+Check every non-interactive example with the debug binary:
+
+```sh
+./tools/check-examples.sh
 ```
 
 ## Installing as a shell
@@ -211,6 +266,16 @@ Install the release binary somewhere on `PATH`:
 ```sh
 sudo install -m 0755 target/release/cherubsh /usr/local/bin/cherubsh
 ```
+
+For a versioned Linux archive, build the release binary and package it with a version of your choice:
+
+```sh
+cargo build --release --locked -p cherubsh
+./tools/package-release.sh --version 0.3.1
+sha256sum --check dist/SHA256SUMS
+```
+
+The release workflow runs when a `v*` tag is pushed. It publishes the matching `x86_64-unknown-linux-gnu` archive and its checksum file.
 
 Test your scripts and dotfiles before making it your login shell. Keep the system Bash package installed.
 
