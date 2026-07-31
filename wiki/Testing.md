@@ -12,6 +12,8 @@ cargo test --workspace --locked
 
 The repository CI runs these checks as part of its parity job. Format and clippy failures are worth fixing before a large oracle run.
 
+Local comparison tests use `BASH_PATH` or `/bin/bash` when the generated Bash oracle is absent. The full parity driver exports `RUN_PARITY_TESTS=1`, which makes a missing pinned oracle a failure.
+
 ## Full parity gate
 
 Fetch and verify the external source material first:
@@ -50,6 +52,49 @@ Run the C-library compatibility checks only:
 
 ```sh
 ./tools/run-readline-parity.sh
+```
+
+Run the Bash loadable ABI suite after building the Bash 5.3.15 modules:
+
+```sh
+oracle/build-bash-5.3.15-loadables.sh
+RUN_LOADABLE_PARITY=1 \
+cargo test -p cherubsh --test loadable_abi -- --nocapture
+```
+
+## Hardening checks
+
+The generated fuzzer runs small shell programs against CherubSH and the pinned Bash oracle. First build the debug binary and the oracle, then run a local batch:
+
+```sh
+cargo build --locked -p cherubsh
+FUZZ_CASES=250 ./tools/run-fuzz-smoke.sh
+```
+
+Save a failing case and its Bash and CherubSH output with `FUZZ_ARTIFACT_DIR`:
+
+```sh
+FUZZ_CASES=250 \
+FUZZ_ARTIFACT_DIR=target/hardening/fuzz \
+./tools/run-fuzz-smoke.sh
+```
+
+The PTY probe starts an interactive shell, interrupts a foreground `sleep`, and checks that the shell accepts another command:
+
+```sh
+python3 tools/pty-stress.py --cherub target/debug/cherubsh --rounds 20
+```
+
+The scheduled hardening workflow runs both probes and an AddressSanitizer workspace test. Run the sanitizer check locally with nightly Rust and the `rust-src` component:
+
+```sh
+rustup toolchain install nightly --component rust-src
+CHERUBSH_C_SANITIZER=address \
+CC=clang \
+RUSTFLAGS='-Zsanitizer=address' \
+cargo +nightly test -Zbuild-std \
+  --target x86_64-unknown-linux-gnu \
+  --workspace --locked
 ```
 
 ## Test results and generated files

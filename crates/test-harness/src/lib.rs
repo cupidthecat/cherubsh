@@ -411,10 +411,17 @@ pub fn assert_parity(spec: &RunSpec<'_>) {
     run_assert_parity(&bash_path, spec);
 }
 
-/// Strict variant: hard-fail if the selected bash oracle is unavailable. Use
-/// from CI sweeps and from upstream-test wiring where parity is not optional.
+/// Run against the selected Bash oracle during a declared parity sweep.
+///
+/// `RUN_PARITY_TESTS=1` makes an unavailable selected oracle a hard failure.
+/// Ordinary local test runs fall back to the system Bash through
+/// [`assert_parity`], so they do not require generated oracle artifacts.
 pub fn assert_parity_strict(spec: &RunSpec<'_>) {
     if !oracle_available() {
+        if std::env::var_os("RUN_PARITY_TESTS").is_none() {
+            assert_parity(spec);
+            return;
+        }
         panic!(
             "bash {} oracle not available at {}",
             oracle_version(),

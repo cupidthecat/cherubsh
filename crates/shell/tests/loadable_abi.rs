@@ -8,6 +8,21 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use cherubsh_test_harness::{cherub_path, oracle_bash_path, oracle_version};
 
+fn loadable_parity_enabled() -> bool {
+    std::env::var_os("RUN_LOADABLE_PARITY").is_some()
+}
+
+fn skip_without_loadable_parity() -> bool {
+    if loadable_parity_enabled() {
+        false
+    } else {
+        eprintln!(
+            "skip: set RUN_LOADABLE_PARITY=1 to run the Bash loadable ABI compatibility suite"
+        );
+        true
+    }
+}
+
 fn temporary_directory(name: &str) -> PathBuf {
     let nonce = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -105,6 +120,10 @@ fn loadable_catalog(directory: &Path) -> Vec<(PathBuf, String, String)> {
 
 #[test]
 fn bash_53_loadable_builtin_abi_matches_the_oracle() {
+    if skip_without_loadable_parity() {
+        return;
+    }
+
     let workspace = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
     let temporary = temporary_directory("loadable-abi");
     let module = temporary.join("abi_probe.so");
@@ -149,6 +168,10 @@ printf 'unload:%s,%s\n' "$PROBE_UNLOAD" "$(type -t abi_probe)"
 
 #[test]
 fn every_bash_53_example_loadable_can_load_run_help_and_unload() {
+    if skip_without_loadable_parity() {
+        return;
+    }
+
     let workspace = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
     let directory = workspace.join("target/oracle/bash-5.3.15/examples/loadables");
     let catalog = loadable_catalog(&directory);
@@ -201,6 +224,10 @@ fn every_bash_53_example_loadable_can_load_run_help_and_unload() {
 
 #[test]
 fn representative_bash_53_loadables_match_the_oracle() {
+    if skip_without_loadable_parity() {
+        return;
+    }
+
     let workspace = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
     let directory = workspace.join("target/oracle/bash-5.3.15/examples/loadables");
     assert!(

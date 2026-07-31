@@ -5,8 +5,17 @@ fn main() {
         let archive = out_dir.join("libcherub_loadable_abi.a");
         let source = std::path::Path::new("loadable_abi.c");
         let compiler = std::env::var_os("CC").unwrap_or_else(|| "cc".into());
-        let status = std::process::Command::new(compiler)
-            .args(["-std=c11", "-fPIC", "-O2", "-c"])
+        let mut command = std::process::Command::new(compiler);
+        command.args(["-std=c11", "-fPIC", "-O2", "-c"]);
+        match std::env::var("CHERUBSH_C_SANITIZER").as_deref() {
+            Ok("address") => {
+                command.args(["-fsanitize=address", "-fno-omit-frame-pointer"]);
+            }
+            Ok(other) => panic!("unsupported CHERUBSH_C_SANITIZER={other}"),
+            Err(std::env::VarError::NotPresent) => {}
+            Err(error) => panic!("read CHERUBSH_C_SANITIZER: {error}"),
+        }
+        let status = command
             .arg(source)
             .arg("-o")
             .arg(&object)
@@ -22,6 +31,7 @@ fn main() {
             .expect("run archiver for the Bash loadable ABI bridge");
         assert!(status.success(), "failed to archive loadable_abi.c");
         println!("cargo:rerun-if-changed={}", source.display());
+        println!("cargo:rerun-if-env-changed=CHERUBSH_C_SANITIZER");
         println!("cargo:rustc-link-search=native={}", out_dir.display());
         println!("cargo:rustc-link-lib=static=cherub_loadable_abi");
         println!("cargo:rustc-link-arg=-Wl,--export-dynamic");

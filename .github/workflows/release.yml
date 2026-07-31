@@ -1,0 +1,63 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing version tag to publish
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  publish-linux-archive:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+
+      - name: Install the pinned Rust toolchain
+        run: rustup toolchain install 1.93.1 --profile minimal
+
+      - name: Verify the workspace
+        run: cargo test --workspace --locked
+
+      - name: Build the Linux release binary
+        run: cargo build --release --locked -p cherubsh
+
+      - name: Create the release archive
+        env:
+          RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+        run: |
+          case "${RELEASE_TAG}" in
+            v*) RELEASE_VERSION="${RELEASE_TAG#v}" ;;
+            *)
+              echo "error: release tags must start with v" >&2
+              exit 2
+              ;;
+          esac
+          SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)" \
+            ./tools/package-release.sh \
+              --version "${RELEASE_VERSION}" \
+              --binary target/release/cherubsh \
+              --output dist
+          sha256sum --check dist/SHA256SUMS
+
+      - name: Publish the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+        run: |
+          gh release create "${RELEASE_TAG}" \
+            --verify-tag \
+            --generate-notes \
+            --title "CherubSH ${RELEASE_TAG}" \
+            dist/*

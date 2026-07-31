@@ -8,3 +8,6 @@ target/
 /parity.log
 *.profraw
 *.profdata
+
+# Python bytecode caches
+__pycache__/
