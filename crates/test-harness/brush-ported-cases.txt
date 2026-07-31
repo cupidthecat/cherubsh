@@ -1,0 +1,14 @@
+Background jobs::Single background job via -c without explicit wait
+Background jobs::Single background job via stdin without explicit wait
+Background jobs::Background compound command via -c without explicit wait
+Background jobs::Background compound command via stdin without explicit wait
+Background jobs::Multiple background jobs via -c without explicit wait
+Background jobs::Multiple background jobs via stdin without explicit wait
+Background jobs::Background and foreground via -c without explicit wait
+Background jobs::Background and foreground via stdin without explicit wait
+Compound commands: coproc::Coproc with simple command
+Compound commands: coproc::Write to coproc stdin and read back
+Compound commands: coproc::Bidirectional communication
+Compound commands: coproc::Named coproc bidirectional
+Compound commands: coproc::Close write FD to signal EOF
+Compound commands: coproc::Bidirectional with cat for EOF

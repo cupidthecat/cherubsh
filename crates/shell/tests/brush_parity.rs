@@ -4,8 +4,37 @@
 
 use std::fs;
 
-use cherubsh_test_harness::brush::{default_brush_cases_dir, discover_brush_cases, run_brush_case};
+use cherubsh_test_harness::brush::{
+    default_brush_cases_dir, discover_brush_cases, ported_brush_case_ids, run_brush_case,
+};
 use cherubsh_test_harness::{oracle_available, oracle_bash_path, oracle_version, workspace_root};
+
+#[test]
+fn ported_job_and_coproc_case_ids_match_the_upstream_skip_set() {
+    let cases = discover_brush_cases(&default_brush_cases_dir()).expect("discover Brush cases");
+    let manifest = ported_brush_case_ids().expect("read ported Brush case manifest");
+    let upstream_skips = cases
+        .iter()
+        .filter(|case| {
+            case.marked_skip()
+                && matches!(
+                    case.set_name.as_str(),
+                    "Background jobs" | "Compound commands: coproc"
+                )
+        })
+        .map(|case| case.id())
+        .collect();
+
+    assert_eq!(manifest, upstream_skips);
+    assert_eq!(manifest.len(), 14);
+    for id in manifest {
+        let case = cases
+            .iter()
+            .find(|case| case.id() == id)
+            .unwrap_or_else(|| panic!("missing ported Brush case: {id}"));
+        assert!(case.ported(), "manifest case is not enabled: {id}");
+    }
+}
 
 #[test]
 fn brush_compat_parity_all() {
@@ -45,7 +74,7 @@ fn brush_compat_parity_all() {
         .unwrap_or_else(|_| workspace_root().join("target/parity/brush"));
     fs::create_dir_all(&report_dir).expect("create brush parity report dir");
     let report_path = report_dir.join("report.tsv");
-    let mut report = String::from("verdict\tcase\treason\n");
+    let mut report = String::from("verdict\tclassification\tcase\treason\n");
 
     let mut pass = 0u32;
     let mut fail = 0u32;
@@ -60,7 +89,10 @@ fn brush_compat_parity_all() {
             skip += 1;
             let reason = outcome.skip_reason.as_deref().unwrap_or("");
             eprintln!("brush skip {} ({reason})", outcome.id);
-            report.push_str(&format!("SKIP\t{}\t{}\n", outcome.id, reason));
+            report.push_str(&format!(
+                "SKIP\tupstream-skip\t{}\t{}\n",
+                outcome.id, reason
+            ));
             continue;
         }
         if outcome.passed {
@@ -71,7 +103,11 @@ fn brush_compat_parity_all() {
             } else {
                 ""
             };
-            report.push_str(&format!("PASS\t{}\t{}\n", outcome.id, reason));
+            let classification = if outcome.ported { "ported" } else { "baseline" };
+            report.push_str(&format!(
+                "PASS\t{classification}\t{}\t{}\n",
+                outcome.id, reason
+            ));
             continue;
         }
 
@@ -89,7 +125,11 @@ fn brush_compat_parity_all() {
             "unexpected difference"
         };
         eprintln!("brush FAIL {} ({reason})", outcome.id);
-        report.push_str(&format!("FAIL\t{}\t{}\n", outcome.id, reason));
+        let classification = if outcome.ported { "ported" } else { "baseline" };
+        report.push_str(&format!(
+            "FAIL\t{classification}\t{}\t{}\n",
+            outcome.id, reason
+        ));
         failure_log.push_str(&format!(
             "FAIL {}\nstatus: {}\nstdout:\n{}\nstderr:\n{}\ndir:\n{}\nexpectations:\n{}\n",
             outcome.id,
