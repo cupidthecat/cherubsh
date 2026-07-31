@@ -52,8 +52,12 @@ jobs:
             exit 1
           fi
           install -d -m 700 "$HOME/.ssh"
-          printf '%s\n' "$WIKI_DEPLOY_KEY" > "$HOME/.ssh/wiki_deploy_key"
+          printf '%s' "$WIKI_DEPLOY_KEY" | tr -d '\r' > "$HOME/.ssh/wiki_deploy_key"
           chmod 600 "$HOME/.ssh/wiki_deploy_key"
+          if ! ssh-keygen -y -f "$HOME/.ssh/wiki_deploy_key" >/dev/null 2>&1; then
+            echo 'WIKI_DEPLOY_KEY must contain an unencrypted OpenSSH private key' >&2
+            exit 1
+          fi
           ssh-keyscan -t ed25519 github.com >> "$HOME/.ssh/known_hosts"
           chmod 600 "$HOME/.ssh/known_hosts"
           printf '%s\n' "GIT_SSH_COMMAND=ssh -i $HOME/.ssh/wiki_deploy_key -o IdentitiesOnly=yes" >> "$GITHUB_ENV"
