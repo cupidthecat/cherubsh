@@ -282,12 +282,7 @@ pub(crate) fn spawn_background<'a>(ctx: &mut ExecContext<'a>, command: &Command)
 
 fn job_command_line(command: &Command) -> String {
     match &command.data {
-        CommandData::Simple(simple) => simple
-            .words
-            .iter()
-            .map(|word| word.text.as_str())
-            .collect::<Vec<_>>()
-            .join(" "),
+        CommandData::Simple(simple) => crate::simple_command_label(simple),
         CommandData::Subshell(subshell) => format!("( {} )", job_command_line(&subshell.command)),
         CommandData::Connection(conn) => {
             let op = match conn.connector {

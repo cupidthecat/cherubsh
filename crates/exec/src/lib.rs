@@ -786,6 +786,10 @@ fn render_simple_command(simple: &SimpleCommand, trailing_redirects: &[Redirect]
     parts.join(" ")
 }
 
+pub(crate) fn simple_command_label(simple: &SimpleCommand) -> String {
+    render_simple_command(simple, &[])
+}
+
 fn render_cond_command(cmd: &CondCommand) -> String {
     match cmd.cond_type {
         CondType::And => format!(
