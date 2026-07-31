@@ -92,3 +92,22 @@ fn jobs_x_substitutes_jobspec_with_process_group() {
     assert_eq!(out.stdout.trim(), "status:0", "stdout={:?}", out.stdout);
     assert_eq!(out.status, 0);
 }
+
+#[test]
+fn asynchronous_stdin_redirection_matches_bash() {
+    for script in [
+        "cat & wait",
+        "{ cat & wait; } >/dev/fd/1",
+        "cat <&0 & wait",
+        "cat <&0 | cat & wait",
+        "exec 3<&0; { cat & wait; } <&3",
+        "printf 'pipeline-input\\n' | { cat & wait; }",
+        "shopt -s lastpipe; set +m; printf 'lastpipe-input\\n' | { cat & wait; }",
+    ] {
+        assert_parity(&RunSpec {
+            script: Some(script),
+            stdin: Some("hello\n"),
+            ..RunSpec::default()
+        });
+    }
+}

@@ -79,6 +79,7 @@ pub(crate) fn execute<'a>(
                         libc::close(read_fd);
                     }
                 }
+                ctx.stdin_redirect_depth += 1;
             }
             if needs_pipe {
                 unsafe {
@@ -248,6 +249,14 @@ pub(crate) fn spawn_background<'a>(ctx: &mut ExecContext<'a>, command: &Command)
             libc::signal(libc::SIGINT, libc::SIG_IGN);
             libc::signal(libc::SIGQUIT, libc::SIG_IGN);
         }
+        let stdin_is_explicit =
+            ctx.stdin_redirect_depth > 0 || crate::command_redirects_stdin(command);
+        if !job_control && !stdin_is_explicit {
+            if let Err(err) = redirect_stdin_from_dev_null() {
+                eprintln!("cherubsh: /dev/null: {err}");
+                unsafe { libc::_exit(1) };
+            }
+        }
         let status = ctx.execute_child_command(command);
         let final_status = match ctx.pending.take() {
             Some(crate::Unwind::Exit(n)) => n,
@@ -278,6 +287,25 @@ pub(crate) fn spawn_background<'a>(ctx: &mut ExecContext<'a>, command: &Command)
         }
     }
     0
+}
+
+fn redirect_stdin_from_dev_null() -> Result<(), std::io::Error> {
+    let path = c"/dev/null";
+    let fd = unsafe { libc::open(path.as_ptr(), libc::O_RDONLY) };
+    if fd < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    if fd != libc::STDIN_FILENO {
+        let rc = unsafe { libc::dup2(fd, libc::STDIN_FILENO) };
+        let error = (rc < 0).then(std::io::Error::last_os_error);
+        unsafe {
+            libc::close(fd);
+        }
+        if let Some(error) = error {
+            return Err(error);
+        }
+    }
+    Ok(())
 }
 
 fn job_command_line(command: &Command) -> String {
