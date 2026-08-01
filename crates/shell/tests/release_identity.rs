@@ -1,6 +1,7 @@
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use cherubsh_common::target::TargetIdentity;
 use cherubsh_test_harness::cherub_path;
@@ -145,5 +146,107 @@ fn release_workflow_checks_the_tag_before_building() {
     assert!(
         guard < verification,
         "release tag guard must run before builds"
+    );
+}
+
+#[test]
+fn release_materials_are_ready_for_0_4_0() {
+    assert_eq!(PACKAGE_VERSION, "0.4.0");
+
+    let changelog =
+        fs::read_to_string(workspace_root().join("CHANGELOG.md")).expect("read changelog");
+    assert!(changelog.contains("## 0.4.0 - 2026-08-01"));
+
+    let notes_path = workspace_root().join("release-notes/v0.4.0.md");
+    let notes = fs::read_to_string(&notes_path).expect("read v0.4.0 release notes");
+    for topic in [
+        "interactive shell",
+        "AArch64",
+        "Readline and History development",
+        "ABI",
+        "supply chain",
+        "fuzz",
+        "manual pages",
+        "module",
+    ] {
+        assert!(
+            notes.contains(topic),
+            "{} is missing the {topic} release topic",
+            notes_path.display()
+        );
+    }
+
+    let workflow = fs::read_to_string(workspace_root().join(".github/workflows/release.yml"))
+        .expect("read release workflow");
+    assert!(workflow.contains("--notes-file \"release-notes/${RELEASE_TAG}.md\""));
+}
+
+#[test]
+fn release_source_guard_rejects_commits_outside_protected_main() {
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system clock")
+        .as_nanos();
+    let repository = std::env::temp_dir().join(format!(
+        "cherubsh-release-source-{}-{nonce}",
+        std::process::id()
+    ));
+    fs::create_dir_all(&repository).expect("create release-source repository");
+
+    let git = |arguments: &[&str]| {
+        let output = Command::new("git")
+            .args(arguments)
+            .current_dir(&repository)
+            .output()
+            .expect("run git");
+        assert!(
+            output.status.success(),
+            "git {} failed: {}",
+            arguments.join(" "),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    };
+    git(&["init", "--initial-branch", "main"]);
+    git(&["config", "user.name", "Release Test"]);
+    git(&["config", "user.email", "release-test@example.invalid"]);
+    fs::write(repository.join("tracked"), "main\n").expect("write main fixture");
+    git(&["add", "tracked"]);
+    git(&["commit", "-m", "main"]);
+    git(&["update-ref", "refs/remotes/origin/main", "HEAD"]);
+
+    let guard = workspace_root().join("tools/check-release-source.sh");
+    let protected = Command::new("bash")
+        .arg(&guard)
+        .arg("HEAD")
+        .current_dir(&repository)
+        .output()
+        .expect("run release-source guard on main");
+    assert!(
+        protected.status.success(),
+        "main commit was rejected: {}",
+        String::from_utf8_lossy(&protected.stderr)
+    );
+
+    git(&["switch", "-c", "release"]);
+    fs::write(repository.join("tracked"), "release\n").expect("write release fixture");
+    git(&["commit", "-am", "release"]);
+    let unmerged = Command::new("bash")
+        .arg(&guard)
+        .arg("HEAD")
+        .current_dir(&repository)
+        .output()
+        .expect("run release-source guard off main");
+    assert_eq!(unmerged.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&unmerged.stderr).contains("protected main"));
+
+    fs::remove_dir_all(repository).expect("remove release-source repository");
+
+    let workflow = fs::read_to_string(workspace_root().join(".github/workflows/release.yml"))
+        .expect("read release workflow");
+    assert!(workflow.contains("verify-release-source:"));
+    assert_eq!(
+        workflow.matches("needs: verify-release-source").count(),
+        2,
+        "archive and SBOM builds must both depend on the source guard"
     );
 }

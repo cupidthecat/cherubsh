@@ -41,6 +41,7 @@ class PauseAction:
 @dataclass(frozen=True)
 class WaitAction:
     marker: bytes
+    after: bytes | None = None
 
 
 @dataclass(frozen=True)
@@ -111,8 +112,8 @@ def pause(seconds: float) -> Action:
     return PauseAction(seconds)
 
 
-def wait(marker: bytes) -> Action:
-    return WaitAction(marker)
+def wait(marker: bytes, *, after: bytes | None = None) -> Action:
+    return WaitAction(marker, after)
 
 
 def resize(rows: int, columns: int) -> Action:
@@ -147,6 +148,7 @@ def build_scenarios() -> tuple[Scenario, ...]:
             actions=(
                 send(b"printf 'resize-armed\\n'\n"),
                 wait(b"resize-armed"),
+                wait(PROMPT.encode(), after=b"resize-armed"),
                 resize(40, 100),
                 pause(0.1),
                 send(
@@ -547,7 +549,15 @@ def run_shell(executable: Path, scenario: Scenario, timeout: float) -> ShellResu
                 elif isinstance(action, PauseAction):
                     time.sleep(action.seconds)
                 elif isinstance(action, WaitAction):
-                    read_until(terminal, action.marker, output, timeout)
+                    start = 0
+                    if action.after is not None:
+                        anchor = output.rfind(action.after)
+                        if anchor < 0:
+                            raise RuntimeError(
+                                f"cannot wait after missing marker {action.after!r}"
+                            )
+                        start = anchor + len(action.after)
+                    read_until(terminal, action.marker, output, timeout, start)
                 elif isinstance(action, ResizeAction):
                     fcntl.ioctl(
                         terminal,

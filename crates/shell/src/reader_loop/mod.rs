@@ -6,7 +6,7 @@ use cherubsh_parser::{Ast, Command, CommandData, ParseError, Parser};
 
 use crate::completion::{self, CompRequest, CompletionQuote};
 use crate::prompt::{expand_prompt_string, prompt_again};
-use crate::signals::{arm_alarm, check_signals, disarm_alarm};
+use crate::signals::{arm_alarm, check_signals, disarm_alarm, winch_taken};
 use crate::state::ShellState;
 use crate::traps::{notify_completed_jobs, run_pending_traps};
 
@@ -164,6 +164,7 @@ pub fn parse_command(
     exec_state: &mut ExecState,
 ) -> ShellResult<Option<Command>> {
     state.need_here_doc = false;
+    refresh_window_after_signal(state);
     // Dispatch any queued traps + reap completed jobs before prompting.
     run_pending_traps(state);
     if state.interactive && !state.input.is_stream() {
@@ -174,6 +175,7 @@ pub fn parse_command(
         execute_prompt_command(state, exec_state);
     }
     let input_text = read_logical_command(state, exec_state)?;
+    refresh_window_after_signal(state);
     if input_text.trim().is_empty() {
         return Ok(None);
     }
@@ -223,6 +225,12 @@ pub fn parse_command(
             }
             Err(ShellJump::Discard)
         }
+    }
+}
+
+fn refresh_window_after_signal(state: &mut ShellState) {
+    if state.interactive && winch_taken() {
+        state.update_window_size();
     }
 }
 

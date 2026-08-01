@@ -245,6 +245,10 @@ pub fn term_taken() -> i32 {
     TERM_RECEIVED.swap(0, Ordering::SeqCst)
 }
 
+pub fn winch_taken() -> bool {
+    WINCH_FIRED.swap(false, Ordering::SeqCst)
+}
+
 pub fn catch_flag_set() -> bool {
     CATCH_FLAG.load(Ordering::SeqCst)
 }

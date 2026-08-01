@@ -6,7 +6,7 @@ Security fixes are made on the current release line and on `main`. Older release
 
 | Version | Supported |
 | --- | --- |
-| 0.3.x | Yes |
+| 0.4.x | Yes |
 | Earlier versions | No |
 
 ## Reporting a Vulnerability
@@ -17,4 +17,4 @@ You should receive an acknowledgement within seven days. The maintainers will co
 
 ## Release Verification
 
-Starting with the first release after v0.3.0, each tagged release includes SHA-256 checksums, CycloneDX SBOM files, and GitHub artifact attestations. The README contains the verification commands. A valid attestation proves which repository and workflow produced an asset; it does not replace review of the source or the SBOM.
+Starting with v0.4.0, each tagged release includes SHA-256 checksums, CycloneDX SBOM files, and GitHub artifact attestations. The README contains the verification commands. A valid attestation proves which repository and workflow produced an asset; it does not replace review of the source or the SBOM.
