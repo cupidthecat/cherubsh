@@ -47,6 +47,12 @@ fn shell_state_has_focused_responsibility_files() {
             contents.contains(responsibility_anchor),
             "shell state file {name} lost {responsibility_anchor}"
         );
+        if name.starts_with("environment/") {
+            assert!(
+                !contents.contains("\n    fn "),
+                "environment macro methods in {name} must be indented inside the macro arm"
+            );
+        }
     }
 
     let module = fs::read_to_string(source.join("mod.rs")).expect("read shell state module root");
