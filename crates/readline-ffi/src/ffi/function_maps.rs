@@ -1,4 +1,7 @@
 #[no_mangle]
+pub static mut funmap: *mut *mut FUNMAP = ptr::null_mut();
+
+#[no_mangle]
 pub unsafe extern "C" fn rl_variable_value(name: *const c_char) -> *mut c_char {
     let name = c_text(name).unwrap_or_default().to_ascii_lowercase();
     readline_store()
@@ -651,4 +654,22 @@ pub unsafe extern "C" fn rl_get_termcap(capability: *const c_char) -> *mut c_cha
         Some("up") => malloc_string("\x1b[A"),
         _ => ptr::null_mut(),
     }
+}
+
+#[no_mangle]
+pub extern "C" fn rl_dump_functions(_count: c_int, _key: c_int) -> c_int {
+    rl_function_dumper(1);
+    0
+}
+
+#[no_mangle]
+pub extern "C" fn rl_dump_macros(_count: c_int, _key: c_int) -> c_int {
+    rl_macro_dumper(1);
+    0
+}
+
+#[no_mangle]
+pub extern "C" fn rl_dump_variables(_count: c_int, _key: c_int) -> c_int {
+    rl_variable_dumper(1);
+    0
 }

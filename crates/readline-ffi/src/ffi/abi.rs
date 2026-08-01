@@ -23,28 +23,6 @@ const EMPTY_KEYMAP_ENTRY: KEYMAP_ENTRY = KEYMAP_ENTRY {
     function: ptr::null_mut(),
 };
 
-#[no_mangle]
-pub static mut emacs_standard_keymap: [KEYMAP_ENTRY; 257] = [EMPTY_KEYMAP_ENTRY; 257];
-#[no_mangle]
-pub static mut emacs_meta_keymap: [KEYMAP_ENTRY; 257] = [EMPTY_KEYMAP_ENTRY; 257];
-#[no_mangle]
-pub static mut emacs_ctlx_keymap: [KEYMAP_ENTRY; 257] = [EMPTY_KEYMAP_ENTRY; 257];
-#[no_mangle]
-pub static mut vi_insertion_keymap: [KEYMAP_ENTRY; 257] = [EMPTY_KEYMAP_ENTRY; 257];
-#[no_mangle]
-pub static mut vi_movement_keymap: [KEYMAP_ENTRY; 257] = [EMPTY_KEYMAP_ENTRY; 257];
-
-pub type tilde_hook_func_t = unsafe extern "C" fn(*mut c_char) -> *mut c_char;
-
-#[no_mangle]
-pub static mut tilde_expansion_preexpansion_hook: Option<tilde_hook_func_t> = None;
-#[no_mangle]
-pub static mut tilde_expansion_failure_hook: Option<tilde_hook_func_t> = None;
-#[no_mangle]
-pub static mut tilde_additional_prefixes: *mut *mut c_char = ptr::null_mut();
-#[no_mangle]
-pub static mut tilde_additional_suffixes: *mut *mut c_char = ptr::null_mut();
-
 #[repr(C)]
 pub struct UNDO_LIST {
     pub next: *mut UNDO_LIST,
@@ -53,11 +31,6 @@ pub struct UNDO_LIST {
     pub text: *mut c_char,
     pub what: c_int,
 }
-
-#[no_mangle]
-pub static mut rl_undo_list: *mut UNDO_LIST = ptr::null_mut();
-#[no_mangle]
-pub static mut funmap: *mut *mut FUNMAP = ptr::null_mut();
 
 #[repr(C)]
 pub struct FUNMAP {
@@ -116,46 +89,3 @@ const VERSION: &[u8] = b"8.3\0";
 const WORD_BREAKS: &[u8] = b" \t\n\"\\'`@$><=;|&{(\0";
 const QUOTES: &[u8] = b"\"'\0";
 const FILENAME_QUOTES: &[u8] = b" \t\n\\\"'@<>=;|&()#$`?*[!:{~\0";
-const HISTORY_DELIMITERS: &[u8] = b" \t\n;&()|<>\0";
-const HISTORY_NO_EXPAND: &[u8] = b" \t\n=\0";
-
-#[no_mangle]
-pub static mut history_base: c_int = 1;
-#[no_mangle]
-pub static mut history_length: c_int = 0;
-#[no_mangle]
-pub static mut history_max_entries: c_int = 0;
-#[no_mangle]
-pub static mut max_input_history: c_int = 0;
-#[no_mangle]
-pub static mut history_offset: c_int = 0;
-#[no_mangle]
-pub static mut history_lines_read_from_file: c_int = 0;
-#[no_mangle]
-pub static mut history_lines_written_to_file: c_int = 0;
-#[no_mangle]
-pub static mut history_expansion_char: c_char = b'!' as c_char;
-#[no_mangle]
-pub static mut history_subst_char: c_char = b'^' as c_char;
-#[no_mangle]
-pub static mut history_comment_char: c_char = b'#' as c_char;
-#[no_mangle]
-pub static mut history_word_delimiters: *mut c_char = HISTORY_DELIMITERS.as_ptr() as *mut c_char;
-#[no_mangle]
-pub static mut history_no_expand_chars: *mut c_char = HISTORY_NO_EXPAND.as_ptr() as *mut c_char;
-#[no_mangle]
-pub static mut history_search_delimiter_chars: *mut c_char = ptr::null_mut();
-#[no_mangle]
-pub static mut history_quotes_inhibit_expansion: c_int = 0;
-#[no_mangle]
-pub static mut history_quoting_state: c_int = 0;
-#[no_mangle]
-pub static mut history_write_timestamps: c_int = 0;
-#[no_mangle]
-pub static mut history_multiline_entries: c_int = 0;
-#[no_mangle]
-pub static mut history_file_version: c_int = 2;
-#[no_mangle]
-pub static mut history_inhibit_expansion_function: Option<
-    unsafe extern "C" fn(*mut c_char, c_int) -> c_int,
-> = None;

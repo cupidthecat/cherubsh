@@ -1,4 +1,7 @@
 #[no_mangle]
+pub static mut rl_undo_list: *mut UNDO_LIST = ptr::null_mut();
+
+#[no_mangle]
 pub unsafe extern "C" fn rl_initialize() -> c_int {
     initialize_keymaps();
     rl_initialize_funmap();

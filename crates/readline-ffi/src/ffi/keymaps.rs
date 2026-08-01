@@ -1,4 +1,15 @@
 #[no_mangle]
+pub static mut emacs_standard_keymap: [KEYMAP_ENTRY; 257] = [EMPTY_KEYMAP_ENTRY; 257];
+#[no_mangle]
+pub static mut emacs_meta_keymap: [KEYMAP_ENTRY; 257] = [EMPTY_KEYMAP_ENTRY; 257];
+#[no_mangle]
+pub static mut emacs_ctlx_keymap: [KEYMAP_ENTRY; 257] = [EMPTY_KEYMAP_ENTRY; 257];
+#[no_mangle]
+pub static mut vi_insertion_keymap: [KEYMAP_ENTRY; 257] = [EMPTY_KEYMAP_ENTRY; 257];
+#[no_mangle]
+pub static mut vi_movement_keymap: [KEYMAP_ENTRY; 257] = [EMPTY_KEYMAP_ENTRY; 257];
+
+#[no_mangle]
 pub unsafe extern "C" fn rl_make_bare_keymap() -> Keymap {
     libc::calloc(257, std::mem::size_of::<KEYMAP_ENTRY>())
 }

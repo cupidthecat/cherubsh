@@ -1,3 +1,47 @@
+const HISTORY_DELIMITERS: &[u8] = b" \t\n;&()|<>\0";
+const HISTORY_NO_EXPAND: &[u8] = b" \t\n=\0";
+
+#[no_mangle]
+pub static mut history_base: c_int = 1;
+#[no_mangle]
+pub static mut history_length: c_int = 0;
+#[no_mangle]
+pub static mut history_max_entries: c_int = 0;
+#[no_mangle]
+pub static mut max_input_history: c_int = 0;
+#[no_mangle]
+pub static mut history_offset: c_int = 0;
+#[no_mangle]
+pub static mut history_lines_read_from_file: c_int = 0;
+#[no_mangle]
+pub static mut history_lines_written_to_file: c_int = 0;
+#[no_mangle]
+pub static mut history_expansion_char: c_char = b'!' as c_char;
+#[no_mangle]
+pub static mut history_subst_char: c_char = b'^' as c_char;
+#[no_mangle]
+pub static mut history_comment_char: c_char = b'#' as c_char;
+#[no_mangle]
+pub static mut history_word_delimiters: *mut c_char = HISTORY_DELIMITERS.as_ptr() as *mut c_char;
+#[no_mangle]
+pub static mut history_no_expand_chars: *mut c_char = HISTORY_NO_EXPAND.as_ptr() as *mut c_char;
+#[no_mangle]
+pub static mut history_search_delimiter_chars: *mut c_char = ptr::null_mut();
+#[no_mangle]
+pub static mut history_quotes_inhibit_expansion: c_int = 0;
+#[no_mangle]
+pub static mut history_quoting_state: c_int = 0;
+#[no_mangle]
+pub static mut history_write_timestamps: c_int = 0;
+#[no_mangle]
+pub static mut history_multiline_entries: c_int = 0;
+#[no_mangle]
+pub static mut history_file_version: c_int = 2;
+#[no_mangle]
+pub static mut history_inhibit_expansion_function: Option<
+    unsafe extern "C" fn(*mut c_char, c_int) -> c_int,
+> = None;
+
 struct HistoryStore {
     entries: Vec<usize>,
     list_cache: Vec<usize>,

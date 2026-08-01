@@ -1,3 +1,14 @@
+pub type tilde_hook_func_t = unsafe extern "C" fn(*mut c_char) -> *mut c_char;
+
+#[no_mangle]
+pub static mut tilde_expansion_preexpansion_hook: Option<tilde_hook_func_t> = None;
+#[no_mangle]
+pub static mut tilde_expansion_failure_hook: Option<tilde_hook_func_t> = None;
+#[no_mangle]
+pub static mut tilde_additional_prefixes: *mut *mut c_char = ptr::null_mut();
+#[no_mangle]
+pub static mut tilde_additional_suffixes: *mut *mut c_char = ptr::null_mut();
+
 fn home_for_user(user: &str) -> Option<String> {
     if user.is_empty() {
         return std::env::var("HOME").ok();

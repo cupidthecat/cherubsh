@@ -280,3 +280,19 @@ fn expand_inputrc_path(value: &str) -> PathBuf {
     }
     PathBuf::from(value)
 }
+
+#[no_mangle]
+pub unsafe extern "C" fn rl_re_read_init_file(_count: c_int, _key: c_int) -> c_int {
+    let path = readline_store()
+        .lock()
+        .expect("readline lock")
+        .last_init_file
+        .clone();
+    path.map_or_else(
+        || rl_read_init_file(ptr::null()),
+        |path| {
+            let path = clean_c_string(&path.to_string_lossy());
+            rl_read_init_file(path.as_ptr())
+        },
+    )
+}
