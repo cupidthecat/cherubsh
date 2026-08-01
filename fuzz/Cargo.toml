@@ -1,0 +1,56 @@
+[package]
+name = "cherubsh-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+cherubsh-expander = { path = "../crates/expander" }
+cherubsh-common = { path = "../crates/common" }
+cherubsh-lexer = { path = "../crates/lexer" }
+cherubsh-lineedit = { path = "../crates/lineedit" }
+cherubsh-parser = { path = "../crates/parser" }
+libc = "0.2"
+libfuzzer-sys = "0.4.13"
+readline = { package = "cherubsh-readline-ffi", path = "../crates/readline-ffi" }
+
+[[bin]]
+name = "lexer"
+path = "fuzz_targets/lexer.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "parser"
+path = "fuzz_targets/parser.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "expansion"
+path = "fuzz_targets/expansion.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "line_input"
+path = "fuzz_targets/line_input.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "readline_ffi"
+path = "fuzz_targets/readline_ffi.rs"
+test = false
+doc = false
+bench = false
+
+[workspace]
+members = ["."]

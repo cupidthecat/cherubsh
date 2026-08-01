@@ -14,7 +14,7 @@ mod termcap;
 mod vi;
 
 pub use buffer::EditBuffer;
-pub use input::set_input_deadline;
+pub use input::{set_input_deadline, InputDecoder};
 pub use key::KeyEvent;
 pub use killring::KillRing;
 pub use raw_mode::RawMode;
