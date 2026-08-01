@@ -330,3 +330,14 @@ fn upstream_fetch_tries_the_canonical_gnu_origin_before_the_redirector() {
         "the canonical GNU origin must be tried before the redirector"
     );
 }
+
+#[test]
+fn wiki_validation_runs_for_every_pull_request() {
+    let workflow = fs::read_to_string(workspace_root().join(".github/workflows/wiki.yml"))
+        .expect("read wiki workflow");
+
+    assert!(
+        workflow.contains("  pull_request:\n  workflow_dispatch:\n"),
+        "the required wiki validation check must run for every pull request"
+    );
+}
