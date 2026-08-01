@@ -141,7 +141,7 @@ Run the GNU differential gate with:
 ./tools/run-readline-parity.sh
 ```
 
-That command builds GNU Readline 8.3 patch 3, checks public symbol coverage and library names, and compiles the same C fixtures against both implementations. The fixtures exercise a pseudo-terminal Readline loop, user-defined C callbacks, macros, bare keymaps, and History behavior. It also builds every upstream Readline example and compares deterministic output byte for byte. Reports are kept under `target/parity/readline`.
+That command builds GNU Readline 8.3 patch 3, checks public symbol coverage and library names, and compiles the same C fixtures against both implementations. The C tests compare structure layout, constants, allocator ownership, callback setup and teardown, redisplay hooks, custom streams, completion, inputrc conditionals, and saved History state. Ownership-sensitive fixtures also run under AddressSanitizer. The gate still covers the pseudo-terminal Readline loop, custom bindings, macros, bare keymaps, and every deterministic upstream example. Reports are kept under `target/parity/readline`.
 
 ## Testing
 

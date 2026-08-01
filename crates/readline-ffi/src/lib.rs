@@ -190,8 +190,13 @@ pub static mut history_inhibit_expansion_function: Option<
 struct HistoryStore {
     entries: Vec<usize>,
     list_cache: Vec<usize>,
+    saved_entry_vectors: Vec<Vec<usize>>,
+    entries_exposed: bool,
     offset: usize,
     stifled: Option<usize>,
+    last_stifle_limit: usize,
+    size: usize,
+    real_size: usize,
 }
 
 impl HistoryStore {
@@ -199,18 +204,26 @@ impl HistoryStore {
         Self {
             entries: Vec::new(),
             list_cache: Vec::new(),
+            saved_entry_vectors: Vec::new(),
+            entries_exposed: false,
             offset: 0,
             stifled: None,
+            last_stifle_limit: 0,
+            size: 0,
+            real_size: 0,
         }
     }
 
     fn changed(&mut self) {
         self.list_cache.clear();
         self.offset = self.offset.min(self.entries.len());
+        if self.entries.capacity() > self.entries.len() {
+            unsafe { *self.entries.as_mut_ptr().add(self.entries.len()) = 0 };
+        }
         unsafe {
             history_length = self.entries.len().min(c_int::MAX as usize) as c_int;
             history_offset = self.offset.min(c_int::MAX as usize) as c_int;
-            history_max_entries = self.stifled.unwrap_or(0).min(c_int::MAX as usize) as c_int;
+            history_max_entries = self.last_stifle_limit.min(c_int::MAX as usize) as c_int;
             max_input_history = history_max_entries;
         }
     }
@@ -223,7 +236,6 @@ impl HistoryStore {
                 unsafe { history_base = history_base.saturating_add(1) };
             }
         }
-        self.offset = self.entries.len();
         self.changed();
     }
 }
@@ -231,6 +243,16 @@ impl HistoryStore {
 fn history_store() -> &'static Mutex<HistoryStore> {
     static STORE: OnceLock<Mutex<HistoryStore>> = OnceLock::new();
     STORE.get_or_init(|| Mutex::new(HistoryStore::new()))
+}
+
+fn history_grow_size(length: usize) -> usize {
+    if length < 1024 {
+        return 256;
+    }
+    let shifted = length >> 10;
+    let bit_length = usize::BITS as usize - shifted.leading_zeros() as usize;
+    let width = 10 + bit_length;
+    ((1usize << (width / 2)) + (1usize << ((width - 1) / 2))).max(256)
 }
 
 fn c_text(value: *const c_char) -> Option<String> {
@@ -346,8 +368,43 @@ pub unsafe extern "C" fn add_history(line: *const c_char) {
         return;
     }
     let mut store = history_store().lock().expect("history lock");
+    let mut advanced = false;
+    if let Some(maximum) = store.stifled {
+        if maximum == 0 {
+            free_entry(entry);
+            return;
+        }
+        if store.entries.len() == maximum {
+            let removed = store.entries.remove(0) as *mut HIST_ENTRY;
+            free_entry(removed);
+            history_base = history_base.saturating_add(1);
+            store.size = store.size.saturating_sub(1);
+            advanced = true;
+        }
+    }
+    if store.size == 0 {
+        let initial = store
+            .stifled
+            .filter(|maximum| *maximum > 0)
+            .map_or(502, |maximum| maximum.min(8192) + 2);
+        store.size = initial;
+        store.real_size = initial;
+    } else if store.entries.len() == store.size.saturating_sub(1) {
+        let entry_count = store.entries.len() + usize::from(advanced);
+        let growth = history_grow_size(entry_count);
+        store.real_size = if advanced {
+            entry_count.saturating_add(growth)
+        } else {
+            store.real_size.saturating_add(growth)
+        };
+        store.size = store.real_size;
+    }
+    if store.entries.capacity() < store.size {
+        let additional = store.size.saturating_sub(store.entries.len());
+        store.entries.reserve_exact(additional);
+    }
     store.entries.push(entry as usize);
-    store.trim();
+    store.changed();
 }
 
 #[no_mangle]
@@ -369,11 +426,18 @@ pub unsafe extern "C" fn alloc_history_entry(
     line: *mut c_char,
     timestamp: *mut c_char,
 ) -> *mut HIST_ENTRY {
-    alloc_entry(
-        &c_text(line).unwrap_or_default(),
-        c_text(timestamp).as_deref(),
-        ptr::null_mut(),
-    )
+    let entry = libc::calloc(1, std::mem::size_of::<HIST_ENTRY>()) as *mut HIST_ENTRY;
+    if entry.is_null() {
+        return ptr::null_mut();
+    }
+    (*entry).line = malloc_string(&c_text(line).unwrap_or_default());
+    if (*entry).line.is_null() {
+        libc::free(entry.cast());
+        return ptr::null_mut();
+    }
+    (*entry).timestamp = timestamp;
+    (*entry).data = ptr::null_mut();
+    entry
 }
 
 #[no_mangle]
@@ -469,7 +533,9 @@ pub extern "C" fn clear_history() {
 #[no_mangle]
 pub extern "C" fn stifle_history(maximum: c_int) {
     let mut store = history_store().lock().expect("history lock");
-    store.stifled = Some(maximum.max(0) as usize);
+    let maximum = maximum.max(0) as usize;
+    store.stifled = Some(maximum);
+    store.last_stifle_limit = maximum;
     store.trim();
 }
 
@@ -478,7 +544,10 @@ pub extern "C" fn unstifle_history() -> c_int {
     let mut store = history_store().lock().expect("history lock");
     let previous = store.stifled.take();
     store.changed();
-    previous.map_or(-1, |value| value.min(c_int::MAX as usize) as c_int)
+    previous.map_or_else(
+        || -(store.last_stifle_limit.min(c_int::MAX as usize) as c_int),
+        |value| value.min(c_int::MAX as usize) as c_int,
+    )
 }
 
 #[no_mangle]
@@ -784,22 +853,27 @@ pub unsafe extern "C" fn history_truncate_file(filename: *const c_char, lines: c
 #[no_mangle]
 pub extern "C" fn history_get_history_state() -> *mut HISTORY_STATE {
     let mut store = history_store().lock().expect("history lock");
-    store.list_cache = store.entries.clone();
-    store.list_cache.push(0);
+    if store.entries.capacity() < store.size {
+        let additional = store.size.saturating_sub(store.entries.len());
+        store.entries.reserve_exact(additional);
+    }
+    let entries_pointer = if store.size == 0 {
+        ptr::null_mut()
+    } else {
+        unsafe { *store.entries.as_mut_ptr().add(store.entries.len()) = 0 };
+        store.entries_exposed = true;
+        store.entries.as_mut_ptr().cast()
+    };
     let state =
         unsafe { libc::calloc(1, std::mem::size_of::<HISTORY_STATE>()) } as *mut HISTORY_STATE;
     if state.is_null() {
         return ptr::null_mut();
     }
     unsafe {
-        (*state).entries = if store.entries.is_empty() {
-            ptr::null_mut()
-        } else {
-            store.list_cache.as_mut_ptr().cast()
-        };
+        (*state).entries = entries_pointer;
         (*state).offset = store.offset.min(c_int::MAX as usize) as c_int;
         (*state).length = store.entries.len().min(c_int::MAX as usize) as c_int;
-        (*state).size = (*state).length + 1;
+        (*state).size = store.size.min(c_int::MAX as usize) as c_int;
         (*state).flags = if store.stifled.is_some() { 1 } else { 0 };
     }
     state
@@ -811,21 +885,56 @@ pub unsafe extern "C" fn history_set_history_state(state: *mut HISTORY_STATE) {
         return;
     }
     let mut store = history_store().lock().expect("history lock");
-    for entry in store.entries.drain(..) {
-        free_entry(entry as *mut HIST_ENTRY);
-    }
-    if !(*state).entries.is_null() {
-        for index in 0..(*state).length.max(0) as usize {
-            let entry = *(*state).entries.add(index);
-            let copy = clone_entry(entry);
-            if !copy.is_null() {
-                store.entries.push(copy as usize);
-            }
+    let length = (*state).length.max(0) as usize;
+    let requested_values: Vec<usize> = if (*state).entries.is_null() {
+        Vec::new()
+    } else {
+        (0..length)
+            .map(|index| *(*state).entries.add(index) as usize)
+            .collect()
+    };
+    let current_pointer = if store.entries.capacity() == 0 {
+        ptr::null_mut()
+    } else {
+        store.entries.as_mut_ptr().cast::<*mut HIST_ENTRY>()
+    };
+    let requested_pointer = (*state).entries;
+    if requested_pointer != current_pointer {
+        if store.entries_exposed && store.entries.capacity() > 0 {
+            let entries = std::mem::take(&mut store.entries);
+            store.saved_entry_vectors.push(entries);
+        } else {
+            store.entries.clear();
         }
+        let saved_index = store.saved_entry_vectors.iter_mut().position(|entries| {
+            entries.capacity() > 0
+                && entries.as_mut_ptr().cast::<*mut HIST_ENTRY>() == requested_pointer
+        });
+        store.entries = if let Some(index) = saved_index {
+            store.saved_entry_vectors.swap_remove(index)
+        } else if requested_pointer.is_null() {
+            Vec::new()
+        } else {
+            requested_values.clone()
+        };
     }
+    if store.entries.len() != length {
+        store.entries.clear();
+        store.entries.extend_from_slice(&requested_values);
+    }
+    store.entries_exposed = requested_pointer == store.entries.as_mut_ptr().cast();
     store.offset = (*state).offset.max(0) as usize;
-    store.stifled = ((*state).flags & 1 != 0).then_some((*state).size.max(0) as usize);
-    store.changed();
+    store.stifled = ((*state).flags & 1 != 0).then_some(store.last_stifle_limit);
+    store.size = (*state).size.max(0) as usize;
+    if store.entries.capacity() < store.size {
+        let additional = store.size.saturating_sub(store.entries.len());
+        store.entries.reserve_exact(additional);
+    }
+    store.list_cache.clear();
+    history_length = store.entries.len().min(c_int::MAX as usize) as c_int;
+    history_offset = store.offset.min(c_int::MAX as usize) as c_int;
+    history_max_entries = store.last_stifle_limit.min(c_int::MAX as usize) as c_int;
+    max_input_history = history_max_entries;
 }
 
 fn history_table_snapshot() -> HistoryTable {
@@ -1138,7 +1247,7 @@ pub static mut rl_timeout_event_hook: Option<rl_hook_func_t> = None;
 #[no_mangle]
 pub static mut rl_input_available_hook: Option<rl_hook_func_t> = None;
 #[no_mangle]
-pub static mut rl_getc_function: Option<rl_getc_func_t> = None;
+pub static mut rl_getc_function: Option<rl_getc_func_t> = Some(rl_getc);
 #[no_mangle]
 pub static mut rl_redisplay_function: Option<unsafe extern "C" fn()> = None;
 #[no_mangle]
@@ -1267,7 +1376,9 @@ struct ReadlineStore {
     callback: Option<rl_vcpfunc_t>,
     callback_prompt: String,
     callback_raw_mode: Option<RawMode>,
-    variables: std::collections::BTreeMap<String, String>,
+    callback_prepped: bool,
+    callback_buffer: Vec<u8>,
+    variables: std::collections::BTreeMap<String, CString>,
     kill_ring: Vec<String>,
     undo: Vec<(String, usize)>,
     filename_generator: Option<(String, Vec<String>, usize)>,
@@ -1307,6 +1418,8 @@ impl ReadlineStore {
             callback: None,
             callback_prompt: String::new(),
             callback_raw_mode: None,
+            callback_prepped: false,
+            callback_buffer: Vec::new(),
             variables: std::collections::BTreeMap::new(),
             kill_ring: Vec::new(),
             undo: Vec::new(),
@@ -2437,8 +2550,14 @@ pub unsafe extern "C" fn rl_callback_handler_install(
     rl_initialize();
     rl_set_prompt(prompt);
     rl_readline_state |= RL_STATE_CALLBACK;
+    rl_readline_state &= !RL_STATE_EOF;
+    rl_eof_found = 0;
     let prompt = c_text(prompt).unwrap_or_default();
-    let raw_mode = if libc::isatty(libc::STDIN_FILENO) != 0 {
+    let prep_function = rl_prep_term_function;
+    if let Some(prep) = prep_function {
+        prep(1);
+    }
+    let raw_mode = if prep_function.is_none() && libc::isatty(libc::STDIN_FILENO) != 0 {
         RawMode::enter().ok()
     } else {
         None
@@ -2447,12 +2566,28 @@ pub unsafe extern "C" fn rl_callback_handler_install(
     store.callback = callback;
     store.callback_prompt = prompt.clone();
     store.callback_raw_mode = raw_mode;
+    store.callback_prepped = true;
+    store.callback_buffer.clear();
     drop(store);
-    libc::write(
-        libc::STDERR_FILENO,
-        prompt.as_bytes().as_ptr().cast(),
-        prompt.len(),
-    );
+    set_line_buffer("", 0);
+    write_callback_prompt(&prompt);
+}
+
+unsafe fn write_callback_prompt(prompt: &str) {
+    if let Some(redisplay) = rl_redisplay_function {
+        redisplay();
+    } else {
+        write_callback_bytes(prompt.as_bytes());
+    }
+}
+
+unsafe fn write_callback_bytes(bytes: &[u8]) {
+    let descriptor = if rl_outstream.is_null() {
+        libc::STDOUT_FILENO
+    } else {
+        libc::fileno(rl_outstream)
+    };
+    libc::write(descriptor, bytes.as_ptr().cast(), bytes.len());
 }
 
 #[no_mangle]
@@ -2462,35 +2597,122 @@ pub unsafe extern "C" fn rl_callback_read_char() {
         (store.callback, store.callback_prompt.clone())
     };
     let Some(callback) = callback else { return };
-    let empty_prompt = clean_c_string("");
-    let line = readline(empty_prompt.as_ptr());
+    let key = rl_read_key();
+    let line = if key < 0 {
+        if key != libc::EOF {
+            return;
+        }
+        rl_eof_found = 1;
+        rl_readline_state |= RL_STATE_EOF;
+        ptr::null_mut()
+    } else {
+        let keymap = rl_get_keymap();
+        let entry = if keymap.is_null() || key as usize >= 257 {
+            None
+        } else {
+            Some(*keymap.cast::<KEYMAP_ENTRY>().add(key as usize))
+        };
+        let function = entry
+            .filter(|entry| entry.r#type == 0 && !entry.function.is_null())
+            .map(|entry| std::mem::transmute::<*mut c_void, rl_command_func_t>(entry.function));
+        let previous_dispatching = rl_dispatching;
+        rl_dispatching = 1;
+        rl_readline_state |= RL_STATE_DISPATCHING;
+        if let Some(function) = function {
+            function(1, key);
+            rl_last_func = Some(function);
+        } else if (0x20..=0x7e).contains(&key) {
+            rl_insert(1, key);
+            rl_last_func = Some(rl_insert);
+        }
+        rl_readline_state &= !RL_STATE_DISPATCHING;
+        rl_dispatching = previous_dispatching;
+
+        let redisplay_function = rl_redisplay_function;
+        if key != b'\n' as c_int && key != b'\r' as c_int {
+            if let Some(redisplay) = redisplay_function {
+                redisplay();
+            } else if (0x20..=0x7e).contains(&key) {
+                write_callback_bytes(&[key as u8]);
+            }
+        } else if redisplay_function.is_none() {
+            write_callback_bytes(b"\n");
+        }
+        let current = current_line();
+        readline_store()
+            .lock()
+            .expect("readline lock")
+            .callback_buffer = current.as_bytes().to_vec();
+        if rl_done == 0 {
+            return;
+        }
+        rl_done = 0;
+        malloc_string(&current)
+    };
+    let was_prepped = {
+        let mut store = readline_store().lock().expect("readline lock");
+        drop(store.callback_raw_mode.take());
+        std::mem::replace(&mut store.callback_prepped, false)
+    };
+    if was_prepped {
+        if let Some(deprep) = rl_deprep_term_function {
+            deprep();
+        }
+    }
     callback(line);
+    if !rl_line_buffer.is_null() && *rl_line_buffer != 0 {
+        set_line_buffer("", 0);
+        readline_store()
+            .lock()
+            .expect("readline lock")
+            .callback_buffer
+            .clear();
+    }
     if readline_store()
         .lock()
         .expect("readline lock")
         .callback
         .is_some()
     {
+        let prep_function = rl_prep_term_function;
+        if let Some(prep) = prep_function {
+            prep(1);
+        }
+        let raw_mode = if prep_function.is_none() && libc::isatty(libc::STDIN_FILENO) != 0 {
+            RawMode::enter().ok()
+        } else {
+            None
+        };
+        {
+            let mut store = readline_store().lock().expect("readline lock");
+            store.callback_raw_mode = raw_mode;
+            store.callback_prepped = true;
+        }
         let prompt_value = clean_c_string(&prompt);
         rl_set_prompt(prompt_value.as_ptr());
-        libc::write(
-            libc::STDERR_FILENO,
-            prompt.as_bytes().as_ptr().cast(),
-            prompt.len(),
-        );
+        write_callback_prompt(&prompt);
     }
 }
 
 #[no_mangle]
-pub extern "C" fn rl_callback_handler_remove() {
-    let raw_mode = {
+pub unsafe extern "C" fn rl_callback_handler_remove() {
+    let (raw_mode, was_prepped) = {
         let mut store = readline_store().lock().expect("readline lock");
         store.callback = None;
         store.callback_prompt.clear();
-        store.callback_raw_mode.take()
+        store.callback_buffer.clear();
+        (
+            store.callback_raw_mode.take(),
+            std::mem::replace(&mut store.callback_prepped, false),
+        )
     };
     drop(raw_mode);
-    unsafe { rl_readline_state &= !RL_STATE_CALLBACK };
+    if was_prepped {
+        if let Some(deprep) = rl_deprep_term_function {
+            deprep();
+        }
+    }
+    rl_readline_state &= !RL_STATE_CALLBACK;
 }
 
 #[no_mangle]
@@ -2542,7 +2764,7 @@ pub unsafe extern "C" fn rl_variable_bind(name: *const c_char, value: *const c_c
         .lock()
         .expect("readline lock")
         .variables
-        .insert(normalized, value);
+        .insert(normalized, clean_c_string(&value));
     0
 }
 
@@ -2750,7 +2972,12 @@ fn inputrc_condition(expression: &str) -> bool {
                 (rl_editing_mode == 0 && value.eq_ignore_ascii_case("vi"))
                     || (rl_editing_mode != 0 && value.eq_ignore_ascii_case("emacs"))
             },
-            "term" => std::env::var("TERM").is_ok_and(|term| term.eq_ignore_ascii_case(value)),
+            "term" => std::env::var("TERM").is_ok_and(|term| {
+                term.eq_ignore_ascii_case(value)
+                    || term
+                        .split_once('-')
+                        .is_some_and(|(base, _)| base.eq_ignore_ascii_case(value))
+            }),
             "version" => value
                 .parse::<f32>()
                 .is_ok_and(|version| (8.3_f32 - version).abs() < f32::EPSILON),
@@ -2759,7 +2986,7 @@ fn inputrc_condition(expression: &str) -> bool {
                 .expect("readline lock")
                 .variables
                 .get(&name)
-                .is_some_and(|current| current.eq_ignore_ascii_case(value)),
+                .is_some_and(|current| current.to_string_lossy().eq_ignore_ascii_case(value)),
         };
     }
     let application = unsafe { c_text(rl_readline_name).unwrap_or_else(|| "other".to_string()) };
@@ -4603,17 +4830,26 @@ pub unsafe extern "C" fn rl_read_key() -> c_int {
     if let Some(getc) = rl_getc_function {
         return getc(if input.is_null() { C_STDIN } else { input });
     }
-    let mut byte = 0u8;
-    if libc::read(descriptor, (&mut byte as *mut u8).cast(), 1) == 1 {
-        byte as c_int
+    if input.is_null() {
+        let mut byte = 0u8;
+        if libc::read(descriptor, (&raw mut byte).cast(), 1) == 1 {
+            byte as c_int
+        } else {
+            -1
+        }
     } else {
-        -1
+        libc::fgetc(input)
     }
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn rl_getc(stream: *mut libc::FILE) -> c_int {
-    libc::fgetc(stream)
+    let mut byte = 0u8;
+    if libc::read(libc::fileno(stream), (&raw mut byte).cast(), 1) == 1 {
+        byte as c_int
+    } else {
+        libc::EOF
+    }
 }
 
 #[no_mangle]
@@ -5020,7 +5256,7 @@ pub unsafe extern "C" fn rl_variable_value(name: *const c_char) -> *mut c_char {
         .expect("readline lock")
         .variables
         .get(&name)
-        .map_or(ptr::null_mut(), |value| malloc_string(value))
+        .map_or(ptr::null_mut(), |value| value.as_ptr() as *mut c_char)
 }
 
 #[no_mangle]
@@ -5478,7 +5714,7 @@ pub extern "C" fn rl_macro_dumper(_readable: c_int) {
 #[no_mangle]
 pub extern "C" fn rl_variable_dumper(_readable: c_int) {
     for (name, value) in &readline_store().lock().expect("readline lock").variables {
-        unsafe { write_readline_output(&format!("set {name} {value}")) };
+        unsafe { write_readline_output(&format!("set {name} {}", value.to_string_lossy())) };
     }
 }
 
@@ -5720,7 +5956,7 @@ pub unsafe extern "C" fn readline(prompt: *const c_char) -> *mut c_char {
         libc::fileno(rl_outstream)
     };
     let _input_redirect = DescriptorRedirect::new(input_descriptor, libc::STDIN_FILENO);
-    let _output_redirect = DescriptorRedirect::new(output_descriptor, libc::STDOUT_FILENO);
+    let _output_redirect = DescriptorRedirect::new(output_descriptor, libc::STDERR_FILENO);
     let (mut editor, timeout_deadline) = {
         let mut store = readline_store().lock().expect("readline lock");
         let deadline = store
