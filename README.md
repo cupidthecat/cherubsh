@@ -321,11 +321,11 @@ Check every non-interactive example with the debug binary:
 
 ## Installing as a shell
 
-CherubSH supports Linux and WSL. Extract a release archive and use its installer to place the binary, manuals, and Bash-compatible command completion under an absolute prefix:
+CherubSH supports Linux and WSL. Starting with the next release after v0.3.0, the shell archive includes an installer for the binary, manuals, and Bash-compatible command completion. Replace `VERSION` and `TARGET` below with the names on the release asset:
 
 ```sh
-tar -xzf cherubsh-0.3.0-x86_64-unknown-linux-gnu.tar.gz
-cd cherubsh-0.3.0-x86_64-unknown-linux-gnu
+tar -xzf cherubsh-VERSION-TARGET.tar.gz
+cd cherubsh-VERSION-TARGET
 sudo ./tools/install-cherubsh.sh install --prefix /usr/local
 cherubsh --version
 man cherubsh

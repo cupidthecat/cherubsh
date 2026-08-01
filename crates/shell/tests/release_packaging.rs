@@ -149,6 +149,33 @@ fn release_packager_creates_a_checksummed_portable_archive() {
         .collect::<BTreeSet<_>>();
     assert_eq!(completed_options, expected_long_options);
 
+    let completion_directory = temporary.join("completion files");
+    fs::create_dir_all(&completion_directory).expect("create completion fixture directory");
+    fs::write(completion_directory.join("two words[1].sh"), "").expect("write completion fixture");
+    let filename_completion = Command::new("bash")
+        .args([
+            "--noprofile",
+            "--norc",
+            "-c",
+            "source \"$CHERUB_COMPLETION\"; COMP_WORDS=(cherubsh 'two'); COMP_CWORD=1; _cherubsh; printf '%s\\n' \"${COMPREPLY[@]}\"",
+        ])
+        .env(
+            "CHERUB_COMPLETION",
+            installed.join("share/bash-completion/completions/cherubsh"),
+        )
+        .current_dir(&completion_directory)
+        .output()
+        .expect("complete filename containing spaces and metacharacters");
+    assert!(
+        filename_completion.status.success(),
+        "filename completion failed:\n{}",
+        String::from_utf8_lossy(&filename_completion.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&filename_completion.stdout),
+        "two words[1].sh\n"
+    );
+
     for page in ["cherubsh", "cherubsh-readline", "cherubshrc"] {
         let rendered = Command::new("man")
             .args(["-M"])
@@ -179,6 +206,41 @@ fn release_packager_creates_a_checksummed_portable_archive() {
     assert!(!installed.join("bin/cherubsh").exists());
     assert!(!installed.join("share/man/man1/cherubsh.1").exists());
     assert!(installed.join("share/keep/unrelated").is_file());
+
+    let interrupted_destdir = temporary.join("interrupted-root");
+    let interrupted_install = interrupted_destdir.join("opt/cherub");
+    fs::create_dir_all(interrupted_install.join("share")).expect("create interrupted install root");
+    fs::write(interrupted_install.join("share/man"), "blocking file\n")
+        .expect("create mid-install obstruction");
+    let failed_install = Command::new("bash")
+        .arg(package.join("tools/install-cherubsh.sh"))
+        .args(["install", "--prefix", "/opt/cherub", "--destdir"])
+        .arg(&interrupted_destdir)
+        .output()
+        .expect("run interrupted release install");
+    assert!(!failed_install.status.success());
+    assert!(
+        !interrupted_install.join("bin/cherubsh").exists(),
+        "failed install left an unowned binary behind"
+    );
+    assert!(
+        !interrupted_install
+            .join("share/cherubsh/package/cherubsh.manifest")
+            .exists(),
+        "failed install published an ownership manifest"
+    );
+    fs::remove_file(interrupted_install.join("share/man")).expect("remove install obstruction");
+    let recovered_install = Command::new("bash")
+        .arg(package.join("tools/install-cherubsh.sh"))
+        .args(["install", "--prefix", "/opt/cherub", "--destdir"])
+        .arg(&interrupted_destdir)
+        .output()
+        .expect("retry interrupted release install");
+    assert!(
+        recovered_install.status.success(),
+        "release install did not recover:\n{}",
+        String::from_utf8_lossy(&recovered_install.stderr)
+    );
 
     let repeated = Command::new("bash")
         .arg(workspace.join("tools/package-release.sh"))

@@ -12,7 +12,8 @@ _cherubsh()
 
     case ${prev} in
         --init-file|--rcfile)
-            COMPREPLY=( $(compgen -f -- "${cur}") )
+            mapfile -t COMPREPLY < <(compgen -f -- "${cur}")
+            compopt -o filenames 2>/dev/null || true
             return
             ;;
     esac
@@ -22,7 +23,8 @@ _cherubsh()
     elif [[ ${cur} == -* ]]; then
         COMPREPLY=( $(compgen -W "${long_options} ${short_options}" -- "${cur}") )
     else
-        COMPREPLY=( $(compgen -f -- "${cur}") )
+        mapfile -t COMPREPLY < <(compgen -f -- "${cur}")
+        compopt -o filenames 2>/dev/null || true
     fi
 }
 

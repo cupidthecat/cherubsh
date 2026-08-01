@@ -492,5 +492,9 @@ fn user_and_contributor_release_materials_cover_public_entry_points() {
         assert!(text.contains("WSL"));
         assert!(text.contains("install-cherubsh.sh"));
         assert!(text.contains("man cherubsh"));
+        assert!(
+            !text.contains("cherubsh-0.3.0-x86_64-unknown-linux-gnu.tar.gz"),
+            "installation instructions name an unpublished v0.3.0 archive"
+        );
     }
 }

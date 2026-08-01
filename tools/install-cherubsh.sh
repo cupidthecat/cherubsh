@@ -77,6 +77,11 @@ INSTALL_ROOT="${STAGING_ROOT}${PREFIX}"
 PACKAGE_MANIFEST="${PACKAGE_ROOT}/manifests/cherubsh.files"
 OWNERSHIP_DIRECTORY="${INSTALL_ROOT%/}/share/cherubsh/package"
 OWNERSHIP_MANIFEST="${OWNERSHIP_DIRECTORY}/cherubsh.manifest"
+TRANSACTION_DIRECTORY=""
+TRANSACTION_ACTIVE=0
+declare -a TRANSACTION_DESTINATIONS=()
+declare -a TRANSACTION_BACKUPS=()
+declare -a TRANSACTION_DIRECTORIES=()
 
 validate_manifest_entry() {
     local source_path="$1"
@@ -114,23 +119,78 @@ preflight_install() {
     done <"${PACKAGE_MANIFEST}"
 }
 
+record_missing_directories() {
+    local directory="$1"
+    while [[ "${directory}" != "${INSTALL_ROOT}" &&
+             "${directory}" == "${INSTALL_ROOT%/}/"* &&
+             ! -e "${directory}" && ! -L "${directory}" ]]; do
+        TRANSACTION_DIRECTORIES+=("${directory}")
+        directory="$(dirname "${directory}")"
+    done
+}
+
+track_destination() {
+    local destination="$1"
+    local backup=""
+    local index="${#TRANSACTION_DESTINATIONS[@]}"
+    if [[ -e "${destination}" || -L "${destination}" ]]; then
+        backup="${TRANSACTION_DIRECTORY}/backups/${index}"
+        mkdir -p "$(dirname "${backup}")"
+        cp -a -- "${destination}" "${backup}"
+    fi
+    TRANSACTION_DESTINATIONS+=("${destination}")
+    TRANSACTION_BACKUPS+=("${backup}")
+}
+
+rollback_install() {
+    local index destination backup directory
+    set +e
+    for ((index = ${#TRANSACTION_DESTINATIONS[@]} - 1; index >= 0; index--)); do
+        destination="${TRANSACTION_DESTINATIONS[index]}"
+        backup="${TRANSACTION_BACKUPS[index]}"
+        rm -f -- "${destination}"
+        if [[ -n "${backup}" ]]; then
+            cp -a -- "${backup}" "${destination}"
+        fi
+    done
+    if ((${#TRANSACTION_DIRECTORIES[@]})); then
+        printf '%s\n' "${TRANSACTION_DIRECTORIES[@]}" | sort -ru | while read -r directory; do
+            rmdir --ignore-fail-on-non-empty -- "${directory}" 2>/dev/null || true
+        done
+    fi
+    if [[ -n "${TRANSACTION_DIRECTORY}" && -d "${TRANSACTION_DIRECTORY}" ]]; then
+        rm -rf -- "${TRANSACTION_DIRECTORY}"
+    fi
+}
+
 install_package() {
     local temporary_manifest source_path destination_path source destination
+    TRANSACTION_DIRECTORY="$(mktemp -d)"
+    TRANSACTION_ACTIVE=1
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+    trap 'status=$?; trap - EXIT INT TERM; if ((TRANSACTION_ACTIVE)); then rollback_install; fi; exit "${status}"' EXIT
+    record_missing_directories "${OWNERSHIP_DIRECTORY}"
     mkdir -p "${OWNERSHIP_DIRECTORY}"
-    temporary_manifest="$(mktemp "${OWNERSHIP_MANIFEST}.tmp.XXXXXX")"
+    temporary_manifest="${TRANSACTION_DIRECTORY}/cherubsh.manifest"
     while read -r source_path destination_path; do
         [[ -n "${source_path}" ]] || continue
         source="${PACKAGE_ROOT}/${source_path}"
         destination="${INSTALL_ROOT%/}/${destination_path}"
+        record_missing_directories "$(dirname "${destination}")"
         mkdir -p "$(dirname "${destination}")"
+        track_destination "${destination}"
         case "${destination_path}" in
             bin/*) install -m 0755 "${source}" "${destination}" ;;
             *) install -m 0644 "${source}" "${destination}" ;;
         esac
         printf '%s\n' "${destination_path}" >>"${temporary_manifest}"
     done <"${PACKAGE_MANIFEST}"
+    track_destination "${OWNERSHIP_MANIFEST}"
     install -m 0644 "${temporary_manifest}" "${OWNERSHIP_MANIFEST}"
-    rm -f "${temporary_manifest}"
+    TRANSACTION_ACTIVE=0
+    trap - EXIT INT TERM
+    rm -rf -- "${TRANSACTION_DIRECTORY}"
     printf 'Installed CherubSH under %s\n' "${INSTALL_ROOT}"
 }
 
