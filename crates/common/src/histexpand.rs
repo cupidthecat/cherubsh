@@ -5,6 +5,11 @@
 use crate::history::HistoryTable;
 use std::sync::{Mutex, OnceLock};
 
+const MAX_HISTORY_EXPANSION_BYTES: usize = 1024 * 1024;
+const MAX_HISTORY_REFERENCES: usize = 128;
+const EXPANSION_SIZE_ERROR: &str = "history expansion exceeds the 1 MiB safety limit";
+const EXPANSION_REFERENCE_ERROR: &str = "history expansion exceeds the 128-reference safety limit";
+
 #[derive(Clone, Debug)]
 pub struct ExpandResult {
     pub line: String,
@@ -46,6 +51,7 @@ fn expand_inner(input: &str, history: &HistoryTable, posix: bool) -> ExpandResul
     let mut changed = false;
     let mut error: Option<String> = None;
     let mut print_only = false;
+    let mut references = 0usize;
 
     // `^old^new^` quick substitution - only valid at start of line.
     let (input_body, line_ending) = input
@@ -59,6 +65,14 @@ fn expand_inner(input: &str, history: &HistoryTable, posix: bool) -> ExpandResul
             let new = parts[1];
             if let Some(last) = history.last() {
                 let replaced = format!("{}{}", last.line.replacen(old, new, 1), line_ending);
+                if replaced.len() > MAX_HISTORY_EXPANSION_BYTES {
+                    return ExpandResult {
+                        line: input.to_string(),
+                        changed: false,
+                        error: Some(EXPANSION_SIZE_ERROR.into()),
+                        print_only: false,
+                    };
+                }
                 return ExpandResult {
                     line: replaced,
                     changed: true,
@@ -170,8 +184,21 @@ fn expand_inner(input: &str, history: &HistoryTable, posix: bool) -> ExpandResul
                 i += 1;
                 continue;
             }
+            references += 1;
+            if references > MAX_HISTORY_REFERENCES {
+                error = Some(EXPANSION_REFERENCE_ERROR.into());
+                break;
+            }
             match expand_reference(&chars, i, &out, history) {
                 Some(Ok(expanded)) => {
+                    if out
+                        .len()
+                        .checked_add(expanded.text.len())
+                        .is_none_or(|len| len > MAX_HISTORY_EXPANSION_BYTES)
+                    {
+                        error = Some(EXPANSION_SIZE_ERROR.into());
+                        break;
+                    }
                     out.push_str(&expanded.text);
                     if expanded.changed {
                         changed = true;
@@ -978,6 +1005,36 @@ mod tests {
         assert_eq!(
             expand("echo ok # !1200\n", &history).line,
             "echo ok # !1200\n"
+        );
+    }
+
+    #[test]
+    fn exponential_current_line_expansion_reports_a_bounded_error() {
+        let history = HistoryTable::new(10);
+        let below_limit = format!("echo {}", "!# ".repeat(17));
+        let input = format!("echo {}", "!# ".repeat(18));
+
+        assert!(expand(&below_limit, &history).error.is_none());
+
+        let result = expand(&input, &history);
+
+        assert_eq!(
+            result.error.as_deref(),
+            Some("history expansion exceeds the 1 MiB safety limit")
+        );
+        assert!(result.line.len() <= 1024 * 1024);
+    }
+
+    #[test]
+    fn excessive_current_line_references_report_a_bounded_error() {
+        let history = HistoryTable::new(10);
+        let input = format!("echo {}", "!#:0 ".repeat(129));
+
+        let result = expand(&input, &history);
+
+        assert_eq!(
+            result.error.as_deref(),
+            Some("history expansion exceeds the 128-reference safety limit")
         );
     }
 }
