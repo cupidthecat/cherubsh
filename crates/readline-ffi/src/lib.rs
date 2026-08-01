@@ -267,6 +267,10 @@ fn c_text(value: *const c_char) -> Option<String> {
     }
 }
 
+fn c_char_byte(value: c_char) -> u8 {
+    value.to_ne_bytes()[0]
+}
+
 fn clean_c_string(value: &str) -> CString {
     CString::new(value.replace('\0', "")).expect("interior nul removed")
 }
@@ -360,7 +364,7 @@ pub unsafe extern "C" fn add_history(line: *const c_char) {
     let Some(line) = c_text(line) else { return };
     let timestamp = format!(
         "{}{}",
-        history_comment_char as u8 as char,
+        char::from(c_char_byte(history_comment_char)),
         libc::time(ptr::null_mut())
     );
     let entry = alloc_entry(&line, Some(&timestamp), ptr::null_mut());
@@ -605,7 +609,7 @@ pub unsafe extern "C" fn history_get_time(entry: *mut HIST_ENTRY) -> libc::time_
     if entry.is_null() {
         return 0;
     }
-    let marker = history_comment_char as u8 as char;
+    let marker = char::from(c_char_byte(history_comment_char));
     c_text((*entry).timestamp)
         .and_then(|value| value.strip_prefix(marker).map(str::to_owned))
         .and_then(|value| value.parse::<libc::time_t>().ok())
@@ -1096,7 +1100,7 @@ fn history_words(input: &str) -> Vec<String> {
             .unwrap_or_else(|| " \t\n;&()|<>".to_owned())
             .into_bytes()
     };
-    let comment = unsafe { history_comment_char as u8 };
+    let comment = unsafe { c_char_byte(history_comment_char) };
     let mut words = Vec::new();
     let mut index = 0;
     while index < bytes.len() {
@@ -6116,4 +6120,14 @@ pub unsafe extern "C" fn tilde_find_word(
         *length = (end - start).min(c_int::MAX as usize) as c_int;
     }
     malloc_string(&input[start..end])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn c_char_conversion_preserves_its_byte_on_signed_and_unsigned_targets() {
+        assert_eq!(c_char_byte(b'#' as c_char), b'#');
+    }
 }
