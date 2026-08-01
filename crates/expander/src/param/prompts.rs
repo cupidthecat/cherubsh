@@ -1,3 +1,8 @@
+const PROMPT_ESCAPED_DOLLAR: char = '\u{e000}';
+const PROMPT_LITERAL_BACKSLASH: char = '\u{e001}';
+const RL_PROMPT_START_IGNORE: char = '\x01';
+const RL_PROMPT_END_IGNORE: char = '\x02';
+
 fn prompt_expand(value: &str, ctx: &mut ExpCtx) -> Result<String, ExpandError> {
     let bytes = value.as_bytes();
     let mut out = String::with_capacity(value.len());

@@ -720,4 +720,3 @@ fn pattern_match_opts_env(env: &dyn Environment) -> GlobOpts {
         ..Default::default()
     }
 }
-
