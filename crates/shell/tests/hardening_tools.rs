@@ -313,3 +313,20 @@ fn pty_differential_preserves_timeout_transcripts() {
 fn pty_differential_matches_the_registered_scenarios() {
     run_pty_matrix();
 }
+
+#[test]
+fn upstream_fetch_tries_the_canonical_gnu_origin_before_the_redirector() {
+    let script = fs::read_to_string(workspace_root().join("tools/fetch-upstream.sh"))
+        .expect("read upstream fetch script");
+    let canonical = script
+        .find("\"https://ftp.gnu.org/gnu\"")
+        .expect("canonical GNU origin");
+    let redirector = script
+        .find("\"https://ftpmirror.gnu.org\"")
+        .expect("GNU mirror redirector");
+
+    assert!(
+        canonical < redirector,
+        "the canonical GNU origin must be tried before the redirector"
+    );
+}
