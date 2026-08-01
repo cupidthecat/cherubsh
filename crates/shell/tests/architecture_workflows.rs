@@ -36,7 +36,7 @@ fn release_workflow_builds_and_publishes_both_native_archives() {
     assert!(workflow.contains("sha256sum --check SHA256SUMS"));
     assert!(workflow.contains("run: ./tools/build-readline.sh"));
     assert!(workflow.contains("./tools/package-readline-dev.sh"));
-    assert!(workflow.contains("sha256sum cherubsh-*.tar.gz cherubsh-*.cdx.json > SHA256SUMS"));
+    assert!(workflow.contains("sha256sum cherubsh-*.tar.gz cherubsh*.cdx.json > SHA256SUMS"));
     assert!(workflow.contains("dist/cherubsh-readline-dev-*.tar.gz"));
 }
 

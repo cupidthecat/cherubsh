@@ -563,6 +563,8 @@ fn release_supply_chain_controls_are_pinned_and_verifiable() {
         "actions/attest@",
         "subject-path:",
         "SHA256SUMS",
+        "dist/cherubsh*.cdx.json",
+        "sbom-path: dist/cherubsh.cdx.json",
     ] {
         assert!(release.contains(text), "release workflow omits {text}");
     }
