@@ -542,6 +542,12 @@ fn release_supply_chain_controls_are_pinned_and_verifiable() {
             "Dependabot omits {ecosystem}"
         );
     }
+    assert!(dependabot.contains("directory: \"/fuzz\""));
+    assert_eq!(
+        dependabot.matches("package-ecosystem: \"cargo\"").count(),
+        2,
+        "Dependabot must cover the root and fuzz Cargo workspaces"
+    );
 
     let security_workflow = fs::read_to_string(root.join(".github/workflows/security.yml"))
         .expect("read dependency security workflow");
@@ -549,6 +555,7 @@ fn release_supply_chain_controls_are_pinned_and_verifiable() {
     assert!(security_workflow.contains("schedule:"));
     assert!(security_workflow.contains("actions/dependency-review-action@"));
     assert!(security_workflow.contains("rustsec/audit-check@"));
+    assert!(security_workflow.contains("working-directory: fuzz"));
     assert_workflow_actions_are_commit_pinned("security workflow", &security_workflow);
 
     let release = fs::read_to_string(root.join(".github/workflows/release.yml"))
@@ -565,6 +572,7 @@ fn release_supply_chain_controls_are_pinned_and_verifiable() {
         "SHA256SUMS",
         "dist/cherubsh*.cdx.json",
         "sbom-path: dist/cherubsh.cdx.json",
+        "./tools/prepare-sboms.py",
     ] {
         assert!(release.contains(text), "release workflow omits {text}");
     }
@@ -572,4 +580,20 @@ fn release_supply_chain_controls_are_pinned_and_verifiable() {
     let readme = fs::read_to_string(root.join("README.md")).expect("read README");
     assert!(readme.contains("gh attestation verify"));
     assert!(readme.contains("--predicate-type https://cyclonedx.org/bom"));
+
+    assert!(security.contains("Starting with the first release after v0.3.0"));
+    let prepared = Command::new("python3")
+        .arg(root.join("tools/prepare-sboms.py"))
+        .arg("--self-test")
+        .output()
+        .expect("run SBOM preparation self-test");
+    assert!(
+        prepared.status.success(),
+        "SBOM preparation self-test failed:\n{}",
+        String::from_utf8_lossy(&prepared.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&prepared.stdout),
+        "SBOM preparation self-test passed\n"
+    );
 }

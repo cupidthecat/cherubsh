@@ -17,4 +17,4 @@ You should receive an acknowledgement within seven days. The maintainers will co
 
 ## Release Verification
 
-Each tagged release includes SHA-256 checksums, CycloneDX SBOM files, and GitHub artifact attestations. The README contains the verification commands. A valid attestation proves which repository and workflow produced an asset; it does not replace review of the source or the SBOM.
+Starting with the first release after v0.3.0, each tagged release includes SHA-256 checksums, CycloneDX SBOM files, and GitHub artifact attestations. The README contains the verification commands. A valid attestation proves which repository and workflow produced an asset; it does not replace review of the source or the SBOM.

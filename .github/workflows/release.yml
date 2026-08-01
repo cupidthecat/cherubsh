@@ -108,7 +108,10 @@ jobs:
         run: ./tools/check-release-tag.sh "${RELEASE_TAG}"
 
       - name: Create CycloneDX SBOMs
+        env:
+          RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
         run: |
+          RELEASE_VERSION="${RELEASE_TAG#v}"
           cargo install cargo-cyclonedx --version 0.5.9 --locked
           SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)" \
             cargo cyclonedx \
@@ -117,9 +120,10 @@ jobs:
               --all \
               --target all \
               --spec-version 1.5
-          mkdir -p dist
-          find crates -mindepth 2 -maxdepth 2 -name '*.cdx.json' \
-            -exec cp --target-directory=dist -- {} +
+          ./tools/prepare-sboms.py \
+            --version "${RELEASE_VERSION}" \
+            --output dist \
+            crates/*/*.cdx.json
 
       - name: Preserve the CycloneDX SBOMs
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
