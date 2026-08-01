@@ -1,0 +1,116 @@
+.TH CHERUBSH 1 "August 2026" "CherubSH" "User Commands"
+.SH NAME
+cherubsh \- a Bash-compatible shell for Linux and WSL
+.SH SYNOPSIS
+.B cherubsh
+[GNU long option] [option] ...
+.br
+.B cherubsh
+[GNU long option] [option] script-file ...
+.SH DESCRIPTION
+.B cherubsh
+is a Rust implementation of Bash 5.3 behavior. It runs commands from a string,
+a script file, standard input, or an interactive terminal. Bash is not required
+at runtime.
+.PP
+CherubSH is tested on Linux and WSL. Keep the system Bash installation in place
+because operating-system scripts may depend on the distribution build.
+.SH LONG OPTIONS
+.TP
+.BR --debug , " " --debugger
+Enable debugging behavior. The debugger form also enables debugger mode.
+.TP
+.B --dump-po-strings
+Extract translatable strings in PO form without executing the input.
+.TP
+.B --dump-strings
+Extract translatable strings without executing the input.
+.TP
+.B --help
+Print invocation help and exit.
+.TP
+.BR --init-file " path", " " --rcfile " path"
+Read an alternate interactive startup file.
+.TP
+.B --login
+Request login-shell startup behavior.
+.TP
+.B --noediting
+Disable line editing in an interactive shell.
+.TP
+.B --noprofile
+Skip login startup files.
+.TP
+.B --norc
+Skip the interactive CherubSH startup file.
+.TP
+.B --posix
+Enable POSIX mode.
+.TP
+.B --pretty-print
+Parse and print shell input without executing it.
+.TP
+.B --restricted
+Start in restricted mode.
+.TP
+.B --verbose
+Print input as the shell reads it.
+.TP
+.B --version
+Print the CherubSH package version, Bash compatibility version, and target.
+.SH INVOCATION OPTIONS
+.TP
+.BI -c " command"
+Run a command string.
+.TP
+.B -s
+Read commands from standard input.
+.TP
+.B -i
+Force interactive operation.
+.TP
+.B -l
+Request login-shell startup behavior.
+.TP
+.B -r
+Enable restricted mode.
+.TP
+.B -D
+Extract translatable strings without executing input.
+.TP
+.BI -O " shopt-option"
+Enable a shell option before startup. Use a plus prefix to disable it.
+.PP
+The Bash-style short shell options
+.B -abefhkmnptuvxBCEHPT
+and
+.BI -o " option"
+are also accepted.
+.SH FILES
+.TP
+.I ~/.cherubrc
+Startup file for an interactive, non-login CherubSH shell.
+.TP
+.I ~/.bash_history
+Default interactive history file when HISTFILE is not set.
+.SH ENVIRONMENT
+.TP
+.B CHERUBSH_BASH_COMPAT_VERSION
+Overrides the displayed Bash compatibility version when the value can be
+parsed as a version number.
+.TP
+.B BASH_ENV
+Names a startup file for a non-interactive shell when the current mode permits it.
+.TP
+.B ENV
+Names the startup file used by POSIX or sh-compatible interactive modes.
+.SH EXIT STATUS
+The exit status is the status of the last command, or a nonzero status for an
+invocation, parsing, expansion, or execution error.
+.SH SEE ALSO
+.BR cherubsh-readline (3),
+.BR cherubshrc (5),
+.BR bash (1)
+.SH BUGS
+Report defects and Bash compatibility mismatches at
+https://github.com/cupidthecat/cherubsh/issues.

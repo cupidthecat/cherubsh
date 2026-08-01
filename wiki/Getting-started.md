@@ -98,7 +98,19 @@ cargo build --release --locked -p cherubsh
 sha256sum --check dist/SHA256SUMS
 ```
 
-The shell archive contains the binary, license, README, starter configuration, and configuration installer. A tagged release publishes that archive and a separate Readline development archive for both x86-64 and AArch64. One checksum file covers all four archives. The development archive includes its own prefix-aware installer and component uninstaller; [Readline and History](Readline-and-History) has the commands.
+The shell archive contains the binary, manuals, Bash-compatible command completion, license, README, starter configuration, and installers. A tagged release publishes that archive and a separate Readline development archive for both x86-64 and AArch64. One checksum file covers all four archives. The development archive includes its own prefix-aware installer and component uninstaller; [Readline and History](Readline-and-History) has the commands.
+
+On Linux or WSL, extract the shell archive and install its public files under an absolute prefix:
+
+```sh
+tar -xzf cherubsh-0.3.0-x86_64-unknown-linux-gnu.tar.gz
+cd cherubsh-0.3.0-x86_64-unknown-linux-gnu
+sudo ./tools/install-cherubsh.sh install --prefix /usr/local
+cherubsh --version
+man cherubsh
+```
+
+Pass `--destdir PATH` when building a staged package. Run the same command with `uninstall` to remove files owned by that prefix installation. The installer leaves unrelated files alone. It installs `cherubsh(1)`, `cherubsh-readline(3)`, `cherubshrc(5)`, and the completion file under `share/bash-completion/completions`.
 
 ## Next steps
 

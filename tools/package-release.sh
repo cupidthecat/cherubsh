@@ -13,8 +13,9 @@ usage() {
     cat <<'EOF'
 usage: tools/package-release.sh --version VERSION [--binary FILE] [--output DIR]
 
-Builds a tarball containing the CherubSH binary, license, README, and starter
-configuration. The output directory also receives a SHA256SUMS file.
+Builds a tarball containing CherubSH, its manuals, command completion, license,
+README, starter configuration, and prefix-aware installer. The output directory
+also receives a SHA256SUMS file.
 EOF
 }
 
@@ -98,11 +99,22 @@ cleanup() {
 trap cleanup EXIT
 
 PACKAGE_DIRECTORY="${TEMPORARY_DIRECTORY}/${PACKAGE_NAME}"
-mkdir -p "${PACKAGE_DIRECTORY}/examples" "${PACKAGE_DIRECTORY}/tools"
+mkdir -p \
+    "${PACKAGE_DIRECTORY}/completions" \
+    "${PACKAGE_DIRECTORY}/examples" \
+    "${PACKAGE_DIRECTORY}/man" \
+    "${PACKAGE_DIRECTORY}/manifests" \
+    "${PACKAGE_DIRECTORY}/tools"
 install -m 0755 "${BINARY}" "${PACKAGE_DIRECTORY}/cherubsh"
 install -m 0644 "${WORKSPACE_ROOT}/LICENSE" "${PACKAGE_DIRECTORY}/LICENSE"
 install -m 0644 "${WORKSPACE_ROOT}/README.md" "${PACKAGE_DIRECTORY}/README.md"
+install -m 0644 "${WORKSPACE_ROOT}/man/cherubsh.1" "${PACKAGE_DIRECTORY}/man/cherubsh.1"
+install -m 0644 "${WORKSPACE_ROOT}/man/cherubsh-readline.3" "${PACKAGE_DIRECTORY}/man/cherubsh-readline.3"
+install -m 0644 "${WORKSPACE_ROOT}/man/cherubshrc.5" "${PACKAGE_DIRECTORY}/man/cherubshrc.5"
+install -m 0644 "${WORKSPACE_ROOT}/completions/cherubsh" "${PACKAGE_DIRECTORY}/completions/cherubsh"
+install -m 0644 "${WORKSPACE_ROOT}/packaging/cherubsh.files" "${PACKAGE_DIRECTORY}/manifests/cherubsh.files"
 install -m 0644 "${WORKSPACE_ROOT}/examples/cherubrc" "${PACKAGE_DIRECTORY}/examples/cherubrc"
+install -m 0755 "${WORKSPACE_ROOT}/tools/install-cherubsh.sh" "${PACKAGE_DIRECTORY}/tools/install-cherubsh.sh"
 install -m 0755 "${WORKSPACE_ROOT}/tools/install-cherubrc.sh" "${PACKAGE_DIRECTORY}/tools/install-cherubrc.sh"
 
 (

@@ -1,0 +1,56 @@
+name: Bash compatibility report
+description: Report an observable difference between CherubSH and pinned Bash 5.3.15.
+title: "compat: "
+labels:
+  - compatibility
+body:
+  - type: markdown
+    attributes:
+      value: Compare the same input under CherubSH and the repository's pinned Bash 5.3.15 build.
+  - type: textarea
+    id: case
+    attributes:
+      label: Minimal case
+      description: Provide a complete command or script that can be copied into a test.
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: bash
+    attributes:
+      label: Bash 5.3.15 result
+      description: Include standard output, standard error, exit status, and any files created.
+    validations:
+      required: true
+  - type: textarea
+    id: cherubsh
+    attributes:
+      label: CherubSH result
+      description: Include the same observations collected for Bash.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: CherubSH version
+      description: Paste the full output of cherubsh --version.
+    validations:
+      required: true
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Shell mode
+      options:
+        - Non-interactive command string
+        - Script file
+        - Standard input
+        - Interactive terminal
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Include Linux or WSL version, architecture, locale, TERM, and relevant startup options.
+    validations:
+      required: true

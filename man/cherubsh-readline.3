@@ -1,0 +1,49 @@
+.TH CHERUBSH-READLINE 3 "August 2026" "CherubSH" "Library Functions Manual"
+.SH NAME
+cherubsh-readline \- Readline 8.3 and History compatibility libraries
+.SH SYNOPSIS
+.nf
+#include <readline/readline.h>
+#include <readline/history.h>
+
+char *line = readline("prompt> ");
+.fi
+.PP
+Compile with pkg-config:
+.nf
+cc client.c $(pkg-config --cflags --libs readline history)
+.fi
+.SH DESCRIPTION
+The CherubSH development archive provides C-compatible Readline and History
+libraries, public headers, shared-library links, static archives, and pkg-config
+files. The compatibility target is GNU Readline 8.3 patch 3.
+.PP
+Applications own the string returned by
+.BR readline ()
+and release it with
+.BR free (3).
+History entries and callbacks follow the ownership rules declared by the
+installed Readline headers.
+.SH FILES
+.TP
+.I include/readline
+Readline and History public headers.
+.TP
+.I lib/libreadline.so
+Readline shared-library linker name.
+.TP
+.I lib/libhistory.so
+History shared-library linker name.
+.TP
+.I lib/pkgconfig/readline.pc
+Readline compiler and linker metadata.
+.TP
+.I lib/pkgconfig/history.pc
+History compiler and linker metadata.
+.SH INSTALLATION
+Use the installer from the versioned Readline development archive. It supports
+an absolute prefix, DESTDIR staging, component installation, and uninstall.
+.SH SEE ALSO
+.BR cherubsh (1),
+.BR readline (3),
+.BR history (3)

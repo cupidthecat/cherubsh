@@ -1,0 +1,6 @@
+cherubsh bin/cherubsh
+man/cherubsh.1 share/man/man1/cherubsh.1
+man/cherubsh-readline.3 share/man/man3/cherubsh-readline.3
+man/cherubshrc.5 share/man/man5/cherubshrc.5
+completions/cherubsh share/bash-completion/completions/cherubsh
+LICENSE share/licenses/cherubsh/LICENSE

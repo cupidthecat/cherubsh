@@ -1,0 +1,29 @@
+# Bash-compatible command completion for CherubSH.
+
+_cherubsh()
+{
+    local cur prev
+    local long_options short_options
+    COMPREPLY=()
+    cur=${COMP_WORDS[COMP_CWORD]}
+    prev=${COMP_WORDS[COMP_CWORD-1]}
+    long_options='--debug --debugger --dump-po-strings --dump-strings --help --init-file --login --noediting --noprofile --norc --posix --pretty-print --rcfile --restricted --verbose --version'
+    short_options='-a -b -c -e -f -h -i -k -l -m -n -o -p -r -s -t -u -v -x -B -C -D -E -H -P -T -O'
+
+    case ${prev} in
+        --init-file|--rcfile)
+            COMPREPLY=( $(compgen -f -- "${cur}") )
+            return
+            ;;
+    esac
+
+    if [[ ${cur} == --* ]]; then
+        COMPREPLY=( $(compgen -W "${long_options}" -- "${cur}") )
+    elif [[ ${cur} == -* ]]; then
+        COMPREPLY=( $(compgen -W "${long_options} ${short_options}" -- "${cur}") )
+    else
+        COMPREPLY=( $(compgen -f -- "${cur}") )
+    fi
+}
+
+complete -F _cherubsh cherubsh
