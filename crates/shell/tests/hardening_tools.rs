@@ -389,3 +389,80 @@ fn persistent_fuzz_targets_replay_seed_corpora_and_retain_failures() {
         assert!(guide.contains(command), "fuzz guide omits {command}");
     }
 }
+
+#[test]
+fn scheduled_benchmarks_publish_reproducible_history_without_thresholds() {
+    let root = workspace_root();
+    let bench = fs::read_to_string(root.join("tools/bench.sh")).expect("read benchmark driver");
+    let workflow = fs::read_to_string(root.join(".github/workflows/benchmarks.yml"))
+        .expect("read benchmark workflow");
+
+    for case in ["bash_perf_script", "bash_perftest"] {
+        assert!(bench.contains(case), "benchmark driver omits {case}");
+    }
+    assert!(bench.contains("BENCH_OUTPUT_DIR"));
+    assert!(bench.contains("metadata.tsv"));
+    for field in [
+        "commit",
+        "runner",
+        "cpu",
+        "rust_toolchain",
+        "oracle_version",
+        "cargo_lock_sha256",
+        "fuzz_lock_sha256",
+    ] {
+        assert!(bench.contains(field), "benchmark metadata omits {field}");
+    }
+
+    assert!(workflow.contains("schedule:"));
+    assert!(workflow.contains("workflow_dispatch:"));
+    assert!(workflow.contains("./tools/bench.sh"));
+    assert!(workflow.contains("retention-days: 90"));
+    for artifact in ["raw.tsv", "summary.tsv", "metadata.tsv"] {
+        assert!(
+            workflow.contains(artifact),
+            "benchmark workflow omits {artifact}"
+        );
+    }
+    assert!(
+        !workflow.contains("threshold") && !workflow.contains("regression"),
+        "the collection-only workflow must not impose a performance threshold"
+    );
+}
+
+#[test]
+fn upstream_misc_benchmark_cases_complete_and_write_reports() {
+    let Some(bash) = pinned_bash() else {
+        return;
+    };
+    let report_directory = temporary_directory("benchmark-reports");
+    let output = Command::new(workspace_root().join("tools/bench.sh"))
+        .env("BENCH_BUILD", "0")
+        .env("BENCH_CASES", "bash_perf_script,bash_perftest")
+        .env("BENCH_OUTPUT_DIR", &report_directory)
+        .env("BASH_ORACLE_PATH", &bash)
+        .env("CHERUBSH", cherub_path().expect("CherubSH test binary"))
+        .env("RUNS", "1")
+        .env("WARMUPS", "0")
+        .output()
+        .expect("run focused benchmark cases");
+
+    assert!(
+        output.status.success(),
+        "benchmark failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let raw = fs::read_to_string(report_directory.join("raw.tsv")).expect("read raw samples");
+    let summary =
+        fs::read_to_string(report_directory.join("summary.tsv")).expect("read benchmark summary");
+    let metadata =
+        fs::read_to_string(report_directory.join("metadata.tsv")).expect("read benchmark metadata");
+    for case in ["bash_perf_script", "bash_perftest"] {
+        assert!(raw.contains(case), "raw samples omit {case}");
+        assert!(summary.contains(case), "summary omits {case}");
+    }
+    assert!(metadata.contains("cargo_lock_sha256\t"));
+    assert!(metadata.contains("fuzz_lock_sha256\t"));
+    let _ = fs::remove_dir_all(report_directory);
+}

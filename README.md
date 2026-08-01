@@ -281,7 +281,19 @@ cargo +nightly test -Zbuild-std \
 
 Bash's `make tests` and `tests/run-all` targets do not enter `tests/misc`, so CherubSH tracks that directory separately in `crates/test-harness/bash-misc-cases.txt`. Ten deterministic scripts run through the Rust or PTY parity tests. The signal cases use shorter sleeps, and `wait-bg.tests` removes its four-second delay. `/dev/tcp` tests talk only to a loopback server and cover numeric ports, host and service lookup, bidirectional I/O, assigned descriptors, and connection errors.
 
-`perf-script` and `perftest` are benchmark inputs, not correctness tests. They are reserved for the scheduled benchmark suite.
+`perf-script` and `perftest` are benchmark inputs, not correctness tests. The benchmark driver runs fixed copies in its temporary workspace. In particular, `perftest` scans a generated directory instead of the runner's `/usr/lib` tree.
+
+The weekly `benchmarks` workflow keeps each run's raw samples, summary, and metadata for 90 days. The metadata records the commit, runner and CPU, Rust toolchain, Bash oracle version, and the hashes of both Cargo lockfiles. These reports establish a baseline before the project chooses performance limits. There is no performance pass or fail threshold for v0.4.0.
+
+Run the same two upstream-derived cases locally with one measured sample:
+
+```sh
+RUNS=1 WARMUPS=0 \
+BENCH_CASES=bash_perf_script,bash_perftest \
+./tools/bench.sh
+```
+
+By default, reports are written under `target/bench`. Set `BENCH_OUTPUT_DIR` to keep a separate run.
 
 ```sh
 cargo test -p cherubsh --test misc_parity
