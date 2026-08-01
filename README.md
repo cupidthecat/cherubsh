@@ -296,7 +296,7 @@ cargo build --release --locked -p cherubsh
 sha256sum --check dist/SHA256SUMS
 ```
 
-The release workflow runs when a `v*` tag is pushed. The tag must match the workspace package version, so package version `0.3.0` is released from tag `v0.3.0`. The workflow checks this before testing or building, then publishes the matching `x86_64-unknown-linux-gnu` archive and its checksum file.
+The release workflow runs when a `v*` tag is pushed. The tag must match the workspace package version, so package version `0.3.0` is released from tag `v0.3.0`. The workflow checks this before testing or building, then publishes native `x86_64-unknown-linux-gnu` and `aarch64-unknown-linux-gnu` archives with one checksum file.
 
 Test your scripts and dotfiles before making it your login shell. Keep the system Bash package installed.
 

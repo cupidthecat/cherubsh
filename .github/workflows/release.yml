@@ -15,8 +15,17 @@ permissions:
   contents: write
 
 jobs:
-  publish-linux-archive:
-    runs-on: ubuntu-24.04
+  build-linux-archives:
+    name: build-${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-24.04
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v6
@@ -55,6 +64,36 @@ jobs:
               --binary target/release/cherubsh \
               --output dist
           sha256sum --check dist/SHA256SUMS
+
+      - name: Preserve the native release archive
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-${{ matrix.arch }}
+          path: dist/cherubsh-*.tar.gz
+          if-no-files-found: error
+
+  publish:
+    name: publish-release
+    needs: build-linux-archives
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+
+      - name: Collect the native release archives
+        uses: actions/download-artifact@v8
+        with:
+          pattern: release-*
+          path: dist
+          merge-multiple: true
+
+      - name: Create the combined checksum manifest
+        run: |
+          cd dist
+          sha256sum cherubsh-*.tar.gz > SHA256SUMS
+          sha256sum --check SHA256SUMS
 
       - name: Publish the GitHub release
         env:

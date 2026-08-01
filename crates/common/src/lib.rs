@@ -12,6 +12,7 @@ pub mod history;
 pub mod jobs;
 pub mod keymap;
 pub mod signals;
+pub mod target;
 
 pub use completion::{CompAction, CompOpts, CompSlot, CompSpec};
 pub use history::{HistControl, HistoryEntry, HistoryTable};
