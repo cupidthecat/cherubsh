@@ -41,6 +41,43 @@ fn release_workflow_builds_and_publishes_both_native_archives() {
 }
 
 #[test]
+fn release_workspace_tests_prepare_the_pinned_bash_oracle() {
+    let workflow = fs::read_to_string(workspace_root().join(".github/workflows/release.yml"))
+        .expect("read release workflow");
+    let native_jobs = workflow
+        .split("  build-linux-archives:\n")
+        .nth(1)
+        .and_then(|jobs| jobs.split("  build-sbom:\n").next())
+        .expect("native release job");
+
+    for package in [
+        "autoconf",
+        "bison",
+        "build-essential",
+        "gpgv",
+        "libncurses-dev",
+        "patch",
+        "texinfo",
+    ] {
+        assert!(
+            native_jobs.contains(package),
+            "native release setup omits {package}"
+        );
+    }
+
+    let fetch = native_jobs
+        .find("./tools/fetch-upstream.sh")
+        .expect("release job fetches verified upstream sources");
+    let build = native_jobs
+        .find("./oracle/build-bash-5.3.15.sh")
+        .expect("release job builds the pinned Bash oracle");
+    let tests = native_jobs
+        .find("cargo test --workspace --locked")
+        .expect("release job runs workspace tests");
+    assert!(fetch < build && build < tests);
+}
+
+#[test]
 fn loadable_bridge_is_linked_directly_into_the_shell_binary() {
     let build_script = fs::read_to_string(workspace_root().join("crates/shell/build.rs"))
         .expect("read shell build script");
