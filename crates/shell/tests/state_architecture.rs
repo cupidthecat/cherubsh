@@ -43,6 +43,24 @@ fn shell_state_has_focused_responsibility_files() {
     }
 
     let module = fs::read_to_string(source.join("mod.rs")).expect("read shell state module root");
+    let root_includes: Vec<_> = module
+        .lines()
+        .filter(|line| line.starts_with("include!(") && !line.contains("environment/"))
+        .collect();
+    assert_eq!(
+        root_includes,
+        [
+            "include!(\"runtime.rs\");",
+            "include!(\"variables.rs\");",
+            "include!(\"arrays.rs\");",
+            "include!(\"model.rs\");",
+            "include!(\"variable_helpers.rs\");",
+            "include!(\"tests.rs\");",
+            "include!(\"signal_names.rs\");",
+            "include!(\"option_helpers.rs\");",
+        ]
+    );
+
     let environment_order = [
         "variables",
         "options",
