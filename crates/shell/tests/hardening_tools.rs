@@ -556,6 +556,13 @@ fn release_supply_chain_controls_are_pinned_and_verifiable() {
     assert!(security_workflow.contains("actions/dependency-review-action@"));
     assert!(security_workflow.contains("rustsec/audit-check@"));
     assert!(security_workflow.contains("working-directory: fuzz"));
+    assert_eq!(
+        security_workflow
+            .matches("cargo install cargo-audit --version 0.22.2 --locked")
+            .count(),
+        2,
+        "each RustSec job must preinstall the lockfile-compatible cargo-audit release"
+    );
     assert_workflow_actions_are_commit_pinned("security workflow", &security_workflow);
 
     let release = fs::read_to_string(root.join(".github/workflows/release.yml"))
