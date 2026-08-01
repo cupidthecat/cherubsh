@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - ".github/workflows/fuzz.yml"
+      - "Cargo.lock"
       - "crates/**"
       - "fuzz/**"
       - "tools/run-fuzz-corpus.sh"
