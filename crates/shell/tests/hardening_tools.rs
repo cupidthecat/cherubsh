@@ -374,9 +374,10 @@ fn persistent_fuzz_targets_replay_seed_corpora_and_retain_failures() {
 
     assert!(workflow.contains("pull_request:"));
     assert!(workflow.contains("schedule:"));
+    assert!(workflow.contains("      - \"Cargo.lock\""));
     assert!(workflow.contains("./tools/run-fuzz-corpus.sh"));
     assert!(workflow.contains("cargo fuzz run"));
-    assert!(workflow.contains("actions/upload-artifact@v6"));
+    assert!(workflow.contains("actions/upload-artifact@v7"));
     assert!(workflow.contains("if: failure()"));
 
     let replay = fs::read_to_string(root.join("tools/run-fuzz-corpus.sh"))

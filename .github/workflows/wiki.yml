@@ -21,7 +21,7 @@ jobs:
   validate:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Validate wiki source
         run: ./tools/check-wiki-source.sh
 
@@ -33,7 +33,7 @@ jobs:
       group: wiki-publish
       cancel-in-progress: false
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Configure the wiki deploy key
         env:
