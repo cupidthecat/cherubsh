@@ -52,6 +52,8 @@ cargo run -p cherubsh
 cargo run -p cherubsh -- -c 'printf "%s\n" "$BASH_VERSION"'
 ```
 
+`cherubsh --version` prints the CherubSH package version first, followed by the Bash compatibility version and target. `BASH_VERSION` stays at `5.3.15(1)-release` for scripts that inspect Bash compatibility.
+
 Parser output and translation extraction run without executing the input:
 
 ```sh
@@ -290,11 +292,11 @@ For a versioned Linux archive, build the release binary and package it with a ve
 
 ```sh
 cargo build --release --locked -p cherubsh
-./tools/package-release.sh --version 0.3.1
+./tools/package-release.sh --version 0.3.0
 sha256sum --check dist/SHA256SUMS
 ```
 
-The release workflow runs when a `v*` tag is pushed. It publishes the matching `x86_64-unknown-linux-gnu` archive and its checksum file.
+The release workflow runs when a `v*` tag is pushed. The tag must match the workspace package version, so package version `0.3.0` is released from tag `v0.3.0`. The workflow checks this before testing or building, then publishes the matching `x86_64-unknown-linux-gnu` archive and its checksum file.
 
 Test your scripts and dotfiles before making it your login shell. Keep the system Bash package installed.
 
