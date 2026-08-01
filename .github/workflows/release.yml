@@ -58,6 +58,23 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
 
+      - name: Install system packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes \
+            autoconf \
+            bison \
+            build-essential \
+            curl \
+            git \
+            gpgv \
+            libncurses-dev \
+            patch \
+            perl \
+            python3 \
+            texinfo \
+            util-linux
+
       - name: Install the pinned Rust toolchain
         run: rustup toolchain install 1.93.1 --profile minimal
 
@@ -65,6 +82,12 @@ jobs:
         env:
           RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
         run: ./tools/check-release-tag.sh "${RELEASE_TAG}"
+
+      - name: Fetch and verify upstream sources
+        run: ./tools/fetch-upstream.sh
+
+      - name: Build the pinned Bash oracle
+        run: ./oracle/build-bash-5.3.15.sh
 
       - name: Verify the workspace
         run: cargo test --workspace --locked
