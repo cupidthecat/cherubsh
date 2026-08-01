@@ -57,7 +57,7 @@ int main(void)
             "set editing-mode vi\n"
             "$if probe\nset completion-query-items 41\n$endif\n"
             "$if mode=vi\nset completion-prefix-display-length 42\n$endif\n"
-            "$if term=xterm\nset history-size 43\n$endif\n"
+            "$if term=xterm\nset vi-cmd-mode-string 43\n$endif\n"
             "set comment-begin first\n"
             "set emacs-mode-string second\n"
             "$include %s\n",
@@ -73,7 +73,7 @@ int main(void)
     snprintf(mode_value, sizeof(mode_value), "%s",
              rl_variable_value("completion-prefix-display-length"));
     snprintf(term_value, sizeof(term_value), "%s",
-             rl_variable_value("history-size"));
+             rl_variable_value("vi-cmd-mode-string"));
     snprintf(include_value, sizeof(include_value), "%s",
              rl_variable_value("keyseq-timeout"));
     printf("conditions=%s,%s,%s,%s\n",
