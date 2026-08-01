@@ -498,3 +498,109 @@ fn user_and_contributor_release_materials_cover_public_entry_points() {
         );
     }
 }
+
+fn assert_workflow_actions_are_commit_pinned(name: &str, workflow: &str) {
+    for line in workflow.lines() {
+        let line = line.trim();
+        let Some(reference) = line
+            .strip_prefix("uses: ")
+            .or_else(|| line.strip_prefix("- uses: "))
+        else {
+            continue;
+        };
+        let revision = reference
+            .rsplit_once('@')
+            .unwrap_or_else(|| panic!("{name} action has no revision: {reference}"))
+            .1
+            .split_whitespace()
+            .next()
+            .expect("action revision");
+        assert!(
+            revision.len() == 40 && revision.bytes().all(|byte| byte.is_ascii_hexdigit()),
+            "{name} action is not pinned to a commit: {reference}"
+        );
+    }
+}
+
+#[test]
+fn release_supply_chain_controls_are_pinned_and_verifiable() {
+    let root = workspace_root();
+    let security = fs::read_to_string(root.join("SECURITY.md")).expect("read security policy");
+    for text in [
+        "Supported Versions",
+        "Private vulnerability reporting",
+        "security/advisories/new",
+    ] {
+        assert!(security.contains(text), "security policy omits {text}");
+    }
+
+    let dependabot =
+        fs::read_to_string(root.join(".github/dependabot.yml")).expect("read Dependabot config");
+    for ecosystem in ["cargo", "github-actions"] {
+        assert!(
+            dependabot.contains(&format!("package-ecosystem: \"{ecosystem}\"")),
+            "Dependabot omits {ecosystem}"
+        );
+    }
+    assert!(dependabot.contains("directory: \"/fuzz\""));
+    assert_eq!(
+        dependabot.matches("package-ecosystem: \"cargo\"").count(),
+        2,
+        "Dependabot must cover the root and fuzz Cargo workspaces"
+    );
+
+    let security_workflow = fs::read_to_string(root.join(".github/workflows/security.yml"))
+        .expect("read dependency security workflow");
+    assert!(security_workflow.contains("pull_request:"));
+    assert!(security_workflow.contains("schedule:"));
+    assert!(security_workflow.contains("actions/dependency-review-action@"));
+    assert!(security_workflow.contains("rustsec/audit-check@"));
+    assert!(security_workflow.contains("working-directory: fuzz"));
+    assert_eq!(
+        security_workflow
+            .matches("cargo install cargo-audit --version 0.22.2 --locked")
+            .count(),
+        2,
+        "each RustSec job must preinstall the lockfile-compatible cargo-audit release"
+    );
+    assert_workflow_actions_are_commit_pinned("security workflow", &security_workflow);
+
+    let release = fs::read_to_string(root.join(".github/workflows/release.yml"))
+        .expect("read release workflow");
+    assert_workflow_actions_are_commit_pinned("release workflow", &release);
+    for text in [
+        "cargo-cyclonedx --version 0.5.9 --locked",
+        "--format json",
+        ".cdx.json",
+        "attestations: write",
+        "id-token: write",
+        "actions/attest@",
+        "subject-path:",
+        "SHA256SUMS",
+        "dist/cherubsh*.cdx.json",
+        "sbom-path: dist/cherubsh.cdx.json",
+        "./tools/prepare-sboms.py",
+    ] {
+        assert!(release.contains(text), "release workflow omits {text}");
+    }
+
+    let readme = fs::read_to_string(root.join("README.md")).expect("read README");
+    assert!(readme.contains("gh attestation verify"));
+    assert!(readme.contains("--predicate-type https://cyclonedx.org/bom"));
+
+    assert!(security.contains("Starting with the first release after v0.3.0"));
+    let prepared = Command::new("python3")
+        .arg(root.join("tools/prepare-sboms.py"))
+        .arg("--self-test")
+        .output()
+        .expect("run SBOM preparation self-test");
+    assert!(
+        prepared.status.success(),
+        "SBOM preparation self-test failed:\n{}",
+        String::from_utf8_lossy(&prepared.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&prepared.stdout),
+        "SBOM preparation self-test passed\n"
+    );
+}

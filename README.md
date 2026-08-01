@@ -343,7 +343,27 @@ cargo build --release --locked -p cherubsh
 sha256sum --check dist/SHA256SUMS
 ```
 
-The release workflow runs when a `v*` tag is pushed. The tag must match the workspace package version, so package version `0.3.0` is released from tag `v0.3.0`. The workflow checks this before testing or building. Each supported architecture gets a shell archive and a Readline development archive, and the release includes one checksum file for all four archives. The shell binary also remains at the top level of its archive, so it can run without installation.
+The release workflow runs when a `v*` tag is pushed. The tag must match the workspace package version, so package version `0.3.0` is released from tag `v0.3.0`. The workflow checks this before testing or building. Each supported architecture gets a shell archive and a Readline development archive. The release also includes CycloneDX SBOMs and one checksum file for every archive and SBOM. The shell binary remains at the top level of its archive, so it can run without installation.
+
+After downloading an asset and `SHA256SUMS`, verify both the checksum and the GitHub build provenance:
+
+```sh
+sha256sum --check --ignore-missing SHA256SUMS
+gh attestation verify cherubsh-VERSION-TARGET.tar.gz \
+  --repo cupidthecat/cherubsh \
+  --signer-workflow cupidthecat/cherubsh/.github/workflows/release.yml
+```
+
+Shell archives also carry the CycloneDX SBOM attestation. Verify that claim separately:
+
+```sh
+gh attestation verify cherubsh-VERSION-TARGET.tar.gz \
+  --repo cupidthecat/cherubsh \
+  --signer-workflow cupidthecat/cherubsh/.github/workflows/release.yml \
+  --predicate-type https://cyclonedx.org/bom
+```
+
+See [SECURITY.md](SECURITY.md) for the supported release line and private reporting instructions.
 
 Test your scripts and dotfiles before making it your login shell. Keep the system Bash package installed.
 

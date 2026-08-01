@@ -12,7 +12,7 @@ on:
         type: string
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build-linux-archives:
@@ -28,7 +28,7 @@ jobs:
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
@@ -81,7 +81,7 @@ jobs:
           )
 
       - name: Preserve the native release archive
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: release-${{ matrix.arch }}
           path: |
@@ -89,18 +89,68 @@ jobs:
             dist/cherubsh-readline-dev-*.tar.gz
           if-no-files-found: error
 
+  build-sbom:
+    name: build-sbom
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+
+      - name: Install the pinned Rust toolchain
+        run: rustup toolchain install 1.93.1 --profile minimal
+
+      - name: Verify the release tag
+        env:
+          RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+        run: ./tools/check-release-tag.sh "${RELEASE_TAG}"
+
+      - name: Create CycloneDX SBOMs
+        env:
+          RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+        run: |
+          RELEASE_VERSION="${RELEASE_TAG#v}"
+          cargo install cargo-cyclonedx --version 0.5.9 --locked
+          SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)" \
+            cargo cyclonedx \
+              --manifest-path crates/shell/Cargo.toml \
+              --format json \
+              --all \
+              --target all \
+              --spec-version 1.5
+          ./tools/prepare-sboms.py \
+            --version "${RELEASE_VERSION}" \
+            --output dist \
+            crates/*/*.cdx.json
+
+      - name: Preserve the CycloneDX SBOMs
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: release-sbom
+          path: dist/cherubsh*.cdx.json
+          if-no-files-found: error
+
   publish:
     name: publish-release
-    needs: build-linux-archives
+    needs:
+      - build-linux-archives
+      - build-sbom
     runs-on: ubuntu-24.04
+    permissions:
+      artifact-metadata: write
+      attestations: write
+      contents: write
+      id-token: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
 
       - name: Collect the native release archives
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           pattern: release-*
           path: dist
@@ -109,8 +159,22 @@ jobs:
       - name: Create the combined checksum manifest
         run: |
           cd dist
-          sha256sum cherubsh-*.tar.gz > SHA256SUMS
+          sha256sum cherubsh-*.tar.gz cherubsh*.cdx.json > SHA256SUMS
           sha256sum --check SHA256SUMS
+
+      - name: Attest the release assets
+        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4
+        with:
+          subject-path: |
+            dist/cherubsh-*.tar.gz
+            dist/cherubsh*.cdx.json
+            dist/SHA256SUMS
+
+      - name: Attach the CycloneDX SBOM to the shell archives
+        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4
+        with:
+          subject-path: dist/cherubsh-[0-9]*-*.tar.gz
+          sbom-path: dist/cherubsh.cdx.json
 
       - name: Publish the GitHub release
         env:

@@ -16,3 +16,6 @@ target/
 
 # Python bytecode caches
 __pycache__/
+
+# CycloneDX intermediates created beside workspace manifests
+/crates/*/*.cdx.json

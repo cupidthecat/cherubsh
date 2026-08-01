@@ -14,6 +14,7 @@ This file records user-visible changes. Dates for published versions match their
 - Separate CherubSH package and Bash compatibility versions.
 - Persistent fuzz targets and seed corpora for parsing, expansion, line input, and the Readline FFI boundary.
 - Weekly benchmark reports with raw samples, summaries, and run provenance.
+- Pinned dependency review and RustSec checks, automated dependency updates, CycloneDX SBOMs, and signed release attestations.
 - Manual pages, Bash-compatible command completion, contribution guidance, and repository templates.
 
 ### Changed
