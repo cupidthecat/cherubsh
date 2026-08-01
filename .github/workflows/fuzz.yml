@@ -1,0 +1,67 @@
+name: fuzz
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/fuzz.yml"
+      - "crates/**"
+      - "fuzz/**"
+      - "tools/run-fuzz-corpus.sh"
+  schedule:
+    - cron: "41 3 * * 3"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  RUSTUP_TOOLCHAIN: nightly-2026-07-30
+
+jobs:
+  seed-replay:
+    name: seed-replay
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install the pinned nightly toolchain
+        run: rustup toolchain install nightly-2026-07-30 --profile minimal
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz --version 0.13.2 --locked
+      - name: Replay every committed seed
+        run: ./tools/run-fuzz-corpus.sh
+
+  scheduled-fuzz:
+    name: fuzz-${{ matrix.target }}
+    if: github.event_name != 'pull_request'
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [lexer, parser, expansion, line_input, readline_ffi]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install the pinned nightly toolchain
+        run: rustup toolchain install nightly-2026-07-30 --profile minimal
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz --version 0.13.2 --locked
+      - name: Run a bounded fuzzing session
+        run: |
+          mkdir -p "fuzz/artifacts/${{ matrix.target }}"
+          cargo fuzz run \
+            --fuzz-dir fuzz \
+            "${{ matrix.target }}" \
+            "fuzz/corpus/${{ matrix.target }}" \
+            -- \
+            -max_total_time=600 \
+            -timeout=10 \
+            -rss_limit_mb=2048 \
+            -artifact_prefix="fuzz/artifacts/${{ matrix.target }}/"
+      - name: Preserve crash artifacts
+        if: failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: fuzz-artifacts-${{ matrix.target }}
+          path: fuzz/artifacts/${{ matrix.target }}
+          if-no-files-found: ignore

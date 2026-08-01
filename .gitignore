@@ -9,5 +9,10 @@ target/
 *.profraw
 *.profdata
 
+# Local coverage-guided fuzzing output
+/fuzz/artifacts/
+/fuzz/coverage/
+/fuzz/target/
+
 # Python bytecode caches
 __pycache__/

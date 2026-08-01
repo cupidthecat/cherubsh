@@ -349,3 +349,43 @@ fn wiki_validation_runs_for_every_pull_request() {
         "pull request validation must not share publish concurrency"
     );
 }
+
+#[test]
+fn persistent_fuzz_targets_replay_seed_corpora_and_retain_failures() {
+    let root = workspace_root();
+    let manifest = fs::read_to_string(root.join("fuzz/Cargo.toml")).expect("read fuzz manifest");
+    let workflow =
+        fs::read_to_string(root.join(".github/workflows/fuzz.yml")).expect("read fuzz workflow");
+
+    for target in ["lexer", "parser", "expansion", "line_input", "readline_ffi"] {
+        assert!(
+            manifest.contains(&format!("name = \"{target}\"")),
+            "missing persistent fuzz target {target}"
+        );
+        let corpus = root.join("fuzz/corpus").join(target);
+        assert!(
+            fs::read_dir(&corpus)
+                .unwrap_or_else(|_| panic!("missing seed corpus for {target}"))
+                .next()
+                .is_some(),
+            "empty seed corpus for {target}"
+        );
+    }
+
+    assert!(workflow.contains("pull_request:"));
+    assert!(workflow.contains("schedule:"));
+    assert!(workflow.contains("./tools/run-fuzz-corpus.sh"));
+    assert!(workflow.contains("cargo fuzz run"));
+    assert!(workflow.contains("actions/upload-artifact@v6"));
+    assert!(workflow.contains("if: failure()"));
+
+    let replay = fs::read_to_string(root.join("tools/run-fuzz-corpus.sh"))
+        .expect("read fuzz corpus replay script");
+    assert!(replay.contains("-timeout=10"));
+    assert!(replay.contains("-rss_limit_mb=2048"));
+
+    let guide = fs::read_to_string(root.join("fuzz/README.md")).expect("read fuzz guide");
+    for command in ["cargo fuzz tmin", "cargo fuzz fmt", "cargo fuzz run"] {
+        assert!(guide.contains(command), "fuzz guide omits {command}");
+    }
+}

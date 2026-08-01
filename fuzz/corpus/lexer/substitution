@@ -1,0 +1,1 @@
+printf '%s\n' "$(printf nested)" $((2 + 3))
