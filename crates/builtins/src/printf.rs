@@ -1149,12 +1149,16 @@ fn emit_codepoint_for_locale(ch: char, out: &mut Vec<u8>, env: Option<&dyn Envir
         let wide = [ch as u32 as libc::wchar_t, 0 as libc::wchar_t];
         let written = unsafe { libc::wcstombs(buf.as_mut_ptr(), wide.as_ptr(), buf.len()) };
         if written != usize::MAX && written <= buf.len() {
-            out.extend(buf[..written].iter().map(|b| *b as u8));
+            out.extend(c_char_slice_bytes(&buf[..written]));
             return;
         }
     }
     let mut buf = [0u8; 4];
     out.extend_from_slice(ch.encode_utf8(&mut buf).as_bytes());
+}
+
+fn c_char_slice_bytes(buffer: &[libc::c_char]) -> Vec<u8> {
+    buffer.iter().flat_map(|byte| byte.to_ne_bytes()).collect()
 }
 
 fn compat_locale_codepoint_bytes(cp: u32, locale: &str) -> Option<Vec<u8>> {
@@ -1200,7 +1204,13 @@ fn hex_val(b: u8) -> u8 {
 
 #[cfg(test)]
 mod tests {
-    use super::interpret_b_escapes;
+    use super::{c_char_slice_bytes, interpret_b_escapes};
+
+    #[test]
+    fn c_char_buffer_conversion_preserves_raw_bytes() {
+        let buffer = [b'A' as libc::c_char, 0xff_u8 as libc::c_char];
+        assert_eq!(c_char_slice_bytes(&buffer), vec![b'A', 0xff]);
+    }
 
     #[test]
     fn percent_b_decodes_octal_without_leading_zero() {
