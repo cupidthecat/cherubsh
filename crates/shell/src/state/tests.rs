@@ -95,4 +95,3 @@ mod tests {
         assert_eq!(state.get_array_assoc("m", "0").as_deref(), Some("zero"));
     }
 }
-

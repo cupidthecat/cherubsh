@@ -24,11 +24,14 @@ include!("model.rs");
 include!("variable_helpers.rs");
 include!("tests.rs");
 include!("environment/variables.rs");
+include!("environment/input_runtime.rs");
+include!("environment/status_diagnostics.rs");
 include!("environment/options.rs");
 include!("environment/runtime.rs");
 include!("environment/arrays.rs");
 include!("environment/locals.rs");
 include!("environment/aliases.rs");
+include!("environment/umask.rs");
 include!("environment/traps.rs");
 include!("environment/commands.rs");
 include!("environment/trap_actions.rs");
@@ -38,12 +41,17 @@ include!("environment/completion.rs");
 include!("environment/signals.rs");
 
 impl Environment for ShellState {
-    environment_variables!();
+    environment_variable_accessors!();
+    environment_input_runtime!();
+    environment_variable_assignment!();
+    environment_positionals!();
+    environment_status_diagnostics!();
     environment_options!();
     environment_runtime!();
     environment_arrays!();
     environment_locals!();
     environment_aliases!();
+    environment_umask!();
     environment_traps!();
     environment_commands!();
     environment_trap_actions!();
@@ -54,4 +62,5 @@ impl Environment for ShellState {
 }
 
 include!("signal_names.rs");
+include!("validation.rs");
 include!("option_helpers.rs");
