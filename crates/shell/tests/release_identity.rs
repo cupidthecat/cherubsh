@@ -4,6 +4,8 @@ use std::process::Command;
 
 use cherubsh_test_harness::cherub_path;
 
+const PACKAGE_VERSION: &str = env!("CARGO_PKG_VERSION");
+
 fn workspace_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
@@ -26,7 +28,8 @@ fn package_version_precedes_bash_compatibility_identity() {
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).expect("UTF-8 version output");
     let lines: Vec<_> = stdout.lines().collect();
-    assert_eq!(lines.first(), Some(&"cherubsh, version 0.3.0"));
+    let package_line = format!("cherubsh, version {PACKAGE_VERSION}");
+    assert_eq!(lines.first(), Some(&package_line.as_str()));
     assert_eq!(
         lines.get(1),
         Some(&"GNU bash, version 5.3.15(1)-release (x86_64-pc-linux-gnu)")
@@ -60,9 +63,10 @@ fn builtin_help_keeps_the_bash_compatibility_header() {
 
 #[test]
 fn release_tag_accepts_the_workspace_package_version() {
+    let release_tag = format!("v{PACKAGE_VERSION}");
     let output = Command::new("bash")
         .arg(workspace_root().join("tools/check-release-tag.sh"))
-        .arg("v0.3.0")
+        .arg(&release_tag)
         .current_dir(workspace_root())
         .output()
         .expect("run release tag guard");
@@ -72,14 +76,17 @@ fn release_tag_accepts_the_workspace_package_version() {
         "tag guard failed: {}",
         String::from_utf8_lossy(&output.stderr)
     );
-    assert_eq!(output.stdout, b"release tag v0.3.0 matches Cargo 0.3.0\n");
+    assert_eq!(
+        output.stdout,
+        format!("release tag {release_tag} matches Cargo {PACKAGE_VERSION}\n").as_bytes()
+    );
 }
 
 #[test]
 fn release_tag_rejects_a_version_that_differs_from_cargo() {
     let output = Command::new("bash")
         .arg(workspace_root().join("tools/check-release-tag.sh"))
-        .arg("v0.3.1")
+        .arg("v999.0.0")
         .current_dir(workspace_root())
         .output()
         .expect("run release tag guard");
@@ -87,7 +94,7 @@ fn release_tag_rejects_a_version_that_differs_from_cargo() {
     assert_eq!(output.status.code(), Some(1));
     assert_eq!(
         output.stderr,
-        b"error: release tag v0.3.1 does not match Cargo 0.3.0\n"
+        format!("error: release tag v999.0.0 does not match Cargo {PACKAGE_VERSION}\n").as_bytes()
     );
 }
 
