@@ -246,6 +246,7 @@ pub fn set_shell_name(argv0: &str, state: &mut ShellState) {
 }
 
 pub const SHELL_VERSION: &str = "5.3.15";
+pub const PACKAGE_VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const MAJOR_VERSION: u32 = 5;
 pub const MINOR_VERSION: u32 = 3;
 pub const PATCH_LEVEL: u32 = 15;
@@ -323,9 +324,11 @@ fn parse_compat_version(raw: &str) -> Option<CompatVersion> {
 }
 
 pub fn show_shell_version() {
-    let version = compat_release_version();
-    let dist = compat_dist_version();
-    println!("cherubsh, version {version}-release (bash-{dist} parity, x86_64-rust-linux-gnu)");
+    println!("cherubsh, version {PACKAGE_VERSION}");
+    println!(
+        "GNU bash, version {} ({MACHTYPE})",
+        compat_shell_version_with_build()
+    );
     println!("Copyright (C) 2025 cherubsh contributors");
     println!("License: GPLv3+ (see vendor/bash-5.3.15/COPYING)");
 }

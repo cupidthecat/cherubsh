@@ -27,6 +27,11 @@ jobs:
       - name: Install the pinned Rust toolchain
         run: rustup toolchain install 1.93.1 --profile minimal
 
+      - name: Verify the release tag
+        env:
+          RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+        run: ./tools/check-release-tag.sh "${RELEASE_TAG}"
+
       - name: Verify the workspace
         run: cargo test --workspace --locked
 
