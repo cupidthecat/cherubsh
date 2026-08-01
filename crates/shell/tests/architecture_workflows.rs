@@ -40,4 +40,6 @@ fn loadable_bridge_is_linked_directly_into_the_shell_binary() {
     assert!(build_script.contains("cargo:rustc-link-arg-bin=cherubsh={}"));
     assert!(!build_script.contains("cargo:rustc-link-lib=static=cherub_loadable_abi"));
     assert!(build_script.contains("-fno-stack-protector"));
+    assert!(build_script
+        .contains("std::env::var(\"CARGO_CFG_TARGET_ARCH\").as_deref() == Ok(\"aarch64\")"));
 }

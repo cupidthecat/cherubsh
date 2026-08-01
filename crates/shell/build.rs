@@ -5,7 +5,10 @@ fn main() {
         let source = std::path::Path::new("loadable_abi.c");
         let compiler = std::env::var_os("CC").unwrap_or_else(|| "cc".into());
         let mut command = std::process::Command::new(compiler);
-        command.args(["-std=c11", "-fPIC", "-fno-stack-protector", "-O2", "-c"]);
+        command.args(["-std=c11", "-fPIC", "-O2", "-c"]);
+        if std::env::var("CARGO_CFG_TARGET_ARCH").as_deref() == Ok("aarch64") {
+            command.arg("-fno-stack-protector");
+        }
         match std::env::var("CHERUBSH_C_SANITIZER").as_deref() {
             Ok("address") => {
                 command.args(["-fsanitize=address", "-fno-omit-frame-pointer"]);
