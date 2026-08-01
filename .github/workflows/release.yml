@@ -183,6 +183,6 @@ jobs:
         run: |
           gh release create "${RELEASE_TAG}" \
             --verify-tag \
-            --generate-notes \
+            --notes-file "release-notes/${RELEASE_TAG}.md" \
             --title "CherubSH ${RELEASE_TAG}" \
             dist/*

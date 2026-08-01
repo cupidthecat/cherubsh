@@ -493,8 +493,8 @@ fn user_and_contributor_release_materials_cover_public_entry_points() {
         assert!(text.contains("install-cherubsh.sh"));
         assert!(text.contains("man cherubsh"));
         assert!(
-            !text.contains("cherubsh-0.3.0-x86_64-unknown-linux-gnu.tar.gz"),
-            "installation instructions name an unpublished v0.3.0 archive"
+            !text.contains("cherubsh-0.4.0-x86_64-unknown-linux-gnu.tar.gz"),
+            "installation instructions should keep architecture placeholders"
         );
     }
 }
@@ -588,7 +588,7 @@ fn release_supply_chain_controls_are_pinned_and_verifiable() {
     assert!(readme.contains("gh attestation verify"));
     assert!(readme.contains("--predicate-type https://cyclonedx.org/bom"));
 
-    assert!(security.contains("Starting with the first release after v0.3.0"));
+    assert!(security.contains("Starting with v0.4.0"));
     let prepared = Command::new("python3")
         .arg(root.join("tools/prepare-sboms.py"))
         .arg("--self-test")

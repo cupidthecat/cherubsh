@@ -94,11 +94,11 @@ Build the release binary, then create a versioned Linux archive and checksum fil
 
 ```sh
 cargo build --release --locked -p cherubsh
-./tools/package-release.sh --version 0.3.0
+./tools/package-release.sh --version 0.4.0
 sha256sum --check dist/SHA256SUMS
 ```
 
-Starting with the next release after v0.3.0, the shell archive contains the binary, manuals, Bash-compatible command completion, license, README, starter configuration, and installers. A tagged release publishes that archive and a separate Readline development archive for both x86-64 and AArch64. One checksum file covers all four archives. The development archive includes its own prefix-aware installer and component uninstaller; [Readline and History](Readline-and-History) has the commands.
+The v0.4.0 shell archive contains the binary, manuals, Bash-compatible command completion, license, README, starter configuration, and installers. A tagged release publishes that archive and a separate Readline development archive for both x86-64 and AArch64. One checksum file covers all four archives. The development archive includes its own prefix-aware installer and component uninstaller; [Readline and History](Readline-and-History) has the commands.
 
 On Linux or WSL, extract the shell archive and install its public files under an absolute prefix:
 

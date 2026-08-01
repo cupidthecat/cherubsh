@@ -147,3 +147,35 @@ fn release_workflow_checks_the_tag_before_building() {
         "release tag guard must run before builds"
     );
 }
+
+#[test]
+fn release_materials_are_ready_for_0_4_0() {
+    assert_eq!(PACKAGE_VERSION, "0.4.0");
+
+    let changelog =
+        fs::read_to_string(workspace_root().join("CHANGELOG.md")).expect("read changelog");
+    assert!(changelog.contains("## 0.4.0 - 2026-07-31"));
+
+    let notes_path = workspace_root().join("release-notes/v0.4.0.md");
+    let notes = fs::read_to_string(&notes_path).expect("read v0.4.0 release notes");
+    for topic in [
+        "interactive shell",
+        "AArch64",
+        "Readline and History development",
+        "ABI",
+        "supply chain",
+        "fuzz",
+        "manual pages",
+        "module",
+    ] {
+        assert!(
+            notes.contains(topic),
+            "{} is missing the {topic} release topic",
+            notes_path.display()
+        );
+    }
+
+    let workflow = fs::read_to_string(workspace_root().join(".github/workflows/release.yml"))
+        .expect("read release workflow");
+    assert!(workflow.contains("--notes-file \"release-notes/${RELEASE_TAG}.md\""));
+}

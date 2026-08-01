@@ -10,7 +10,7 @@ The repository keeps the source for its GitHub Wiki in [`wiki/`](wiki/). Read th
 
 ## Compatibility status
 
-The v0.3.0 parity gates currently report:
+The v0.4.0 parity gates report:
 
 | Suite | Result |
 | --- | ---: |
@@ -161,7 +161,7 @@ To create the development archive from a checkout, build the libraries first, th
 
 ```sh
 ./tools/build-readline.sh
-./tools/package-readline-dev.sh --version 0.3.0
+./tools/package-readline-dev.sh --version 0.4.0
 ```
 
 Run the GNU differential gate with:
@@ -321,7 +321,7 @@ Check every non-interactive example with the debug binary:
 
 ## Installing as a shell
 
-CherubSH supports Linux and WSL. Starting with the next release after v0.3.0, the shell archive includes an installer for the binary, manuals, and Bash-compatible command completion. Replace `VERSION` and `TARGET` below with the names on the release asset:
+CherubSH supports Linux and WSL. The v0.4.0 shell archive includes an installer for the binary, manuals, and Bash-compatible command completion. Replace `VERSION` and `TARGET` below with the names on the release asset:
 
 ```sh
 tar -xzf cherubsh-VERSION-TARGET.tar.gz
@@ -339,11 +339,11 @@ For a versioned Linux archive, build the release binary and package it with a ve
 
 ```sh
 cargo build --release --locked -p cherubsh
-./tools/package-release.sh --version 0.3.0
+./tools/package-release.sh --version 0.4.0
 sha256sum --check dist/SHA256SUMS
 ```
 
-The release workflow runs when a `v*` tag is pushed. The tag must match the workspace package version, so package version `0.3.0` is released from tag `v0.3.0`. The workflow checks this before testing or building. Each supported architecture gets a shell archive and a Readline development archive. The release also includes CycloneDX SBOMs and one checksum file for every archive and SBOM. The shell binary remains at the top level of its archive, so it can run without installation.
+The release workflow runs when a `v*` tag is pushed. The tag must match the workspace package version, so package version `0.4.0` is released from tag `v0.4.0`. The workflow checks this before testing or building. Each supported architecture gets a shell archive and a Readline development archive. The release also includes CycloneDX SBOMs and one checksum file for every archive and SBOM. The shell binary remains at the top level of its archive, so it can run without installation.
 
 After downloading an asset and `SHA256SUMS`, verify both the checksum and the GitHub build provenance:
 

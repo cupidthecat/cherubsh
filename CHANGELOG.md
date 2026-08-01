@@ -4,6 +4,8 @@ This file records user-visible changes. Dates for published versions match their
 
 ## Unreleased
 
+## 0.4.0 - 2026-07-31
+
 ### Added
 
 - Differential PTY coverage for editing, terminal resizing, job control, EOF, paste, completion, and interrupt recovery.
