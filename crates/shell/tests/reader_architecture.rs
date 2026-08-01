@@ -39,6 +39,10 @@ fn interactive_reader_has_focused_responsibility_files() {
             contents.contains(responsibility_anchor),
             "interactive reader file {name} lost {responsibility_anchor}"
         );
+        assert!(
+            !contents.ends_with("\n\n"),
+            "interactive reader file {name} has a surplus blank line at EOF"
+        );
     }
 
     let module = fs::read_to_string(source.join("mod.rs")).expect("read reader module root");

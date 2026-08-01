@@ -156,4 +156,3 @@ fn read_interactive_line(
         Err(EditError::Io(_)) => Err(ShellJump::ForceEof),
     }
 }
-

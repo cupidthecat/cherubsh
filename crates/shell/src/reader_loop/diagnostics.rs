@@ -532,4 +532,3 @@ fn diagnostic_offset(input_text: &str, offset: usize) -> usize {
     }
     offset
 }
-

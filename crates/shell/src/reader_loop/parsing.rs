@@ -609,4 +609,3 @@ fn skip_double_quoted_for_parse(bytes: &[u8], mut i: usize) -> Option<usize> {
     }
     None
 }
-

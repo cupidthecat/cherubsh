@@ -127,4 +127,3 @@ fn should_record_history(state: &ShellState, line: &str) -> bool {
     }
     true
 }
-

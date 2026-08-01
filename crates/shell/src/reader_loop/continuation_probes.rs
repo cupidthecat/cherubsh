@@ -495,4 +495,3 @@ fn skip_ansi_c_quoted_for_probe(bytes: &[u8], mut i: usize) -> Option<usize> {
     }
     None
 }
-

@@ -317,4 +317,3 @@ fn is_completion_delimiter(word: &str, word_breaks: &str) -> bool {
             .next()
             .is_some_and(|ch| ch.is_whitespace() || word_breaks.contains(ch))
 }
-

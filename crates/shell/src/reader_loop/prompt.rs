@@ -22,4 +22,3 @@ fn execute_prompt_command(state: &mut ShellState, exec_state: &mut ExecState) {
         }
     }
 }
-

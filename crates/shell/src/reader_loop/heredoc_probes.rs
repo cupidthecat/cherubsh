@@ -377,4 +377,3 @@ fn heredocs_in_line(line: &str) -> Vec<(String, bool, bool)> {
     }
     out
 }
-

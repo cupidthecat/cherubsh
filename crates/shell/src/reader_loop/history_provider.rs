@@ -23,4 +23,3 @@ impl HistoryProvider for HistorySnapshot {
         self.entries.get(idx).cloned()
     }
 }
-

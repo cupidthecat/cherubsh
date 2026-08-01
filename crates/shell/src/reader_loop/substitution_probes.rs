@@ -551,4 +551,3 @@ fn skip_backtick_body(bytes: &[u8], start: usize) -> Option<usize> {
     }
     None
 }
-
