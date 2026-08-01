@@ -15,8 +15,33 @@ permissions:
   contents: read
 
 jobs:
+  verify-release-source:
+    name: verify-release-source
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+
+      - name: Install the pinned Rust toolchain
+        run: rustup toolchain install 1.93.1 --profile minimal
+
+      - name: Verify the release tag
+        env:
+          RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+        run: ./tools/check-release-tag.sh "${RELEASE_TAG}"
+
+      - name: Fetch protected main
+        run: git fetch --no-tags origin main:refs/remotes/origin/main
+
+      - name: Verify the release source
+        run: ./tools/check-release-source.sh HEAD
+
   build-linux-archives:
     name: build-${{ matrix.arch }}
+    needs: verify-release-source
     strategy:
       fail-fast: false
       matrix:
@@ -91,6 +116,7 @@ jobs:
 
   build-sbom:
     name: build-sbom
+    needs: verify-release-source
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
