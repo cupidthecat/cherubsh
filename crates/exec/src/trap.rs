@@ -127,6 +127,7 @@ fn handle_signal(ctx: &mut ExecContext<'_>, sig: i32, count: u32) {
     }
 
     if let Some(TrapAction::Command(body)) = ctx.env.trap_action(TrapKind::Numeric(sig)) {
+        ctx.env.acknowledge_trapped_signal(sig);
         for _ in 0..count {
             let _ = run_trap_body(ctx, sig, &body);
         }
@@ -151,6 +152,7 @@ fn run_trap_body_with_line_offset(
     let saved_trap_base = ctx.trap_base_function_depth;
     ctx.trap_base_function_depth = Some(ctx.function_depth);
     let saved_status = ctx.last_status;
+    let saved_pipestatus = ctx.env.get_array("PIPESTATUS");
     let ast = parse_trap_body(ctx.env, body, offset_lines);
     let mut status = match ast {
         Some(ast) => ctx.execute_command(&ast.root, ExecMode::Parent),
@@ -177,6 +179,9 @@ fn run_trap_body_with_line_offset(
     } else {
         ctx.last_status = status;
         ctx.env.set_last_status(status);
+    }
+    if let Some(values) = saved_pipestatus {
+        ctx.env.set_array("PIPESTATUS", values);
     }
     ctx.trap_base_function_depth = saved_trap_base;
     ctx.env.set_running_trap(saved_trap);

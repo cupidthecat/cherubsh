@@ -1,0 +1,14 @@
+# mode                vendor file          proof surface
+pty                   read-nchars.tests    misc-read-nchars
+pty                   redir-t2.sh          misc-redir-tty
+pty                   run-r2.sh            misc-redir-tty
+signal                sigint-1.sh          misc_parity
+signal                sigint-2.sh          misc_parity
+signal                sigint-3.sh          misc_parity
+signal                sigint-4.sh          misc_parity
+script                test-minus-e.1       misc_parity
+script                test-minus-e.2       misc_parity
+script                wait-bg.tests        misc_parity
+network               dev-tcp.tests        phase6_tcp
+benchmark             perf-script          benchmark_schedule
+benchmark             perftest             benchmark_schedule

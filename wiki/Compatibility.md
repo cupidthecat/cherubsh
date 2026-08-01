@@ -44,4 +44,6 @@ BASH_LOADABLES_PATH=target/oracle/bash-5.3.15/examples/loadables \
 
 A passing test suite describes the cases that ran on that revision and host. Terminal behavior, kernel signals, locale, filesystem timing, and dependencies can expose cases outside the suite. Reproduce a difference with the smallest script you can, run it under the pinned Bash oracle and CherubSH, and keep the exact status, standard output, standard error, and remaining files.
 
-The normal upstream Bash suite deliberately excludes `vendor/bash-5.3.15/tests/misc`, matching Bash's own `make tests` and `tests/run-all` targets. That directory contains manual, network, performance, signal-timing, and terminal-dependent scripts.
+Bash's own aggregate test targets skip `vendor/bash-5.3.15/tests/misc`. CherubSH classifies every file in that directory and automates the ten deterministic scripts with bounded substitutions for long sleeps and external input. The terminal cases run in isolated PTYs. The network case uses a local TCP server, never the public hosts named by the original script.
+
+`perf-script` and `perftest` remain benchmark inputs. They run with the scheduled performance suite instead of the correctness gate.

@@ -212,7 +212,7 @@ FUZZ_ARTIFACT_DIR=target/hardening/fuzz \
 ./tools/run-fuzz-smoke.sh
 ```
 
-The PTY differential runner opens isolated interactive sessions under the pinned Bash oracle and CherubSH. Its scenarios cover resize handling, job control, pipelines, EOF, Unicode editing, bracketed paste, Vi and Emacs modes, completion, and interrupt recovery. The JSON report compares scenario-specific results such as edited input, job state, and deferred paste execution. Raw and normalized transcripts remain available for investigating screen redraw differences.
+The PTY differential runner opens isolated interactive sessions under the pinned Bash oracle and CherubSH. Its scenarios cover resize handling, job control, pipelines, EOF, Unicode editing, bracketed paste, Vi and Emacs modes, completion, and interrupt recovery. It also exercises Bash's manual `read -n` and `/dev/tty` redirection cases. The JSON report records the values and state that matter for each scenario. Raw and normalized transcripts remain available when a terminal failure needs closer inspection.
 
 ```sh
 python3 tools/pty-differential.py \
@@ -250,7 +250,14 @@ cargo +nightly test -Zbuild-std \
 - `target/upstream` holds verified source caches created by `tools/fetch-upstream.sh`.
 - `target/oracle` holds local GNU builds. It is generated and ignored by Git.
 
-The normal upstream Bash suite excludes `tests/misc`, matching Bash's own `make tests` and `tests/run-all` targets. That directory contains manual, network, performance, signal-timing, and terminal-dependent scripts.
+Bash's `make tests` and `tests/run-all` targets do not enter `tests/misc`, so CherubSH tracks that directory separately in `crates/test-harness/bash-misc-cases.txt`. Ten deterministic scripts run through the Rust or PTY parity tests. The signal cases use shorter sleeps, and `wait-bg.tests` removes its four-second delay. `/dev/tcp` tests talk only to a loopback server and cover numeric ports, host and service lookup, bidirectional I/O, assigned descriptors, and connection errors.
+
+`perf-script` and `perftest` are benchmark inputs, not correctness tests. They are reserved for the scheduled benchmark suite.
+
+```sh
+cargo test -p cherubsh --test misc_parity
+cargo test -p cherubsh --test phase6_tcp
+```
 
 ## Examples
 

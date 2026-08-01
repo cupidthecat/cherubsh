@@ -3951,6 +3951,10 @@ impl Environment for ShellState {
     fn pending_signal_take(&mut self, sig: i32) -> u32 {
         crate::signals::pending_signal_take(sig)
     }
+
+    fn acknowledge_trapped_signal(&mut self, sig: i32) {
+        crate::signals::acknowledge_trapped_signal(sig);
+    }
     fn running_trap(&self) -> Option<i32> {
         self.running_trap_sig
     }

@@ -82,9 +82,11 @@ fn handle_signal(state: &mut ShellState, sig: i32, count: u32) {
             // loop converts the pending state via `check_signals()`.
         }
         TrapAction::Ignore => {
+            state.acknowledge_trapped_signal(sig);
             // No-op.
         }
         TrapAction::Command(body) => {
+            state.acknowledge_trapped_signal(sig);
             run_trap_body(state, sig, &body);
         }
     }

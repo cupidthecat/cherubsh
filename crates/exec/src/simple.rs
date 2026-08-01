@@ -1283,9 +1283,13 @@ fn execute_external_parent<'a>(
         return Err(ExecError::new("fork() failed"));
     }
     if pid == 0 {
-        // Child: install fresh process group leadership, reset signals.
-        unsafe {
-            libc::setpgid(0, 0);
+        // Job-controlled commands need their own process group. Without job
+        // control, keep the child in the shell's group so terminal signals
+        // reach the foreground command as well as the shell.
+        if job_control {
+            unsafe {
+                libc::setpgid(0, 0);
+            }
         }
         crate::util::reset_child_signal_handlers(ctx.env);
         if let Err(err) = redirect::apply_redirects_to_child(ctx, &simple.redirects) {
@@ -1295,11 +1299,11 @@ fn execute_external_parent<'a>(
         let code = execute_external_child(ctx, name, args, assignments, simple, path_override);
         unsafe { libc::_exit(code) };
     }
-    // Parent: close pgid race + transfer terminal to child group.
-    unsafe {
-        libc::setpgid(pid, pid);
-    }
     if job_control {
+        // Parent: close the setpgid race, then transfer the terminal.
+        unsafe {
+            libc::setpgid(pid, pid);
+        }
         if let Some(fd) = tty_fd {
             crate::util::tcsetpgrp_blocked(fd, pid);
         }

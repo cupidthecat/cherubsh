@@ -926,7 +926,17 @@ fn errno_message(err: &std::io::Error) -> String {
         Some(libc::ENOENT) => "No such file or directory".to_string(),
         Some(libc::EISDIR) => "Is a directory".to_string(),
         Some(libc::EMFILE) => "Too many open files".to_string(),
-        _ => err.to_string(),
+        Some(errno) => {
+            let message = unsafe { libc::strerror(errno) };
+            if message.is_null() {
+                err.to_string()
+            } else {
+                unsafe { std::ffi::CStr::from_ptr(message) }
+                    .to_string_lossy()
+                    .into_owned()
+            }
+        }
+        None => err.to_string(),
     }
 }
 
@@ -964,6 +974,9 @@ fn mark_coproc_fd_moved(ctx: &mut ExecContext<'_>, source: i32) {
 }
 
 fn open_path(path: &str, flags: i32, mode: libc::mode_t) -> Result<RawFd, ExecError> {
+    if let Some((host, service)) = tcp_endpoint(path) {
+        return open_tcp(path, host, service);
+    }
     // Use OpenOptions for read+create paths to interop with rust types when
     // possible; otherwise call libc::open directly.
     let cpath = std::ffi::CString::new(path)
@@ -979,6 +992,77 @@ fn open_path(path: &str, flags: i32, mode: libc::mode_t) -> Result<RawFd, ExecEr
         return Err(ExecError::new(format!("{path}: {message}")));
     }
     Ok(fd)
+}
+
+fn tcp_endpoint(path: &str) -> Option<(&str, &str)> {
+    let endpoint = path.strip_prefix("/dev/tcp/")?;
+    let (host, service) = endpoint.split_once('/')?;
+    if host.is_empty() || service.is_empty() || service.contains('/') {
+        return None;
+    }
+    Some((host, service))
+}
+
+fn open_tcp(path: &str, host: &str, service: &str) -> Result<RawFd, ExecError> {
+    let host_name = std::ffi::CString::new(host)
+        .map_err(|_| ExecError::new(format!("{path}: invalid hostname")))?;
+    let service_name = std::ffi::CString::new(service)
+        .map_err(|_| ExecError::new(format!("{path}: invalid service")))?;
+    let mut hints: libc::addrinfo = unsafe { std::mem::zeroed() };
+    hints.ai_family = libc::AF_UNSPEC;
+    hints.ai_socktype = libc::SOCK_STREAM;
+    let mut addresses: *mut libc::addrinfo = std::ptr::null_mut();
+    let resolve_status = unsafe {
+        libc::getaddrinfo(
+            host_name.as_ptr(),
+            service_name.as_ptr(),
+            &hints,
+            &mut addresses,
+        )
+    };
+    if resolve_status != 0 {
+        let message = unsafe {
+            let ptr = libc::gai_strerror(resolve_status);
+            if ptr.is_null() {
+                format!("address lookup failed ({resolve_status})")
+            } else {
+                std::ffi::CStr::from_ptr(ptr).to_string_lossy().into_owned()
+            }
+        };
+        let subject = if resolve_status == libc::EAI_SERVICE {
+            service
+        } else {
+            host
+        };
+        eprintln!("cherubsh: {subject}: {message}");
+        return Err(ExecError::new(format!("{path}: Invalid argument")));
+    }
+
+    let mut current = addresses;
+    let mut last_error = None;
+    while !current.is_null() {
+        let address = unsafe { &*current };
+        let fd =
+            unsafe { libc::socket(address.ai_family, address.ai_socktype, address.ai_protocol) };
+        if fd >= 0 {
+            let connected = unsafe { libc::connect(fd, address.ai_addr, address.ai_addrlen) };
+            if connected == 0 {
+                unsafe { libc::freeaddrinfo(addresses) };
+                return Ok(fd);
+            }
+            last_error = Some(std::io::Error::last_os_error());
+            unsafe { libc::close(fd) };
+        } else {
+            last_error = Some(std::io::Error::last_os_error());
+        }
+        current = address.ai_next;
+    }
+    unsafe { libc::freeaddrinfo(addresses) };
+
+    let error = last_error.unwrap_or_else(|| std::io::Error::from_raw_os_error(libc::EINVAL));
+    let message = errno_message(&error);
+    eprintln!("cherubsh: connect: {message}");
+    Err(ExecError::new(format!("{path}: {message}")))
 }
 
 fn dup2_close(source: RawFd, target: i32) -> Result<(), ExecError> {
