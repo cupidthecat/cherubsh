@@ -31,3 +31,12 @@ fn release_workflow_builds_and_publishes_both_native_archives() {
     assert!(workflow.contains("needs: build-linux-archives"));
     assert!(workflow.contains("sha256sum --check SHA256SUMS"));
 }
+
+#[test]
+fn loadable_bridge_is_linked_directly_into_the_shell_binary() {
+    let build_script = fs::read_to_string(workspace_root().join("crates/shell/build.rs"))
+        .expect("read shell build script");
+
+    assert!(build_script.contains("cargo:rustc-link-arg-bin=cherubsh={}"));
+    assert!(!build_script.contains("cargo:rustc-link-lib=static=cherub_loadable_abi"));
+}
