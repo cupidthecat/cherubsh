@@ -335,9 +335,17 @@ fn upstream_fetch_tries_the_canonical_gnu_origin_before_the_redirector() {
 fn wiki_validation_runs_for_every_pull_request() {
     let workflow = fs::read_to_string(workspace_root().join(".github/workflows/wiki.yml"))
         .expect("read wiki workflow");
+    let publish = workflow.find("\n  publish:\n").expect("wiki publish job");
+    let concurrency = workflow
+        .find("\n    concurrency:\n")
+        .expect("wiki publish concurrency");
 
     assert!(
         workflow.contains("  pull_request:\n  workflow_dispatch:\n"),
         "the required wiki validation check must run for every pull request"
+    );
+    assert!(
+        !workflow.contains("\nconcurrency:\n") && concurrency > publish,
+        "pull request validation must not share publish concurrency"
     );
 }

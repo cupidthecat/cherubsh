@@ -17,10 +17,6 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: wiki-publish
-  cancel-in-progress: false
-
 jobs:
   validate:
     runs-on: ubuntu-24.04
@@ -33,6 +29,9 @@ jobs:
     needs: validate
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
+    concurrency:
+      group: wiki-publish
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v6
 
