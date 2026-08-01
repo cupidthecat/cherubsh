@@ -23,7 +23,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Install the pinned nightly toolchain
         run: rustup toolchain install nightly-2026-07-30 --profile minimal
       - name: Install cargo-fuzz
@@ -41,7 +41,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Install the pinned nightly toolchain
         run: rustup toolchain install nightly-2026-07-30 --profile minimal
       - name: Install cargo-fuzz
@@ -60,7 +60,7 @@ jobs:
             -artifact_prefix="fuzz/artifacts/${{ matrix.target }}/"
       - name: Preserve crash artifacts
         if: failure()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: fuzz-artifacts-${{ matrix.target }}
           path: fuzz/artifacts/${{ matrix.target }}
