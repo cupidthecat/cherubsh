@@ -63,9 +63,9 @@ int main(void)
             child);
     fclose(file);
 
+    setenv("TERM", "xterm-256color", 1);
     rl_initialize();
     rl_readline_name = "probe";
-    setenv("TERM", "xterm-256color", 1);
     printf("inputrc=%d\n", rl_read_init_file(parent));
     snprintf(app_value, sizeof(app_value), "%s",
              rl_variable_value("completion-query-items"));
