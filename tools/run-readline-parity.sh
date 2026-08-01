@@ -8,6 +8,12 @@ REPORT_ROOT="${READLINE_PARITY_REPORT_ROOT:-${WORKSPACE_ROOT}/target/parity/read
 EXAMPLE_ROOT="${ORACLE_ROOT}/source/examples"
 PTY_CAPTURE="${WORKSPACE_ROOT}/tests/readline/pty_capture.py"
 
+if pkg-config --exists tinfo 2>/dev/null; then
+    read -r -a TERMINAL_LIBS <<< "$(pkg-config --libs tinfo)"
+else
+    TERMINAL_LIBS=(-ltermcap)
+fi
+
 "${WORKSPACE_ROOT}/oracle/build-readline-8.3.sh"
 "${WORKSPACE_ROOT}/tools/build-readline.sh"
 
@@ -23,11 +29,13 @@ compile_fixture() {
     local fixture="$2"
     local output="$3"
     local library="$4"
+    shift 4
     cc -std=c11 -Wall -Wextra -Werror \
+        "$@" \
         -I"${root}/include" \
         "${fixture}" \
         -L"${root}/lib" -Wl,-rpath,"${root}/lib" \
-        "-l${library}" -ltermcap \
+        "-l${library}" "${TERMINAL_LIBS[@]}" \
         -o "${output}"
 }
 
@@ -41,12 +49,42 @@ compile_fixture "${ORACLE_ROOT}" "${WORKSPACE_ROOT}/tests/readline/custom_bindin
 compile_fixture "${IMPLEMENTATION_ROOT}" "${WORKSPACE_ROOT}/tests/readline/custom_binding.c" "${REPORT_ROOT}/implementation/custom-binding" readline
 compile_fixture "${ORACLE_ROOT}" "${WORKSPACE_ROOT}/tests/readline/public_behavior.c" "${REPORT_ROOT}/oracle/public-behavior" readline
 compile_fixture "${IMPLEMENTATION_ROOT}" "${WORKSPACE_ROOT}/tests/readline/public_behavior.c" "${REPORT_ROOT}/implementation/public-behavior" readline
+compile_fixture "${ORACLE_ROOT}" "${WORKSPACE_ROOT}/tests/readline/abi_layout.c" "${REPORT_ROOT}/oracle/abi-layout" readline
+compile_fixture "${IMPLEMENTATION_ROOT}" "${WORKSPACE_ROOT}/tests/readline/abi_layout.c" "${REPORT_ROOT}/implementation/abi-layout" readline
+compile_fixture "${ORACLE_ROOT}" "${WORKSPACE_ROOT}/tests/readline/allocator_ownership.c" "${REPORT_ROOT}/oracle/allocator-ownership" readline
+compile_fixture "${IMPLEMENTATION_ROOT}" "${WORKSPACE_ROOT}/tests/readline/allocator_ownership.c" "${REPORT_ROOT}/implementation/allocator-ownership" readline
+compile_fixture "${ORACLE_ROOT}" "${WORKSPACE_ROOT}/tests/readline/callback_lifecycle.c" "${REPORT_ROOT}/oracle/callback-lifecycle" readline
+compile_fixture "${IMPLEMENTATION_ROOT}" "${WORKSPACE_ROOT}/tests/readline/callback_lifecycle.c" "${REPORT_ROOT}/implementation/callback-lifecycle" readline
+compile_fixture "${ORACLE_ROOT}" "${WORKSPACE_ROOT}/tests/readline/completion_inputrc.c" "${REPORT_ROOT}/oracle/completion-inputrc" readline
+compile_fixture "${IMPLEMENTATION_ROOT}" "${WORKSPACE_ROOT}/tests/readline/completion_inputrc.c" "${REPORT_ROOT}/implementation/completion-inputrc" readline
+compile_fixture "${ORACLE_ROOT}" "${WORKSPACE_ROOT}/tests/readline/history_state.c" "${REPORT_ROOT}/oracle/history-state" history
+compile_fixture "${IMPLEMENTATION_ROOT}" "${WORKSPACE_ROOT}/tests/readline/history_state.c" "${REPORT_ROOT}/implementation/history-state" history
+compile_fixture "${ORACLE_ROOT}" "${WORKSPACE_ROOT}/tests/readline/redisplay_streams.c" "${REPORT_ROOT}/oracle/redisplay-streams" readline
+compile_fixture "${IMPLEMENTATION_ROOT}" "${WORKSPACE_ROOT}/tests/readline/redisplay_streams.c" "${REPORT_ROOT}/implementation/redisplay-streams" readline
+
+for fixture in allocator_ownership callback_lifecycle completion_inputrc history_state; do
+    output_name="${fixture//_/-}-asan"
+    compile_fixture "${ORACLE_ROOT}" "${WORKSPACE_ROOT}/tests/readline/${fixture}.c" \
+        "${REPORT_ROOT}/oracle/${output_name}" readline -fsanitize=address -fno-omit-frame-pointer
+    compile_fixture "${IMPLEMENTATION_ROOT}" "${WORKSPACE_ROOT}/tests/readline/${fixture}.c" \
+        "${REPORT_ROOT}/implementation/${output_name}" readline -fsanitize=address -fno-omit-frame-pointer
+done
 
 for side in oracle implementation; do
     HOME="${REPORT_ROOT}/home" LC_ALL=C.UTF-8 TERM=xterm-256color \
         "${REPORT_ROOT}/${side}/abi-smoke" > "${REPORT_ROOT}/${side}/abi-smoke.out"
     "${REPORT_ROOT}/${side}/history-link" > "${REPORT_ROOT}/${side}/history-link.out"
     "${REPORT_ROOT}/${side}/public-behavior" > "${REPORT_ROOT}/${side}/public-behavior.out"
+    "${REPORT_ROOT}/${side}/abi-layout" > "${REPORT_ROOT}/${side}/abi-layout.out"
+    "${REPORT_ROOT}/${side}/allocator-ownership" > "${REPORT_ROOT}/${side}/allocator-ownership.out"
+    "${REPORT_ROOT}/${side}/callback-lifecycle" > "${REPORT_ROOT}/${side}/callback-lifecycle.out"
+    "${REPORT_ROOT}/${side}/completion-inputrc" > "${REPORT_ROOT}/${side}/completion-inputrc.out"
+    "${REPORT_ROOT}/${side}/history-state" > "${REPORT_ROOT}/${side}/history-state.out"
+    "${REPORT_ROOT}/${side}/redisplay-streams" > "${REPORT_ROOT}/${side}/redisplay-streams.out"
+    for fixture in allocator-ownership callback-lifecycle completion-inputrc history-state; do
+        ASAN_OPTIONS=detect_leaks=1:abort_on_error=1 \
+            "${REPORT_ROOT}/${side}/${fixture}-asan" >/dev/null
+    done
     printf 'typed line\n\004' \
         | HOME="${REPORT_ROOT}/home" LC_ALL=C.UTF-8 TERM=xterm-256color \
             python3 "${PTY_CAPTURE}" "${REPORT_ROOT}/${side}/readline-loop" \
@@ -62,6 +100,12 @@ diff -u "${REPORT_ROOT}/oracle/history-link.out" "${REPORT_ROOT}/implementation/
 diff -u "${REPORT_ROOT}/oracle/readline-loop.out" "${REPORT_ROOT}/implementation/readline-loop.out"
 diff -u "${REPORT_ROOT}/oracle/custom-binding.out" "${REPORT_ROOT}/implementation/custom-binding.out"
 diff -u "${REPORT_ROOT}/oracle/public-behavior.out" "${REPORT_ROOT}/implementation/public-behavior.out"
+diff -u "${REPORT_ROOT}/oracle/abi-layout.out" "${REPORT_ROOT}/implementation/abi-layout.out"
+diff -u "${REPORT_ROOT}/oracle/allocator-ownership.out" "${REPORT_ROOT}/implementation/allocator-ownership.out"
+diff -u "${REPORT_ROOT}/oracle/callback-lifecycle.out" "${REPORT_ROOT}/implementation/callback-lifecycle.out"
+diff -u "${REPORT_ROOT}/oracle/completion-inputrc.out" "${REPORT_ROOT}/implementation/completion-inputrc.out"
+diff -u "${REPORT_ROOT}/oracle/history-state.out" "${REPORT_ROOT}/implementation/history-state.out"
+diff -u "${REPORT_ROOT}/oracle/redisplay-streams.out" "${REPORT_ROOT}/implementation/redisplay-streams.out"
 
 perl -ne 'if (/^extern.*?([A-Za-z_][A-Za-z0-9_]*)[[:space:]]*(?:\(|;|\[)/) { print "$1\n" }' \
     "${IMPLEMENTATION_ROOT}"/include/readline/{readline,history,keymaps,tilde}.h \

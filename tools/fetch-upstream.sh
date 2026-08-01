@@ -24,9 +24,9 @@ done
 mkdir -p "${DOWNLOAD_DIR}"
 
 GNU_DOWNLOAD_BASES=(
-    "https://ftpmirror.gnu.org"
     "https://ftp.gnu.org/gnu"
     "https://mirrors.kernel.org/gnu"
+    "https://ftpmirror.gnu.org"
 )
 GNU_DOWNLOAD_BASE=""
 

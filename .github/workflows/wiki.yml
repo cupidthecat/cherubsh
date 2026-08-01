@@ -12,21 +12,10 @@ on:
       - '.githooks/pre-commit'
       - '.github/workflows/wiki.yml'
   pull_request:
-    paths:
-      - 'wiki/**'
-      - 'tools/check-wiki-source.sh'
-      - 'tools/publish-wiki.sh'
-      - 'tools/install-git-hooks.sh'
-      - '.githooks/pre-commit'
-      - '.github/workflows/wiki.yml'
   workflow_dispatch:
 
 permissions:
   contents: read
-
-concurrency:
-  group: wiki-publish
-  cancel-in-progress: false
 
 jobs:
   validate:
@@ -40,6 +29,9 @@ jobs:
     needs: validate
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
+    concurrency:
+      group: wiki-publish
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v6
 
