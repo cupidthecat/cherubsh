@@ -98,7 +98,7 @@ cargo build --release --locked -p cherubsh
 sha256sum --check dist/SHA256SUMS
 ```
 
-The archive contains the binary, license, README, starter configuration, and configuration installer. Pushing a matching `v*` tag builds native x86-64 and AArch64 Linux archives, then publishes both archives and one checksum file in the GitHub release.
+The shell archive contains the binary, license, README, starter configuration, and configuration installer. A tagged release publishes that archive and a separate Readline development archive for both x86-64 and AArch64. One checksum file covers all four archives. The development archive includes its own prefix-aware installer and component uninstaller; [Readline and History](Readline-and-History) has the commands.
 
 ## Next steps
 

@@ -1,0 +1,7 @@
+LICENSE share/licenses/cherubsh-history/LICENSE
+include/readline/history.h include/readline/history.h
+lib/libhistory.a lib/libhistory.a
+lib/libhistory.so lib/libhistory.so
+lib/libhistory.so.8 lib/libhistory.so.8
+lib/libhistory.so.8.3 lib/libhistory.so.8.3
+lib/pkgconfig/history.pc lib/pkgconfig/history.pc
