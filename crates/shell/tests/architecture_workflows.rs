@@ -26,13 +26,17 @@ fn release_workflow_builds_and_publishes_both_native_archives() {
     assert!(workflow.contains("runs-on: ${{ matrix.runner }}"));
     assert!(workflow.contains("runner: ubuntu-24.04\n"));
     assert!(workflow.contains("runner: ubuntu-24.04-arm\n"));
-    assert!(workflow.contains("uses: actions/upload-artifact@v7"));
-    assert!(workflow.contains("uses: actions/download-artifact@v8"));
-    assert!(workflow.contains("needs: build-linux-archives"));
+    assert!(
+        workflow.contains("uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a")
+    );
+    assert!(workflow
+        .contains("uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c"));
+    assert!(workflow.contains("- build-linux-archives"));
+    assert!(workflow.contains("- build-sbom"));
     assert!(workflow.contains("sha256sum --check SHA256SUMS"));
     assert!(workflow.contains("run: ./tools/build-readline.sh"));
     assert!(workflow.contains("./tools/package-readline-dev.sh"));
-    assert!(workflow.contains("sha256sum cherubsh-*.tar.gz > SHA256SUMS"));
+    assert!(workflow.contains("sha256sum cherubsh-*.tar.gz cherubsh-*.cdx.json > SHA256SUMS"));
     assert!(workflow.contains("dist/cherubsh-readline-dev-*.tar.gz"));
 }
 
