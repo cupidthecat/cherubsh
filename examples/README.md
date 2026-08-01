@@ -34,4 +34,4 @@ Each script uses `#!/usr/bin/env cherubsh`. Once `cherubsh` is on `PATH`, you ca
 - `05-parallel-checks.sh` tracks concurrent checks by PID and collects them with `wait -n -p`. Its sample includes one failed check, so it exits with status 1 after printing the report.
 - `06-completion-and-history.sh` defines a small completion source, prints matching candidates, and records two commands in the current history list.
 
-`readline-client.c` is a compact C program for the staged Readline and History libraries. Build the libraries with `./tools/build-readline.sh`, then compile it with the command in the repository README.
+`readline-client.c` is a compact C program for the Readline and History libraries. Build the libraries with `./tools/build-readline.sh`, or install a release development archive with `tools/install-readline-dev.sh`, then compile it with the command in the repository README.

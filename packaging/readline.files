@@ -1,0 +1,12 @@
+LICENSE share/licenses/cherubsh-readline/LICENSE
+include/readline/chardefs.h include/readline/chardefs.h
+include/readline/keymaps.h include/readline/keymaps.h
+include/readline/readline.h include/readline/readline.h
+include/readline/rlstdc.h include/readline/rlstdc.h
+include/readline/rltypedefs.h include/readline/rltypedefs.h
+include/readline/tilde.h include/readline/tilde.h
+lib/libreadline.a lib/libreadline.a
+lib/libreadline.so lib/libreadline.so
+lib/libreadline.so.8 lib/libreadline.so.8
+lib/libreadline.so.8.3 lib/libreadline.so.8.3
+lib/pkgconfig/readline.pc lib/pkgconfig/readline.pc

@@ -52,6 +52,32 @@ cc examples/readline-client.c \
 target/readline-client
 ```
 
+## Install a development archive
+
+Each Linux release has a `cherubsh-readline-dev` archive for x86-64 and AArch64. It contains the public headers, shared-library links, static archives, pkg-config files, license, C example, component manifests, and installer.
+
+After extracting the archive, install both libraries under `/usr/local` with:
+
+```sh
+sudo ./tools/install-readline-dev.sh install --component all --prefix /usr/local
+```
+
+For a staged package build, set `DESTDIR` and choose the prefix that the finished package will use:
+
+```sh
+DESTDIR="$PWD/package-root" \
+  ./tools/install-readline-dev.sh install --component all --prefix /usr
+```
+
+Readline and History have separate ownership records. This lets the uninstaller remove one component without deleting files that belong to the other component or to another package:
+
+```sh
+sudo ./tools/install-readline-dev.sh uninstall --component readline --prefix /usr/local
+sudo ./tools/install-readline-dev.sh uninstall --component history --prefix /usr/local
+```
+
+The pkg-config files derive their prefix from their installed location. Moving the staged prefix does not leave the build path embedded in their include or library flags.
+
 ## Run the library parity gate
 
 ```sh

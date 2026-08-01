@@ -137,6 +137,33 @@ cc examples/readline-client.c \
 target/readline-client
 ```
 
+Release builds also provide a separate `cherubsh-readline-dev` archive for each supported architecture. Extract that archive and install both components under a prefix with:
+
+```sh
+sudo ./tools/install-readline-dev.sh install --component all --prefix /usr/local
+```
+
+Package builders can stage the same installation without writing to the live prefix:
+
+```sh
+DESTDIR="$PWD/package-root" \
+  ./tools/install-readline-dev.sh install --component all --prefix /usr
+```
+
+The installer records the files owned by each component. Use those records to remove Readline, History, or both while leaving unrelated files alone:
+
+```sh
+sudo ./tools/install-readline-dev.sh uninstall --component readline --prefix /usr/local
+sudo ./tools/install-readline-dev.sh uninstall --component history --prefix /usr/local
+```
+
+To create the development archive from a checkout, build the libraries first, then run the development packager:
+
+```sh
+./tools/build-readline.sh
+./tools/package-readline-dev.sh --version 0.3.0
+```
+
 Run the GNU differential gate with:
 
 ```sh
@@ -296,7 +323,7 @@ cargo build --release --locked -p cherubsh
 sha256sum --check dist/SHA256SUMS
 ```
 
-The release workflow runs when a `v*` tag is pushed. The tag must match the workspace package version, so package version `0.3.0` is released from tag `v0.3.0`. The workflow checks this before testing or building, then publishes native `x86_64-unknown-linux-gnu` and `aarch64-unknown-linux-gnu` archives with one checksum file.
+The release workflow runs when a `v*` tag is pushed. The tag must match the workspace package version, so package version `0.3.0` is released from tag `v0.3.0`. The workflow checks this before testing or building. Each supported architecture gets a shell archive and a Readline development archive, and the release includes one checksum file for all four archives.
 
 Test your scripts and dotfiles before making it your login shell. Keep the system Bash package installed.
 

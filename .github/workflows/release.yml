@@ -47,6 +47,9 @@ jobs:
       - name: Build the Linux release binary
         run: cargo build --release --locked -p cherubsh
 
+      - name: Build the Readline development files
+        run: ./tools/build-readline.sh
+
       - name: Create the release archive
         env:
           RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
@@ -63,13 +66,27 @@ jobs:
               --version "${RELEASE_VERSION}" \
               --binary target/release/cherubsh \
               --output dist
-          sha256sum --check dist/SHA256SUMS
+          SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)" \
+            ./tools/package-readline-dev.sh \
+              --version "${RELEASE_VERSION}" \
+              --input target/readline \
+              --output dist
+          (
+            cd dist
+            sha256sum cherubsh-*.tar.gz > SHA256SUMS
+          )
+          (
+            cd dist
+            sha256sum --check SHA256SUMS
+          )
 
       - name: Preserve the native release archive
         uses: actions/upload-artifact@v7
         with:
           name: release-${{ matrix.arch }}
-          path: dist/cherubsh-*.tar.gz
+          path: |
+            dist/cherubsh-[0-9]*.tar.gz
+            dist/cherubsh-readline-dev-*.tar.gz
           if-no-files-found: error
 
   publish:
