@@ -466,3 +466,35 @@ fn upstream_misc_benchmark_cases_complete_and_write_reports() {
     assert!(metadata.contains("fuzz_lock_sha256\t"));
     let _ = fs::remove_dir_all(report_directory);
 }
+
+#[test]
+fn user_and_contributor_release_materials_cover_public_entry_points() {
+    let root = workspace_root();
+    for path in ["CONTRIBUTING.md", "CHANGELOG.md"] {
+        let contents = fs::read_to_string(root.join(path))
+            .unwrap_or_else(|error| panic!("read {path}: {error}"));
+        assert!(!contents.trim().is_empty(), "{path} is empty");
+    }
+    for path in [
+        ".github/ISSUE_TEMPLATE/bug.yml",
+        ".github/ISSUE_TEMPLATE/compatibility.yml",
+        ".github/ISSUE_TEMPLATE/feature.yml",
+        ".github/pull_request_template.md",
+    ] {
+        assert!(root.join(path).is_file(), "missing public template {path}");
+    }
+
+    let readme = fs::read_to_string(root.join("README.md")).expect("read README");
+    let getting_started =
+        fs::read_to_string(root.join("wiki/Getting-started.md")).expect("read getting started");
+    for text in [&readme, &getting_started] {
+        assert!(text.contains("Linux"));
+        assert!(text.contains("WSL"));
+        assert!(text.contains("install-cherubsh.sh"));
+        assert!(text.contains("man cherubsh"));
+        assert!(
+            !text.contains("cherubsh-0.3.0-x86_64-unknown-linux-gnu.tar.gz"),
+            "installation instructions name an unpublished v0.3.0 archive"
+        );
+    }
+}

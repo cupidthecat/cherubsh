@@ -1,0 +1,44 @@
+.TH CHERUBSHRC 5 "August 2026" "CherubSH" "File Formats Manual"
+.SH NAME
+cherubshrc \- interactive CherubSH startup file
+.SH DESCRIPTION
+An interactive, non-login CherubSH shell reads
+.I ~/.cherubrc
+unless startup options select another path or disable the file. CherubSH does
+not use
+.I ~/.bashrc
+as a fallback.
+.PP
+Use
+.B --norc
+to skip the file. Use
+.B --rcfile
+or
+.B --init-file
+with a path to read another file.
+.SH EXAMPLE
+.nf
+export EDITOR="${EDITOR:-vi}"
+set -o vi
+alias ll='ls -alF'
+
+if [[ -r /usr/share/bash-completion/bash_completion ]]; then
+    source /usr/share/bash-completion/bash_completion
+fi
+.fi
+.SH LOGIN AND OTHER MODES
+Login shells use the supported Bash-style profile sequence. Non-interactive
+shells may read the file named by BASH_ENV. POSIX and sh-compatible interactive
+modes may read the file named by ENV.
+.SH FILES
+.TP
+.I ~/.cherubrc
+Default interactive, non-login startup file.
+.TP
+.I /etc/profile
+System login profile.
+.TP
+.IR ~/.bash_profile , " " ~/.bash_login , " " ~/.profile
+User login profiles, checked in that order when the current mode permits them.
+.SH SEE ALSO
+.BR cherubsh (1)

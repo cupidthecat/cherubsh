@@ -1,0 +1,50 @@
+name: Bug report
+description: Report a CherubSH defect that is not a Bash compatibility mismatch.
+title: "bug: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for taking the time to make the problem reproducible.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What happened?
+      description: Describe the result you saw and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Small reproduction
+      description: Include the exact command or script, input, output, and exit status.
+      render: shell
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: CherubSH version
+      description: Paste the full output of cherubsh --version.
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options:
+        - Linux
+        - WSL
+    validations:
+      required: true
+  - type: textarea
+    id: terminal
+    attributes:
+      label: Terminal details
+      description: For interactive problems, include TERM, terminal emulator, editing mode, and relevant cherubrc lines.
+  - type: textarea
+    id: notes
+    attributes:
+      label: Other details
+      description: Add logs, files left behind, or other context that changes the result.

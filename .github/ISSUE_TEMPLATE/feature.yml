@@ -1,0 +1,35 @@
+name: Feature request
+description: Propose a user-facing capability or workflow improvement.
+title: "feature: "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem to solve
+      description: Explain what you are trying to do and why the current behavior gets in the way.
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Proposed behavior
+      description: Describe the command, interface, or result you would like to use.
+    validations:
+      required: true
+  - type: textarea
+    id: bash
+    attributes:
+      label: Bash reference
+      description: If Bash has related behavior, include a small example and its result.
+  - type: textarea
+    id: testing
+    attributes:
+      label: Public test seam
+      description: Suggest how the behavior could be checked through a command, installed file, C interface, or terminal session.
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Note any current workaround or smaller change that would also solve the problem.

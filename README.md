@@ -6,7 +6,7 @@ CherubSH is developed and tested on Linux. The same build and test commands work
 
 ## Documentation
 
-The repository keeps the source for its GitHub Wiki in [`wiki/`](wiki/). Read the [wiki home page](wiki/Home.md) from the checkout, or use the GitHub Wiki once it has been enabled and published. Contributors should edit the versioned source pages rather than the rendered wiki; [Publishing the wiki](wiki/Publishing-the-wiki.md) explains the validation and publication workflow.
+The repository keeps the source for its GitHub Wiki in [`wiki/`](wiki/). Read the [wiki home page](wiki/Home.md) from the checkout, or use the GitHub Wiki once it has been enabled and published. [CONTRIBUTING.md](CONTRIBUTING.md) explains the test and pull request workflow, and [CHANGELOG.md](CHANGELOG.md) records user-visible release changes. Contributors should edit the versioned source pages rather than the rendered wiki; [Publishing the wiki](wiki/Publishing-the-wiki.md) explains the validation and publication workflow.
 
 ## Compatibility status
 
@@ -321,11 +321,19 @@ Check every non-interactive example with the debug binary:
 
 ## Installing as a shell
 
-Install the release binary somewhere on `PATH`:
+CherubSH supports Linux and WSL. Starting with the next release after v0.3.0, the shell archive includes an installer for the binary, manuals, and Bash-compatible command completion. Replace `VERSION` and `TARGET` below with the names on the release asset:
 
 ```sh
-sudo install -m 0755 target/release/cherubsh /usr/local/bin/cherubsh
+tar -xzf cherubsh-VERSION-TARGET.tar.gz
+cd cherubsh-VERSION-TARGET
+sudo ./tools/install-cherubsh.sh install --prefix /usr/local
+cherubsh --version
+man cherubsh
 ```
+
+The same command works under WSL. For a staged package build, pass `--destdir PATH`. To remove the installed files, replace `install` with `uninstall` and use the same prefix and DESTDIR. The installer refuses to replace a file it does not own.
+
+The archive installs `cherubsh(1)`, `cherubsh-readline(3)`, and `cherubshrc(5)`. Its completion file is placed at `share/bash-completion/completions/cherubsh` below the selected prefix.
 
 For a versioned Linux archive, build the release binary and package it with a version of your choice:
 
@@ -335,7 +343,7 @@ cargo build --release --locked -p cherubsh
 sha256sum --check dist/SHA256SUMS
 ```
 
-The release workflow runs when a `v*` tag is pushed. The tag must match the workspace package version, so package version `0.3.0` is released from tag `v0.3.0`. The workflow checks this before testing or building. Each supported architecture gets a shell archive and a Readline development archive, and the release includes one checksum file for all four archives.
+The release workflow runs when a `v*` tag is pushed. The tag must match the workspace package version, so package version `0.3.0` is released from tag `v0.3.0`. The workflow checks this before testing or building. Each supported architecture gets a shell archive and a Readline development archive, and the release includes one checksum file for all four archives. The shell binary also remains at the top level of its archive, so it can run without installation.
 
 Test your scripts and dotfiles before making it your login shell. Keep the system Bash package installed.
 
