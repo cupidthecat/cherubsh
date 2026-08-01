@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use cherubsh_builtins::{options as set_options, shopt_table};
-use cherubsh_common::{Environment, ShellError};
+use cherubsh_common::{target::TargetIdentity, Environment, ShellError};
 
 use crate::state::ShellState;
 
@@ -252,7 +252,6 @@ pub const MINOR_VERSION: u32 = 3;
 pub const PATCH_LEVEL: u32 = 15;
 pub const BUILD_VERSION: u32 = 1;
 pub const DIST_VERSION: &str = "5.3";
-pub const MACHTYPE: &str = "x86_64-pc-linux-gnu";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CompatVersion {
@@ -324,10 +323,12 @@ fn parse_compat_version(raw: &str) -> Option<CompatVersion> {
 }
 
 pub fn show_shell_version() {
+    let identity = TargetIdentity::current();
     println!("cherubsh, version {PACKAGE_VERSION}");
     println!(
-        "GNU bash, version {} ({MACHTYPE})",
-        compat_shell_version_with_build()
+        "GNU bash, version {} ({})",
+        compat_shell_version_with_build(),
+        identity.machtype
     );
     println!("Copyright (C) 2025 cherubsh contributors");
     println!("License: GPLv3+ (see vendor/bash-5.3.15/COPYING)");

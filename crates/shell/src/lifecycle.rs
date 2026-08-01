@@ -1,8 +1,8 @@
 use std::ffi::CStr;
 
-use cherubsh_common::{Environment, VarAttrs};
+use cherubsh_common::{target::TargetIdentity, Environment, VarAttrs};
 
-use crate::options::{compat_shell_version_with_build, compat_version, BUILD_VERSION, MACHTYPE};
+use crate::options::{compat_shell_version_with_build, compat_version, BUILD_VERSION};
 use crate::signals::{acquire_terminal, install_job_control_signals};
 use crate::state::{ShellState, StartupMode, VariableEntry};
 
@@ -60,8 +60,9 @@ pub fn shell_initialize(state: &mut ShellState) {
         .map(|p| p.display().to_string())
         .unwrap_or_default();
 
+    let target_identity = TargetIdentity::current();
     bind(state, "BASH_VERSION", compat_shell_version_with_build());
-    bind_bash_versinfo(state);
+    bind_bash_versinfo(state, &target_identity);
     bind(state, "BASH", shell_executable_path());
     bind(
         state,
@@ -82,9 +83,9 @@ pub fn shell_initialize(state: &mut ShellState) {
         String::from(COMP_WORDBREAKS_VALUE),
     );
     bind(state, "HOSTNAME", hostname());
-    bind(state, "HOSTTYPE", hosttype());
-    bind(state, "MACHTYPE", String::from(MACHTYPE));
-    bind(state, "OSTYPE", ostype());
+    bind(state, "HOSTTYPE", target_identity.hosttype.clone());
+    bind(state, "MACHTYPE", target_identity.machtype.clone());
+    bind(state, "OSTYPE", target_identity.ostype.clone());
     bind(state, "PWD", cwd.clone());
     state.logical_pwd_value = Some(cwd);
     state.export("PWD");
@@ -216,7 +217,7 @@ fn bind_exported_unset(state: &mut ShellState, name: &str) {
     );
 }
 
-fn bind_bash_versinfo(state: &mut ShellState) {
+fn bind_bash_versinfo(state: &mut ShellState, target_identity: &TargetIdentity) {
     let version = compat_version();
     state.set_array(
         "BASH_VERSINFO",
@@ -226,7 +227,7 @@ fn bind_bash_versinfo(state: &mut ShellState) {
             version.patch.to_string(),
             BUILD_VERSION.to_string(),
             String::from("release"),
-            String::from(MACHTYPE),
+            target_identity.machtype.clone(),
         ],
     );
     state.set_attr("BASH_VERSINFO", VarAttrs::READONLY, true);
@@ -276,28 +277,6 @@ fn hostname() -> String {
     unsafe { CStr::from_ptr(buf.as_ptr()) }
         .to_string_lossy()
         .into_owned()
-}
-
-fn hosttype() -> String {
-    match std::env::consts::ARCH {
-        "x86_64" => String::from("x86_64"),
-        "aarch64" => String::from("aarch64"),
-        arch => arch.to_string(),
-    }
-}
-
-fn ostype() -> String {
-    match std::env::consts::OS {
-        "linux" => String::from("linux-gnu"),
-        "macos" => String::from("darwin"),
-        "freebsd" => String::from("freebsd"),
-        "netbsd" => String::from("netbsd"),
-        "openbsd" => String::from("openbsd"),
-        "dragonfly" => String::from("dragonfly"),
-        "solaris" => String::from("solaris"),
-        "windows" => String::from("msys"),
-        os => os.to_string(),
-    }
 }
 
 fn bashopts_value(state: &ShellState) -> String {

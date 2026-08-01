@@ -14,8 +14,17 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  linux:
-    runs-on: ubuntu-24.04
+  parity:
+    name: parity-${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-24.04
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v6
@@ -58,8 +67,19 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v6
         with:
-          name: parity-reports
+          name: parity-reports-${{ matrix.arch }}
           path: |
             parity.log
             target/parity
           if-no-files-found: ignore
+
+  linux:
+    name: linux
+    needs: parity
+    if: always()
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require every native parity job
+        env:
+          PARITY_RESULT: ${{ needs.parity.result }}
+        run: test "${PARITY_RESULT}" = success

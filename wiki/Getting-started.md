@@ -94,11 +94,11 @@ Build the release binary, then create a versioned Linux archive and checksum fil
 
 ```sh
 cargo build --release --locked -p cherubsh
-./tools/package-release.sh --version 0.3.1
+./tools/package-release.sh --version 0.3.0
 sha256sum --check dist/SHA256SUMS
 ```
 
-The archive contains the binary, license, README, starter configuration, and configuration installer. Pushing a `v*` tag runs the same packaging steps before publishing the archive and checksum as a GitHub release.
+The archive contains the binary, license, README, starter configuration, and configuration installer. Pushing a matching `v*` tag builds native x86-64 and AArch64 Linux archives, then publishes both archives and one checksum file in the GitHub release.
 
 ## Next steps
 
