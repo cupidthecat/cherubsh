@@ -11,6 +11,8 @@
 #   BASH_53_PATH=path    compatibility alias for BASH_5315_PATH
 #   BASH_521_PATH=path   Bash 5.2.21 oracle binary
 #   BENCH_BUILD=0        skip cargo release build
+#   BENCH_CASES=a,b      run only the named comma-separated cases
+#   BENCH_OUTPUT_DIR=dir write reports to this directory
 
 set -euo pipefail
 
@@ -20,6 +22,8 @@ RUNS="${RUNS:-15}"
 WARMUPS="${WARMUPS:-3}"
 CHERUBSH="${CHERUBSH:-${WS_ROOT}/target/release/cherubsh}"
 BENCH_BUILD="${BENCH_BUILD:-1}"
+BENCH_CASES="${BENCH_CASES:-}"
+BENCH_OUTPUT_DIR="${BENCH_OUTPUT_DIR:-${WS_ROOT}/target/bench}"
 ORACLE_VERSION="${BASH_ORACLE_VERSION:-5.3.15}"
 
 case "${ORACLE_VERSION}" in
@@ -81,6 +85,14 @@ mkdir -p "${TMP}/home" "${TMP}/scripts" "${TMP}/glob" "${TMP}/dirs/a"
 for i in $(seq -w 1 400); do
     printf 'data-%s\n' "${i}" >"${TMP}/glob/file-${i}.txt"
 done
+
+PERF_SCRIPT="${TMP}/scripts/bash-perf-script.sh"
+PERFTEST="${TMP}/scripts/bash-perftest.sh"
+sed '1s|^#!.*$|#!/usr/bin/env bash|' \
+    "${WS_ROOT}/vendor/bash-5.3.15/tests/misc/perf-script" >"${PERF_SCRIPT}"
+sed 's|for x in /usr/lib/\*/\*|for x in "$BENCH_PERF_GLOB_DIR"/*/*|' \
+    "${WS_ROOT}/vendor/bash-5.3.15/tests/misc/perftest" >"${PERFTEST}"
+chmod +x "${PERF_SCRIPT}" "${PERFTEST}"
 
 for d in a b c; do
     mkdir -p "${TMP}/glob/nested/${d}"
@@ -627,7 +639,26 @@ CASES=(
     "glob_scan"$'\t'"script"$'\t'"${GLOB_SCAN}"
     "glob_array_capture"$'\t'"script"$'\t'"${GLOB_ARRAY_CAPTURE}"
     "globstar_scan"$'\t'"script"$'\t'"${GLOBSTAR_SCAN}"
+    "bash_perf_script"$'\t'"script"$'\t'"${PERF_SCRIPT}"
+    "bash_perftest"$'\t'"script"$'\t'"${PERFTEST}"
 )
+
+if [[ -n "${BENCH_CASES}" ]]; then
+    requested=",${BENCH_CASES},"
+    selected_cases=()
+    for case_row in "${CASES[@]}"; do
+        IFS=$'\t' read -r case_name _mode _payload <<<"${case_row}"
+        if [[ "${requested}" == *",${case_name},"* ]]; then
+            selected_cases+=("${case_row}")
+            requested="${requested/,${case_name},/,}"
+        fi
+    done
+    if [[ "${requested}" != "," ]]; then
+        echo "error: unknown BENCH_CASES entries: ${requested#,}" >&2
+        exit 2
+    fi
+    CASES=("${selected_cases[@]}")
+fi
 
 SHELL_LABELS=("cherubsh" "${ORACLE_LABEL}")
 SHELL_PATHS=("${CHERUBSH}" "${ORACLE}")
@@ -652,11 +683,44 @@ validate_cases() {
 }
 validate_cases
 
-RAW="${WS_ROOT}/target/bench/raw.tsv"
-SUMMARY="${WS_ROOT}/target/bench/summary.tsv"
-mkdir -p "$(dirname "${RAW}")"
+RAW="${BENCH_OUTPUT_DIR}/raw.tsv"
+SUMMARY="${BENCH_OUTPUT_DIR}/summary.tsv"
+METADATA="${BENCH_OUTPUT_DIR}/metadata.tsv"
+mkdir -p "${BENCH_OUTPUT_DIR}"
 printf 'case\tshell\trun\telapsed_ns\n' >"${RAW}"
 printf 'case\tshell\tmedian_ms\tmin_ms\tmax_ms\t%s\n' "${RATIO_COLUMN}" >"${SUMMARY}"
+
+metadata_value() {
+    tr '\t\r\n' '   ' | sed 's/[[:space:]]\+$//'
+}
+
+file_sha256() {
+    sha256sum "$1" | awk '{print $1}'
+}
+
+commit="$(git rev-parse HEAD 2>/dev/null || printf unknown)"
+runner="${RUNNER_NAME:-$(hostname)}"
+cpu="$(awk -F ': ' '/^model name|^Model/{print $2; exit}' /proc/cpuinfo 2>/dev/null || true)"
+if [[ -z "${cpu}" ]]; then
+    cpu="$(uname -m)"
+fi
+rust_toolchain="$(rustc --version 2>/dev/null || printf unavailable)"
+oracle_version_output="$("${ORACLE}" --version 2>/dev/null || true)"
+oracle_banner="${oracle_version_output%%$'\n'*}"
+{
+    printf 'field\tvalue\n'
+    printf 'commit\t%s\n' "$(printf '%s' "${commit}" | metadata_value)"
+    printf 'runner\t%s\n' "$(printf '%s' "${runner}" | metadata_value)"
+    printf 'cpu\t%s\n' "$(printf '%s' "${cpu}" | metadata_value)"
+    printf 'rust_toolchain\t%s\n' "$(printf '%s' "${rust_toolchain}" | metadata_value)"
+    printf 'oracle_version\t%s\n' "$(printf '%s' "${oracle_banner}" | metadata_value)"
+    printf 'cargo_lock_sha256\t%s\n' "$(file_sha256 "${WS_ROOT}/Cargo.lock")"
+    printf 'fuzz_lock_sha256\t%s\n' "$(file_sha256 "${WS_ROOT}/fuzz/Cargo.lock")"
+    printf 'runner_os\t%s\n' "$(uname -s)"
+    printf 'runner_arch\t%s\n' "$(uname -m)"
+    printf 'runs\t%s\n' "${RUNS}"
+    printf 'warmups\t%s\n' "${WARMUPS}"
+} >"${METADATA}"
 
 run_case() {
     local shell_path="$1"
@@ -668,6 +732,7 @@ run_case() {
         cmd)
             env -i PATH="/usr/bin:/bin" HOME="${TMP}/home" LANG=C LC_ALL=C \
                 BENCH_LIB="${LIB}" BENCH_GLOB_DIR="${TMP}/glob" BENCH_TMP="${TMP}" \
+                BENCH_PERF_GLOB_DIR="${TMP}/glob/nested" \
                 "${shell_path}" --noprofile --norc -c "${payload}" \
                 </dev/null >/dev/null 2>"${stderr_path}"
             ;;
@@ -675,11 +740,13 @@ run_case() {
             if command -v setsid >/dev/null 2>&1; then
                 setsid env -i PATH="/usr/bin:/bin" HOME="${TMP}/home" LANG=C LC_ALL=C \
                     BENCH_LIB="${LIB}" BENCH_GLOB_DIR="${TMP}/glob" BENCH_TMP="${TMP}" \
+                    BENCH_PERF_GLOB_DIR="${TMP}/glob/nested" \
                     "${shell_path}" --noprofile --rcfile "${RC}" -i -c "${payload}" \
                     </dev/null >/dev/null 2>"${stderr_path}"
             else
                 env -i PATH="/usr/bin:/bin" HOME="${TMP}/home" LANG=C LC_ALL=C \
                     BENCH_LIB="${LIB}" BENCH_GLOB_DIR="${TMP}/glob" BENCH_TMP="${TMP}" \
+                    BENCH_PERF_GLOB_DIR="${TMP}/glob/nested" \
                     "${shell_path}" --noprofile --rcfile "${RC}" -i -c "${payload}" \
                     </dev/null >/dev/null 2>"${stderr_path}"
             fi
@@ -687,6 +754,7 @@ run_case() {
         script)
             env -i PATH="/usr/bin:/bin" HOME="${TMP}/home" LANG=C LC_ALL=C \
                 BENCH_LIB="${LIB}" BENCH_GLOB_DIR="${TMP}/glob" BENCH_TMP="${TMP}" \
+                BENCH_PERF_GLOB_DIR="${TMP}/glob/nested" \
                 "${shell_path}" --noprofile --norc "${payload}" \
                 </dev/null >/dev/null 2>"${stderr_path}"
             ;;
@@ -706,6 +774,7 @@ echo ">> benchmarking RUNS=${RUNS} WARMUPS=${WARMUPS}"
 echo ">> benchmark cases: ${CASE_COUNT}"
 echo ">> raw samples: ${RAW}"
 echo ">> summary:     ${SUMMARY}"
+echo ">> metadata:    ${METADATA}"
 echo
 
 for case_row in "${CASES[@]}"; do
@@ -803,7 +872,9 @@ printf 'shell\tpath\tversion\tbinary_bytes\tpeak_rss_kb_source_many_functions\n'
 for idx in "${!SHELL_LABELS[@]}"; do
     label="${SHELL_LABELS[$idx]}"
     shell_path="${SHELL_PATHS[$idx]}"
-    version="$("${shell_path}" --version 2>/dev/null | head -n1 | tr '\t' ' ')"
+    version_output="$("${shell_path}" --version 2>/dev/null || true)"
+    version="${version_output%%$'\n'*}"
+    version="${version//$'\t'/ }"
     bytes="$(stat -c '%s' "${shell_path}" 2>/dev/null || printf 'n/a')"
     rss="n/a"
     if command -v /usr/bin/time >/dev/null 2>&1; then

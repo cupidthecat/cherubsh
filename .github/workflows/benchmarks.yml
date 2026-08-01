@@ -1,0 +1,57 @@
+name: benchmarks
+
+on:
+  schedule:
+    - cron: "41 5 * * 2"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: benchmarks-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install system packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes \
+            autoconf \
+            bison \
+            build-essential \
+            gpgv \
+            libncurses-dev \
+            patch \
+            texinfo
+
+      - name: Install the pinned Rust toolchain
+        run: rustup toolchain install 1.93.1 --profile minimal
+
+      - name: Prepare upstream sources
+        run: ./tools/fetch-upstream.sh
+
+      - name: Collect benchmark samples
+        env:
+          BENCH_OUTPUT_DIR: target/bench
+          RUNS: "5"
+          WARMUPS: "1"
+        run: ./tools/bench.sh
+
+      - name: Preserve benchmark history
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: benchmark-${{ github.sha }}-${{ github.run_attempt }}
+          path: |
+            target/bench/raw.tsv
+            target/bench/summary.tsv
+            target/bench/metadata.tsv
+          if-no-files-found: warn
+          retention-days: 90
