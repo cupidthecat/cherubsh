@@ -1,5 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{mpsc, Arc};
 use std::thread;
@@ -159,9 +159,9 @@ fn stabilize_nondeterministic_cases(
     cases: &[OilsCase],
     outcomes: &mut [OilsOutcome],
     known: &BTreeMap<String, OilsKnownMismatch>,
-    bash: &PathBuf,
-    cherub: &PathBuf,
-    spec_dir: &PathBuf,
+    bash: &Path,
+    cherub: &Path,
+    spec_dir: &Path,
     timeout: Duration,
 ) -> Result<(), HarnessError> {
     let nondeterministic = oils_nondeterministic_case_ids()?;
