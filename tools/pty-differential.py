@@ -230,7 +230,7 @@ def build_scenarios() -> tuple[Scenario, ...]:
             actions=(
                 send(b"set -o emacs; printf 'unicode-ready\\n'\n"),
                 wait(b"unicode-ready"),
-                send(b"printf '__PTY_UNICODE__:%s\\n' cafX"),
+                send(b"printf '%s%s:%s\\n' '__PTY_' 'UNICODE__' cafX"),
                 pause(0.05),
                 send(b"\x1b[D\xc3\xa9\x1b[3~\n"),
                 wait("__PTY_UNICODE__:café".encode()),
@@ -775,6 +775,18 @@ def self_test() -> None:
     prompt_barrier = WaitAction(PROMPT.encode(), after=resize_marker)
     if resize_actions[marker_index + 1] != prompt_barrier:
         raise RuntimeError("resize scenario must wait for its prompt before sending exit")
+
+    unicode_scenario = SCENARIOS["unicode-editing"]
+    unicode_marker_prefixes = tuple(
+        marker.partition(":")[0].encode() for marker in unicode_scenario.expected_markers
+    )
+    if any(
+        prefix in action.data
+        for action in unicode_scenario.actions
+        if isinstance(action, SendAction)
+        for prefix in unicode_marker_prefixes
+    ):
+        raise RuntimeError("unicode marker prefix must not appear in echoed input")
 
 
 def main() -> int:
