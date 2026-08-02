@@ -13,6 +13,7 @@ This file records user-visible changes. Dates for published versions match their
 - Native x86-64 and AArch64 parity and release jobs with target-derived shell identity.
 - Installable Readline and History development archives with headers, shared and static libraries, pkg-config files, and component uninstall.
 - Readline ABI and behavior checks for layouts, ownership, callbacks, redisplay, streams, completion, inputrc, and History state.
+- GNU Readline completion display behavior for repeated Tab presses and the `show-all-if-ambiguous` and `show-all-if-unmodified` inputrc settings.
 - Separate CherubSH package and Bash compatibility versions.
 - Persistent fuzz targets and seed corpora for parsing, expansion, line input, and the Readline FFI boundary.
 - Weekly benchmark reports with raw samples, summaries, and run provenance.

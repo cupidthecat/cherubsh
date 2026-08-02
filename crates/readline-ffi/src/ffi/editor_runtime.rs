@@ -34,6 +34,9 @@ struct ReadlineStore {
     signal_handlers: std::collections::BTreeMap<c_int, usize>,
     paren_blink_timeout_us: c_int,
     tty_echoing: c_int,
+    show_all_if_ambiguous: bool,
+    show_all_if_unmodified: bool,
+    completion_changed_buffer: bool,
 }
 
 impl ReadlineStore {
@@ -76,6 +79,9 @@ impl ReadlineStore {
             signal_handlers: std::collections::BTreeMap::new(),
             paren_blink_timeout_us: 500_000,
             tty_echoing: 1,
+            show_all_if_ambiguous: false,
+            show_all_if_unmodified: false,
+            completion_changed_buffer: false,
         }
     }
 }
@@ -157,6 +163,14 @@ struct FfiCompleter;
 impl CompletionProvider for FfiCompleter {
     fn complete(&mut self, line: &str, point: usize) -> Completion {
         unsafe { ffi_complete(line, point) }
+    }
+
+    fn completion_display_policy(&self) -> CompletionDisplayPolicy {
+        let store = readline_store().lock().expect("readline lock");
+        CompletionDisplayPolicy {
+            show_all_if_ambiguous: store.show_all_if_ambiguous,
+            show_all_if_unmodified: store.show_all_if_unmodified,
+        }
     }
 
     fn run_shell_command(

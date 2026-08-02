@@ -31,7 +31,7 @@ Bash is used only as a test oracle. CherubSH does not call Bash to parse command
 - Native `--pretty-print`, `--dump-strings`, `--dump-po-strings`, and `-D` invocation modes for files, standard input, and `-c` command strings.
 - The standard builtins used by the upstream tests, including job control, history, programmable completion, `read`, `mapfile`, `printf`, `test`, `source`, and `wait -n -p`.
 - Bash 5.3.15 loadable builtins through `enable -f`, including scalar, indexed-array, associative-array, input, and child-shell ABI calls used by Bash's example modules.
-- Interactive Emacs and Vi keymaps, UTF-8 cursor movement, undo, kill/yank behavior, history search, terminal-width-aware redisplay, and programmable completion.
+- Interactive Emacs and Vi keymaps, UTF-8 cursor movement, undo, kill/yank behavior, history search, terminal-width-aware redisplay, and programmable completion. Repeated Tab presses and the `show-all-if-ambiguous` and `show-all-if-unmodified` inputrc settings follow GNU Readline's completion display rules.
 - Programmable completion resources, callbacks, filters, option ordering, and lazy-loaded Git completion from bash-completion 2.18.
 - Separate Readline 8.3 and History libraries with public headers, C symbols, custom callbacks, macros, keymaps, versioned shared-library names, static archives, and `pkg-config` files.
 
@@ -170,7 +170,7 @@ Run the GNU differential gate with:
 ./tools/run-readline-parity.sh
 ```
 
-That command builds GNU Readline 8.3 patch 3, checks public symbol coverage and library names, and compiles the same C fixtures against both implementations. The C tests compare structure layout, constants, allocator ownership, callback setup and teardown, redisplay hooks, custom streams, completion, inputrc conditionals, and saved History state. Ownership-sensitive fixtures also run under AddressSanitizer. The gate still covers the pseudo-terminal Readline loop, custom bindings, macros, bare keymaps, and every deterministic upstream example. Reports are kept under `target/parity/readline`.
+That command builds GNU Readline 8.3 patch 3, checks public symbol coverage and library names, and compiles the same C fixtures against both implementations. The C tests compare structure layout, constants, allocator ownership, callback setup and teardown, redisplay hooks, custom streams, completion display policy, inputrc conditionals, and saved History state. Ownership-sensitive fixtures also run under AddressSanitizer. The gate still covers the pseudo-terminal Readline loop, custom bindings, macros, bare keymaps, and every deterministic upstream example. Reports are kept under `target/parity/readline`.
 
 ## Testing
 

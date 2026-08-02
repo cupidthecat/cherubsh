@@ -115,6 +115,10 @@ impl Renderer {
         term_columns().max(1) as usize
     }
 
+    pub fn invalidate(&mut self) {
+        self.drawn = false;
+    }
+
     pub fn scripted_accept(&mut self, buf: &EditBuffer) -> io::Result<()> {
         if !self.silent {
             return Ok(());
@@ -253,7 +257,7 @@ fn screen_position(text: &str, columns: usize) -> (u16, u16) {
     (row.min(u16::MAX as usize) as u16, column as u16)
 }
 
-fn char_width(ch: char) -> usize {
+pub(crate) fn char_width(ch: char) -> usize {
     if ch == '\0' || ch.is_control() || is_combining(ch) {
         return 0;
     }

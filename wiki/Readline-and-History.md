@@ -84,7 +84,7 @@ The pkg-config files derive their prefix from their installed location. Moving t
 ./tools/run-readline-parity.sh
 ```
 
-The gate builds GNU Readline 8.3 patch 3, checks public symbol coverage and library names, compiles the same C fixtures against GNU Readline and CherubSH, and compares deterministic example output byte for byte. The fixtures include a pseudo-terminal loop, user-defined C callbacks, macros, bare keymaps, and History behavior. Reports are kept in `target/parity/readline`.
+The gate builds GNU Readline 8.3 patch 3, checks public symbol coverage and library names, compiles the same C fixtures against GNU Readline and CherubSH, and compares deterministic example output byte for byte. The fixtures include a pseudo-terminal loop, completion display policy, user-defined C callbacks, macros, bare keymaps, and History behavior. Reports are kept in `target/parity/readline`.
 
 ## Include paths in the repository
 

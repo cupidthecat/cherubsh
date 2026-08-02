@@ -70,8 +70,22 @@ pub unsafe extern "C" fn maybe_replace_line() -> c_int {
 }
 
 #[no_mangle]
-pub extern "C" fn rl_completion_mode(_function: Option<rl_command_func_t>) -> c_int {
-    unsafe { rl_completion_type }
+pub extern "C" fn rl_completion_mode(function: Option<rl_command_func_t>) -> c_int {
+    let store = readline_store().lock().expect("readline lock");
+    let repeated = unsafe {
+        function.zip(rl_last_func).is_some_and(|(current, previous)| {
+            command_pointer(current) == command_pointer(previous)
+        })
+    };
+    if repeated && !store.completion_changed_buffer {
+        b'?' as c_int
+    } else if store.show_all_if_ambiguous {
+        b'!' as c_int
+    } else if store.show_all_if_unmodified {
+        b'@' as c_int
+    } else {
+        b'\t' as c_int
+    }
 }
 
 #[no_mangle]

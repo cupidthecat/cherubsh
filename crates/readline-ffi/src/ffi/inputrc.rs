@@ -3,6 +3,7 @@ pub unsafe extern "C" fn rl_variable_bind(name: *const c_char, value: *const c_c
     let Some(name) = c_text(name) else { return 1 };
     let value = c_text(value).unwrap_or_default();
     let normalized = name.to_ascii_lowercase();
+    let mut stored_value = value.clone();
     if normalized == "editing-mode" {
         let vi = value.eq_ignore_ascii_case("vi");
         rl_editing_mode = if vi { 0 } else { 1 };
@@ -37,12 +38,24 @@ pub unsafe extern "C" fn rl_variable_bind(name: *const c_char, value: *const c_c
         if let Ok(number) = value.parse::<c_int>() {
             rl_completion_query_items = number;
         }
+    } else if matches!(
+        normalized.as_str(),
+        "show-all-if-ambiguous" | "show-all-if-unmodified"
+    ) {
+        let enabled = value.is_empty() || value == "1" || value.eq_ignore_ascii_case("on");
+        let mut store = readline_store().lock().expect("readline lock");
+        if normalized == "show-all-if-ambiguous" {
+            store.show_all_if_ambiguous = enabled;
+        } else {
+            store.show_all_if_unmodified = enabled;
+        }
+        stored_value = if enabled { "on" } else { "off" }.to_string();
     }
     readline_store()
         .lock()
         .expect("readline lock")
         .variables
-        .insert(normalized, clean_c_string(&value));
+        .insert(normalized, clean_c_string(&stored_value));
     0
 }
 

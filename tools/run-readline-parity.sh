@@ -89,6 +89,10 @@ for side in oracle implementation; do
         | HOME="${REPORT_ROOT}/home" LC_ALL=C.UTF-8 TERM=xterm-256color \
             python3 "${PTY_CAPTURE}" "${REPORT_ROOT}/${side}/readline-loop" \
         > "${REPORT_ROOT}/${side}/readline-loop.out"
+    printf 'so\t\t\n\004' \
+        | HOME="${REPORT_ROOT}/home" LC_ALL=C.UTF-8 TERM=xterm-256color \
+            python3 "${PTY_CAPTURE}" "${REPORT_ROOT}/${side}/readline-loop" \
+        > "${REPORT_ROOT}/${side}/readline-loop-completion.out"
     printf '\030q\n\030m\nr\n' \
         | HOME="${REPORT_ROOT}/home" LC_ALL=C.UTF-8 TERM=xterm-256color \
             python3 "${PTY_CAPTURE}" "${REPORT_ROOT}/${side}/custom-binding" \
@@ -98,6 +102,7 @@ done
 diff -u "${REPORT_ROOT}/oracle/abi-smoke.out" "${REPORT_ROOT}/implementation/abi-smoke.out"
 diff -u "${REPORT_ROOT}/oracle/history-link.out" "${REPORT_ROOT}/implementation/history-link.out"
 diff -u "${REPORT_ROOT}/oracle/readline-loop.out" "${REPORT_ROOT}/implementation/readline-loop.out"
+diff -u "${REPORT_ROOT}/oracle/readline-loop-completion.out" "${REPORT_ROOT}/implementation/readline-loop-completion.out"
 diff -u "${REPORT_ROOT}/oracle/custom-binding.out" "${REPORT_ROOT}/implementation/custom-binding.out"
 diff -u "${REPORT_ROOT}/oracle/public-behavior.out" "${REPORT_ROOT}/implementation/public-behavior.out"
 diff -u "${REPORT_ROOT}/oracle/abi-layout.out" "${REPORT_ROOT}/implementation/abi-layout.out"

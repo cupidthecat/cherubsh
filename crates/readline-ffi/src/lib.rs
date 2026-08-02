@@ -14,8 +14,8 @@ use std::time::{Duration, Instant};
 
 use cherubsh_common::{histexpand, EditAction, HistoryTable, Keymap as RustKeymap};
 use cherubsh_lineedit::{
-    set_input_deadline, Completion, CompletionProvider, EditError, HistoryProvider, LineEditor,
-    RawMode,
+    set_input_deadline, Completion, CompletionDisplayPolicy, CompletionProvider, EditError,
+    HistoryProvider, LineEditor, RawMode,
 };
 
 unsafe extern "C" {

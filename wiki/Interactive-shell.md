@@ -46,6 +46,8 @@ set -o vi
 
 CherubSH implements programmable completion resources, callbacks, filters, option ordering, and lazy loading of Git completion from bash-completion 2.18. The development fetch step places that pinned completion source below `target/upstream/bash-completion-2.18.0`.
 
+An ambiguous Tab inserts any longer shared prefix and rings the terminal bell. If a Tab leaves the text unchanged, press Tab again to list the candidates. Set `show-all-if-ambiguous on` in inputrc to list ambiguous matches on the first Tab. Set `show-all-if-unmodified on` to list them on the first Tab only when completion leaves the input unchanged. The boolean parser treats an empty value, `on` (case-insensitive), and `1` as on. Every other value is off.
+
 Completion depends on the commands and files visible in the current shell. Start with the distribution's `bash_completion` file if it is available, then reduce any mismatch to a small function and command line before reporting it.
 
 ## History

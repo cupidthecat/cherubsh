@@ -2,6 +2,13 @@
 
 use crate::Completion;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum CompletionApplication {
+    NoMatches,
+    Unique { changed: bool },
+    Ambiguous { changed: bool },
+}
+
 #[derive(Clone, Default)]
 pub struct EditBuffer {
     chars: Vec<char>,
@@ -380,23 +387,34 @@ impl EditBuffer {
     }
 
     pub fn apply_completion(&mut self, completion: &Completion) {
-        if completion.matches.is_empty() {
-            return;
+        if self.apply_completion_result(completion)
+            == (CompletionApplication::Ambiguous { changed: false })
+        {
+            use std::io::Write;
+            let _ = writeln!(std::io::stderr());
+            for candidate in &completion.matches {
+                let _ = writeln!(std::io::stderr(), "{candidate}");
+            }
         }
+    }
+
+    pub(crate) fn apply_completion_result(
+        &mut self,
+        completion: &Completion,
+    ) -> CompletionApplication {
+        if completion.matches.is_empty() {
+            return CompletionApplication::NoMatches;
+        }
+        let before = self.contents();
         let word_start = self.char_index_for_byte(completion.replace_start);
         let cur_word: String = self.chars[word_start..self.point].iter().collect();
         let common = common_prefix(&completion.matches);
         let chosen = if completion.matches.len() == 1 {
             completion.matches[0].clone()
-        } else if common.len() > cur_word.len() {
+        } else if common.chars().count() > cur_word.chars().count() {
             common
         } else {
-            use std::io::Write;
-            let _ = writeln!(std::io::stderr());
-            for m in &completion.matches {
-                let _ = writeln!(std::io::stderr(), "{}", m);
-            }
-            return;
+            return CompletionApplication::Ambiguous { changed: false };
         };
         self.snapshot();
         let new_chars: Vec<char> = chosen.chars().collect();
@@ -414,6 +432,12 @@ impl EditBuffer {
                 self.chars.insert(self.point, ch);
                 self.point += 1;
             }
+        }
+        let changed = self.contents() != before;
+        if completion.matches.len() == 1 {
+            CompletionApplication::Unique { changed }
+        } else {
+            CompletionApplication::Ambiguous { changed }
         }
     }
 
@@ -486,7 +510,7 @@ fn common_prefix(matches: &[String]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::EditBuffer;
+    use super::{CompletionApplication, EditBuffer};
     use crate::Completion;
 
     #[test]
@@ -516,6 +540,36 @@ mod tests {
             ..Completion::default()
         });
         assert_eq!(buf.contents(), "écho apple");
+    }
+
+    #[test]
+    fn ambiguous_completion_reports_when_it_extends_the_prefix() {
+        let mut buf = EditBuffer::new();
+        buf.insert_str("s");
+
+        let result = buf.apply_completion_result(&Completion {
+            matches: vec!["source".to_string(), "sort".to_string()],
+            replace_start: 0,
+            ..Completion::default()
+        });
+
+        assert_eq!(result, CompletionApplication::Ambiguous { changed: true });
+        assert_eq!(buf.contents(), "so");
+    }
+
+    #[test]
+    fn ambiguous_completion_reports_an_unchanged_prefix() {
+        let mut buf = EditBuffer::new();
+        buf.insert_str("so");
+
+        let result = buf.apply_completion_result(&Completion {
+            matches: vec!["source".to_string(), "sort".to_string()],
+            replace_start: 0,
+            ..Completion::default()
+        });
+
+        assert_eq!(result, CompletionApplication::Ambiguous { changed: false });
+        assert_eq!(buf.contents(), "so");
     }
 
     #[test]
