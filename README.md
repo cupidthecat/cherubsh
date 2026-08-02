@@ -177,10 +177,14 @@ That command builds GNU Readline 8.3 patch 3, checks public symbol coverage and 
 Run the ordinary Rust test suite first:
 
 ```sh
-cargo test --workspace --locked
+./tools/run-workspace-tests.sh
 ```
 
-When the generated Bash oracle is absent, the targeted comparison tests use `BASH_PATH` or `/bin/bash` for local feedback. `tools/run-parity.sh` sets `RUN_PARITY_TESTS=1`, so the full gate still requires the pinned oracle.
+The runner verifies or builds the pinned Bash 5.3.15 oracle under `target/oracle`
+before invoking `cargo test --workspace --locked`. An explicit
+`BASH_ORACLE_PATH` must report that exact patch version. This keeps local
+differential tests from silently comparing against a distribution Bash with
+different semantics.
 
 The full parity gate needs common build tools, `bison`, `texinfo`, `gpgv`, ncurses development headers, Perl, Python 3, and util-linux. On Debian or Ubuntu:
 

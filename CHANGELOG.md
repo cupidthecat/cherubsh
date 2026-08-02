@@ -4,6 +4,10 @@ This file records user-visible changes. Dates for published versions match their
 
 ## Unreleased
 
+### Changed
+
+- Added a workspace test runner that provisions the exact Bash 5.3.15 oracle instead of comparing against a different system Bash.
+
 ## 0.4.0 - 2026-08-01
 
 ### Added

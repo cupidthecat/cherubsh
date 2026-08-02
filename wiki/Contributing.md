@@ -19,8 +19,11 @@ At minimum for Rust changes:
 ```sh
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --locked -- -D warnings
-cargo test --workspace --locked
+./tools/run-workspace-tests.sh
 ```
+
+The workspace runner provisions the exact Bash 5.3.15 oracle used by live
+differential tests before invoking Cargo.
 
 Run a focused upstream, Brush, or Readline parity check for the affected area. [Testing](Testing) shows the supported commands and filters.
 

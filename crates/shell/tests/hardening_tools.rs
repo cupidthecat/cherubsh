@@ -332,6 +332,102 @@ fn upstream_fetch_tries_the_canonical_gnu_origin_before_the_redirector() {
 }
 
 #[test]
+fn workspace_test_runner_uses_an_exact_explicit_oracle() {
+    let directory = temporary_directory("workspace-test-runner");
+    let bash = directory.join("bash-5.3.15");
+    let cargo = directory.join("cargo");
+    let log = directory.join("cargo.log");
+    fs::write(
+        &bash,
+        "#!/usr/bin/env bash\nprintf '%s\\n' 'GNU bash, version 5.3.15(1)-release'\n",
+    )
+    .expect("write fake Bash");
+    fs::write(
+        &cargo,
+        concat!(
+            "#!/usr/bin/env bash\n",
+            "printf 'version=%s\\noracle=%s\\nargs=%s\\n' ",
+            "\"${BASH_ORACLE_VERSION:-}\" \"${BASH_ORACLE_PATH:-}\" \"$*\" ",
+            ">\"${WORKSPACE_TEST_LOG:?}\"\n",
+        ),
+    )
+    .expect("write fake Cargo");
+    for executable in [&bash, &cargo] {
+        let mut permissions = fs::metadata(executable)
+            .expect("read fake executable metadata")
+            .permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(executable, permissions).expect("make fake executable runnable");
+    }
+
+    let output = Command::new(workspace_root().join("tools/run-workspace-tests.sh"))
+        .env("BASH_ORACLE_PATH", &bash)
+        .env("CARGO_BIN", &cargo)
+        .env("WORKSPACE_TEST_LOG", &log)
+        .args(["--", "--nocapture"])
+        .output()
+        .expect("run workspace test wrapper");
+
+    assert!(
+        output.status.success(),
+        "wrapper failed:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let invocation = fs::read_to_string(&log).expect("read fake Cargo invocation");
+    assert!(invocation.contains("version=5.3.15\n"));
+    assert!(invocation.contains(&format!("oracle={}\n", bash.display())));
+    assert!(invocation.contains("args=test --workspace --locked -- --nocapture\n"));
+}
+
+#[test]
+fn workspace_test_runner_rejects_a_mismatched_explicit_oracle() {
+    let directory = temporary_directory("workspace-test-wrong-oracle");
+    let bash = directory.join("bash-5.2.21");
+    fs::write(
+        &bash,
+        "#!/usr/bin/env bash\nprintf '%s\\n' 'GNU bash, version 5.2.21(1)-release'\n",
+    )
+    .expect("write mismatched fake Bash");
+    let mut permissions = fs::metadata(&bash)
+        .expect("read fake Bash metadata")
+        .permissions();
+    permissions.set_mode(0o755);
+    fs::set_permissions(&bash, permissions).expect("make fake Bash runnable");
+
+    let output = Command::new(workspace_root().join("tools/run-workspace-tests.sh"))
+        .env("BASH_ORACLE_PATH", &bash)
+        .env("CARGO_BIN", directory.join("cargo-must-not-run"))
+        .output()
+        .expect("run workspace test wrapper");
+
+    assert_eq!(output.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&output.stderr)
+        .contains("BASH_ORACLE_PATH must be an executable GNU Bash 5.3.15 binary"));
+}
+
+#[test]
+fn development_guides_use_the_pinned_workspace_test_runner() {
+    for path in [
+        "README.md",
+        "CONTRIBUTING.md",
+        "wiki/Getting-started.md",
+        "wiki/Contributing.md",
+        "wiki/Testing.md",
+        "wiki/Development.md",
+    ] {
+        let contents = fs::read_to_string(workspace_root().join(path))
+            .unwrap_or_else(|error| panic!("read {path}: {error}"));
+        assert!(
+            contents.contains("./tools/run-workspace-tests.sh"),
+            "{path} must use the pinned workspace test runner"
+        );
+    }
+
+    let readme = fs::read_to_string(workspace_root().join("README.md")).expect("read README");
+    assert!(!readme.contains("targeted comparison tests use `BASH_PATH` or `/bin/bash`"));
+}
+
+#[test]
 fn wiki_validation_runs_for_every_pull_request() {
     let workflow = fs::read_to_string(workspace_root().join(".github/workflows/wiki.yml"))
         .expect("read wiki workflow");

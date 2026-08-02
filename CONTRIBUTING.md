@@ -19,8 +19,11 @@ Rust changes should pass these commands:
 ```sh
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --locked -- -D warnings
-cargo test --workspace --locked
+./tools/run-workspace-tests.sh
 ```
+
+The workspace runner provisions and validates the pinned Bash 5.3.15 oracle
+before it invokes Cargo. Generated oracle files remain under ignored `target/`.
 
 Run the focused upstream, Brush, PTY, Readline, packaging, or fuzz check for the area you touched. The [testing guide](wiki/Testing.md) lists the available commands and filters. Changes to a public compatibility boundary should also pass:
 
