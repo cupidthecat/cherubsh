@@ -30,7 +30,7 @@ impl std::fmt::Display for HarnessError {
             ),
             Self::OracleUnavailable(path) => write!(
                 f,
-                "bash {} oracle not available at {}",
+                "bash {} oracle not available at {}; run ./tools/run-workspace-tests.sh to provision it",
                 oracle_version(),
                 path.display()
             ),
@@ -204,29 +204,49 @@ pub fn oracle_bash_path() -> PathBuf {
     }
 }
 
+fn oracle_banner_matches(version: &str, banner: &str) -> bool {
+    banner.contains(&format!("GNU bash, version {version}("))
+}
+
+fn oracle_binary_version_matches(path: &Path, version: &str) -> bool {
+    let output = Command::new(path)
+        .arg("--version")
+        .env("LC_ALL", "C")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .output();
+    match output {
+        Ok(output) => {
+            let banner = String::from_utf8_lossy(&output.stdout);
+            output.status.success() && oracle_banner_matches(version, &banner)
+        }
+        Err(_) => false,
+    }
+}
+
 /// True if the oracle binary exists and reports the selected version.
 pub fn oracle_available() -> bool {
     let path = oracle_bash_path();
     if !path.exists() {
         return false;
     }
-    let output = Command::new(&path)
-        .arg("--version")
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .output();
-    match output {
-        Ok(out) => {
-            let banner = String::from_utf8_lossy(&out.stdout);
-            match oracle_version_dir().as_str() {
-                "5.2.21" => banner.contains("version 5.2.21"),
-                "5.3.15" => banner.contains("version 5.3.15"),
-                other => banner.contains(&format!("version {other}")),
-            }
-        }
-        Err(_) => false,
+    oracle_binary_version_matches(&path, &oracle_version_dir())
+}
+
+fn require_available_oracle(path: PathBuf, available: bool) -> Result<PathBuf, HarnessError> {
+    if available {
+        Ok(path)
+    } else {
+        Err(HarnessError::OracleUnavailable(path))
     }
+}
+
+/// Returns the selected Bash oracle only when it exists and reports the exact
+/// configured patch version.
+pub fn required_oracle_bash_path() -> Result<PathBuf, HarnessError> {
+    let path = oracle_bash_path();
+    require_available_oracle(path, oracle_available())
 }
 
 pub fn cherub_path() -> Result<PathBuf, HarnessError> {
@@ -389,54 +409,20 @@ pub fn assert_parser_accepts_like_bash(script: &str) {
 ///   output is treated as the expected answer. This is what `assert_parity`
 ///   does - it shells out to bash for ground truth, then diffs cherubsh.
 ///
-/// Oracle resolution: prefers the selected bash binary at `oracle_bash_path()`
-/// if `oracle_available()`. Falls back to `default_bash_path()` (`/bin/bash`)
-/// with a warning when the selected oracle is missing - useful during local development
-/// before the oracle is built. CI should always have the selected oracle
-/// present and use [`assert_parity_strict`] when divergence-from-5.2.21 is
-/// the explicit goal.
+/// Oracle resolution requires the selected Bash patch version. Use
+/// `tools/run-workspace-tests.sh` to provision it before an ordinary local run.
 pub fn assert_parity(spec: &RunSpec<'_>) {
-    let oracle = oracle_bash_path();
-    let bash_path = if oracle_available() {
-        oracle
-    } else {
-        let fallback = default_bash_path();
-        eprintln!(
-            "warn: bash {} oracle missing at {}; falling back to {}",
-            oracle_version(),
-            oracle.display(),
-            fallback.display(),
-        );
-        if !fallback.exists() {
-            eprintln!(
-                "skipping parity check: bash not found at {}",
-                fallback.display()
-            );
-            return;
-        }
-        fallback
-    };
+    let bash_path = required_oracle_bash_path().expect("resolve pinned Bash oracle");
     run_assert_parity(&bash_path, spec);
 }
 
 /// Run against the selected Bash oracle during a declared parity sweep.
 ///
-/// `RUN_PARITY_TESTS=1` makes an unavailable selected oracle a hard failure.
-/// Ordinary local test runs fall back to the system Bash through
-/// [`assert_parity`], so they do not require generated oracle artifacts.
+/// This remains a separate entry point for callers that declare a full parity
+/// sweep, but both ordinary and strict comparisons require the selected oracle.
 pub fn assert_parity_strict(spec: &RunSpec<'_>) {
-    if !oracle_available() {
-        if std::env::var_os("RUN_PARITY_TESTS").is_none() {
-            assert_parity(spec);
-            return;
-        }
-        panic!(
-            "bash {} oracle not available at {}",
-            oracle_version(),
-            oracle_bash_path().display()
-        );
-    }
-    run_assert_parity(&oracle_bash_path(), spec);
+    let bash_path = required_oracle_bash_path().expect("resolve pinned Bash oracle");
+    run_assert_parity(&bash_path, spec);
 }
 
 fn run_assert_parity(bash_path: &Path, spec: &RunSpec<'_>) {
@@ -620,5 +606,69 @@ mod tests {
             "workspace_root() = {} should contain Cargo.toml",
             root.display()
         );
+    }
+
+    #[test]
+    fn required_oracle_reports_the_workspace_test_command_when_missing() {
+        let path = PathBuf::from("/missing/bash-5.3.15");
+        let error = require_available_oracle(path.clone(), false).expect_err("missing oracle");
+
+        assert!(matches!(&error, HarnessError::OracleUnavailable(value) if value == &path));
+        assert!(error.to_string().contains("./tools/run-workspace-tests.sh"));
+    }
+
+    #[test]
+    fn selected_oracle_banner_must_match_the_exact_patch_version() {
+        assert!(oracle_banner_matches(
+            "5.3.15",
+            "GNU bash, version 5.3.15(1)-release"
+        ));
+        assert!(!oracle_banner_matches(
+            "5.3.15",
+            "GNU bash, version 5.2.21(1)-release"
+        ));
+        assert!(!oracle_banner_matches(
+            "5.3.15",
+            "GNU bash, version 5.3.150(1)-release"
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn selected_oracle_probe_forces_the_c_locale() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let path =
+            std::env::temp_dir().join(format!("cherubsh-localized-bash-{}", std::process::id()));
+        std::fs::write(
+            &path,
+            concat!(
+                "#!/usr/bin/env bash\n",
+                "if [[ ${LC_ALL:-} == C ]]; then\n",
+                "  printf '%s\\n' 'GNU bash, version 5.3.15(1)-release'\n",
+                "else\n",
+                "  printf '%s\\n' 'bash GNU, versión 5.3.15(1)-release'\n",
+                "fi\n",
+            ),
+        )
+        .unwrap();
+        let mut permissions = std::fs::metadata(&path).unwrap().permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(&path, permissions).unwrap();
+
+        assert!(oracle_binary_version_matches(&path, "5.3.15"));
+
+        std::fs::write(
+            &path,
+            concat!(
+                "#!/usr/bin/env bash\n",
+                "printf '%s\\n' 'GNU bash, version 5.3.15(1)-release'\n",
+                "exit 7\n",
+            ),
+        )
+        .unwrap();
+        assert!(!oracle_binary_version_matches(&path, "5.3.15"));
+
+        std::fs::remove_file(path).unwrap();
     }
 }

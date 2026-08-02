@@ -7,12 +7,14 @@ Start with the smallest command that can prove the work. Run the full parity dri
 ```sh
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --locked -- -D warnings
-cargo test --workspace --locked
+./tools/run-workspace-tests.sh
 ```
 
 The repository CI runs these checks as part of its parity job. Format and clippy failures are worth fixing before a large oracle run.
 
-Local comparison tests use `BASH_PATH` or `/bin/bash` when the generated Bash oracle is absent. The full parity driver exports `RUN_PARITY_TESTS=1`, which makes a missing pinned oracle a failure.
+The workspace runner verifies or builds Bash 5.3.15 under `target/oracle` and
+then invokes `cargo test --workspace --locked`. Live comparisons require that
+exact oracle; they do not fall back to the system Bash.
 
 ## Full parity gate
 

@@ -74,10 +74,12 @@ The installer never replaces a file that already exists. Use `--path FILE` to co
 Run the normal workspace tests before trying the slower compatibility gate:
 
 ```sh
-cargo test --workspace --locked
+./tools/run-workspace-tests.sh
 ```
 
-When a generated Bash oracle is absent, local comparison tests use `BASH_PATH` or `/bin/bash`. The full parity driver sets `RUN_PARITY_TESTS=1` and still requires the pinned Bash build.
+The runner builds the verified Bash 5.3.15 oracle under `target/oracle` when it
+is missing, then runs the ordinary Cargo workspace tests. It never replaces
+the distribution's `/bin/bash`.
 
 For the full sequence, fetch and verify the pinned sources, then run the parity driver:
 

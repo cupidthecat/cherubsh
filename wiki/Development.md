@@ -7,7 +7,7 @@ Work from the repository root. Keep changes narrow enough that the relevant test
 ```sh
 cargo fmt --all
 cargo clippy --workspace --all-targets --locked -- -D warnings
-cargo test --workspace --locked
+./tools/run-workspace-tests.sh
 ```
 
 When a change affects shell behavior, add or update the smallest fixture that proves it. Then use the appropriate focused oracle command before the full parity run. [Testing](Testing) has the filters for upstream and Brush cases.
