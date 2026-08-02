@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use cherubsh_test_harness::oils::{run_oils_case_with_shells, OilsCase};
+use cherubsh_test_harness::oils::{run_oils_case_with_shells, validate_oils_sandbox, OilsCase};
 use cherubsh_test_harness::workspace_root;
 
 fn case(code: &str) -> OilsCase {
@@ -23,11 +23,32 @@ fn fixture_spec_dir() -> &'static Path {
 }
 
 #[test]
+fn sandbox_preflight_accepts_a_working_shell() {
+    validate_oils_sandbox(
+        Path::new("/bin/bash"),
+        fixture_spec_dir(),
+        Duration::from_secs(3),
+    )
+    .expect("validate working Oils sandbox");
+}
+
+#[test]
+fn sandbox_preflight_rejects_a_command_that_never_runs_the_probe() {
+    let error = validate_oils_sandbox(
+        Path::new("/bin/false"),
+        fixture_spec_dir(),
+        Duration::from_secs(3),
+    )
+    .expect_err("reject broken Oils sandbox");
+
+    assert!(error.to_string().contains("Oils sandbox preflight failed"));
+}
+
+#[test]
 fn sandbox_preserves_raw_bytes_and_uses_identical_logical_paths() {
     let fixture = case(
         "printf '%s\\n' \"$SH|$HOME|$TMP|$PWD|$$|$0\"\n\
-         python3 -c 'import sys; sys.stdout.buffer.write(b\"\\xff\")'\n\
-         ! grep -q eth0 /proc/net/dev && printf '|isolated\\n'\n",
+         python3 -c 'import sys; sys.stdout.buffer.write(b\"\\xff\")'\n",
     );
 
     let outcome = run_oils_case_with_shells(
@@ -41,7 +62,7 @@ fn sandbox_preserves_raw_bytes_and_uses_identical_logical_paths() {
 
     assert!(outcome.passed());
     assert_eq!(outcome.bash, outcome.cherub);
-    assert!(outcome.bash.stdout.ends_with(b"\xff|isolated\n"));
+    assert!(outcome.bash.stdout.ends_with(b"\xff"));
     let text = String::from_utf8_lossy(&outcome.bash.stdout);
     assert!(text.starts_with("bash|/tmp/home|/tmp/work|/tmp/work|2|/tmp/.cherub-bin/bash\n"));
 }

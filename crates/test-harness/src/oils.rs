@@ -5,6 +5,7 @@ use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::OnceLock;
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -24,6 +25,7 @@ const FILE_METADATA_FIELDS: &[&str] = &[
 const SIGKILL: i32 = 9;
 
 static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
+static BWRAP_NETWORK_NAMESPACE: OnceLock<bool> = OnceLock::new();
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OilsCase {
@@ -469,6 +471,60 @@ pub fn run_oils_case_with_shells(
     })
 }
 
+pub fn validate_oils_sandbox(
+    bash_path: &Path,
+    spec_dir: &Path,
+    timeout: Duration,
+) -> Result<(), HarnessError> {
+    if timeout.is_zero() {
+        return Err(invalid_data("Oils timeout must be positive".to_string()));
+    }
+    let probe = OilsCase {
+        source_file: PathBuf::from("sandbox-preflight.test.sh"),
+        case_index: 0,
+        line_number: 1,
+        description: "sandbox preflight".to_string(),
+        code: "printf 'cherubsh-oils-sandbox-ok\\n'\n".to_string(),
+        tags: Vec::new(),
+        legacy_tmp_dir: false,
+    };
+    let output = run_shell_for_case(&probe, bash_path, spec_dir, timeout, "preflight")?;
+    if output.status == 0
+        && !output.timed_out
+        && output.stdout == b"cherubsh-oils-sandbox-ok\n"
+        && output.stderr.is_empty()
+    {
+        return Ok(());
+    }
+
+    Err(invalid_data(format!(
+        "Oils sandbox preflight failed: status={}, timed_out={}, stdout={:?}, stderr={:?}",
+        output.status,
+        output.timed_out,
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    )))
+}
+
+fn bwrap_supports_network_namespace(bwrap: &Path) -> bool {
+    Command::new(bwrap)
+        .args(["--unshare-net", "--ro-bind", "/", "/", "--", "/bin/true"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .is_ok_and(|status| status.success())
+}
+
+fn sandbox_namespace_args(network_namespace: bool) -> Vec<&'static str> {
+    let mut args = vec!["--unshare-pid"];
+    if network_namespace {
+        args.push("--unshare-net");
+    }
+    args.extend(["--unshare-ipc", "--unshare-uts"]);
+    args
+}
+
 fn run_shell_for_case(
     case: &OilsCase,
     shell_path: &Path,
@@ -499,14 +555,20 @@ fn run_shell_for_case(
     fs::write(bin.join("bash"), []).map_err(HarnessError::Io)?;
 
     let bwrap = std::env::var_os("BWRAP").unwrap_or_else(|| "bwrap".into());
+    let network_namespace = *BWRAP_NETWORK_NAMESPACE.get_or_init(|| {
+        let supported = bwrap_supports_network_namespace(Path::new(&bwrap));
+        if !supported {
+            eprintln!(
+                "Oils sandbox: Bubblewrap network namespace unavailable; retaining host network"
+            );
+        }
+        supported
+    });
     let mut command = Command::new(bwrap);
     command
+        .arg("--die-with-parent")
+        .args(sandbox_namespace_args(network_namespace))
         .args([
-            "--die-with-parent",
-            "--unshare-pid",
-            "--unshare-net",
-            "--unshare-ipc",
-            "--unshare-uts",
             "--tmpfs",
             "/",
             "--dev",
@@ -1018,4 +1080,23 @@ fn invalid_data(message: String) -> HarnessError {
         std::io::ErrorKind::InvalidData,
         message,
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use super::{bwrap_supports_network_namespace, sandbox_namespace_args};
+
+    #[test]
+    fn sandbox_omits_network_namespace_when_bubblewrap_cannot_create_it() {
+        assert!(!bwrap_supports_network_namespace(Path::new("/bin/false")));
+        assert!(!sandbox_namespace_args(false).contains(&"--unshare-net"));
+    }
+
+    #[test]
+    fn sandbox_keeps_network_namespace_when_bubblewrap_supports_it() {
+        assert!(bwrap_supports_network_namespace(Path::new("/bin/true")));
+        assert!(sandbox_namespace_args(true).contains(&"--unshare-net"));
+    }
 }

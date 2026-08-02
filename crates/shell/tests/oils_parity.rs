@@ -8,7 +8,8 @@ use std::time::Duration;
 use cherubsh_test_harness::oils::{
     assess_oils_outcomes, default_oils_ratchet_path, default_oils_spec_dir, discover_oils_cases,
     load_oils_ratchet, oils_nondeterministic_case_ids, run_oils_case_with_shells,
-    write_oils_report, OilsCase, OilsKnownMismatch, OilsOutcome, OilsVerdict,
+    validate_oils_sandbox, write_oils_report, OilsCase, OilsKnownMismatch, OilsOutcome,
+    OilsVerdict,
 };
 use cherubsh_test_harness::{cherub_path, required_oracle_bash_path, workspace_root, HarnessError};
 
@@ -67,6 +68,8 @@ fn oils_osh_parity_all() {
 
     let bash = required_oracle_bash_path().expect("resolve pinned Bash oracle");
     let cherub = cherub_path().expect("resolve CherubSH test binary");
+    validate_oils_sandbox(&bash, &spec_dir, Duration::from_secs(timeout))
+        .unwrap_or_else(|error| panic!("validate Oils sandbox: {error}"));
     eprintln!(
         "Oils parity: {} cases, {} workers, {}s timeout",
         cases.len(),
