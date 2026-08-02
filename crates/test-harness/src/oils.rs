@@ -214,6 +214,7 @@ pub fn load_oils_ratchet(path: &Path) -> Result<BTreeMap<String, OilsKnownMismat
         "stdout",
         "stderr",
     ]);
+    let nondeterministic = oils_nondeterministic_case_ids()?;
     let mut entries = BTreeMap::new();
     for (line_index, line) in lines {
         let columns = line.split('\t').collect::<Vec<_>>();
@@ -244,8 +245,15 @@ pub fn load_oils_ratchet(path: &Path) -> Result<BTreeMap<String, OilsKnownMismat
                 line_index + 1
             )));
         }
+        let id = unescape_tsv_field(columns[0], line_index + 1)?;
+        if oracle_fingerprint == "variable" && !nondeterministic.contains(&id) {
+            return Err(invalid_data(format!(
+                "variable Oils oracle is not in the nondeterministic manifest on line {}: {id}",
+                line_index + 1
+            )));
+        }
         let entry = OilsKnownMismatch {
-            id: unescape_tsv_field(columns[0], line_index + 1)?,
+            id,
             fields,
             oracle_fingerprint: oracle_fingerprint.to_ascii_lowercase(),
             candidate_fingerprint: candidate_fingerprint.to_ascii_lowercase(),

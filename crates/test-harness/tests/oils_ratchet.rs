@@ -100,7 +100,7 @@ fn timeout_fields_are_part_of_the_ratchet_contract() {
 
 #[test]
 fn ratchet_loader_rejects_duplicate_case_ids() {
-    let path = ratchet_fixture_path();
+    let path = ratchet_fixture_path("duplicate");
     let fingerprint = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
     let row = format!("sample.test.sh::000::sample\tstatus,stdout\t{fingerprint}\t{fingerprint}\n");
     std::fs::write(
@@ -115,8 +115,29 @@ fn ratchet_loader_rejects_duplicate_case_ids() {
     assert!(error.to_string().contains("duplicate Oils ratchet case"));
 }
 
-fn ratchet_fixture_path() -> PathBuf {
-    let path = workspace_root().join("target/oils-ratchet-fixture.tsv");
+#[test]
+fn ratchet_loader_rejects_unlisted_variable_oracles() {
+    let path = ratchet_fixture_path("variable");
+    let fingerprint = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    std::fs::write(
+        &path,
+        format!(
+            "case\tfields\toracle_sha256\tcandidate_sha256\n\
+             sample.test.sh::000::sample\tstdout\tvariable\t{fingerprint}\n"
+        ),
+    )
+    .expect("write variable oracle fixture");
+
+    let error = load_oils_ratchet(&path).expect_err("unlisted variable oracle must fail");
+    std::fs::remove_file(&path).expect("remove variable oracle fixture");
+
+    assert!(error
+        .to_string()
+        .contains("not in the nondeterministic manifest"));
+}
+
+fn ratchet_fixture_path(name: &str) -> PathBuf {
+    let path = workspace_root().join(format!("target/oils-ratchet-{name}-fixture.tsv"));
     std::fs::create_dir_all(path.parent().expect("ratchet fixture parent"))
         .expect("create ratchet fixture parent");
     path
