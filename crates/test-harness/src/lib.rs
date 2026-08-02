@@ -205,7 +205,7 @@ pub fn oracle_bash_path() -> PathBuf {
 }
 
 fn oracle_banner_matches(version: &str, banner: &str) -> bool {
-    banner.contains(&format!("version {version}"))
+    banner.contains(&format!("GNU bash, version {version}("))
 }
 
 /// True if the oracle binary exists and reports the selected version.
@@ -621,6 +621,10 @@ mod tests {
         assert!(!oracle_banner_matches(
             "5.3.15",
             "GNU bash, version 5.2.21(1)-release"
+        ));
+        assert!(!oracle_banner_matches(
+            "5.3.15",
+            "GNU bash, version 5.3.150(1)-release"
         ));
     }
 }

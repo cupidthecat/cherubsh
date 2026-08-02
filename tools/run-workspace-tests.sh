@@ -12,7 +12,7 @@ CARGO_BIN="${CARGO_BIN:-cargo}"
 oracle_version_ok() {
     local path=$1
     [[ -x "${path}" ]] &&
-        "${path}" --version 2>/dev/null | head -n1 | grep -Eq 'version 5\.3\.15'
+        "${path}" --version 2>/dev/null | head -n1 | grep -Fq "GNU bash, version ${ORACLE_VERSION}("
 }
 
 if [[ -n ${BASH_ORACLE_PATH:-} ]]; then
@@ -21,6 +21,7 @@ if [[ -n ${BASH_ORACLE_PATH:-} ]]; then
         echo "error: BASH_ORACLE_PATH must be an executable GNU Bash 5.3.15 binary: ${ORACLE}" >&2
         exit 2
     fi
+    ORACLE="$(cd "$(dirname "${ORACLE}")" && pwd -P)/$(basename "${ORACLE}")"
 else
     ORACLE="${DEFAULT_ORACLE}"
     if ! oracle_version_ok "${ORACLE}"; then

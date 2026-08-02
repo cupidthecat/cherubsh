@@ -186,6 +186,8 @@ before invoking `cargo test --workspace --locked`. It rejects an explicit
 differential tests cannot silently use a distribution Bash with different
 semantics.
 
+The first run also needs the build dependencies listed below.
+
 The full parity gate needs common build tools, `bison`, `texinfo`, `gpgv`, ncurses development headers, Perl, Python 3, and util-linux. On Debian or Ubuntu:
 
 ```sh
