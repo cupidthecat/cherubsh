@@ -208,25 +208,30 @@ fn oracle_banner_matches(version: &str, banner: &str) -> bool {
     banner.contains(&format!("GNU bash, version {version}("))
 }
 
+fn oracle_binary_version_matches(path: &Path, version: &str) -> bool {
+    let output = Command::new(path)
+        .arg("--version")
+        .env("LC_ALL", "C")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .output();
+    match output {
+        Ok(output) => {
+            let banner = String::from_utf8_lossy(&output.stdout);
+            oracle_banner_matches(version, &banner)
+        }
+        Err(_) => false,
+    }
+}
+
 /// True if the oracle binary exists and reports the selected version.
 pub fn oracle_available() -> bool {
     let path = oracle_bash_path();
     if !path.exists() {
         return false;
     }
-    let output = Command::new(&path)
-        .arg("--version")
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .output();
-    match output {
-        Ok(out) => {
-            let banner = String::from_utf8_lossy(&out.stdout);
-            oracle_banner_matches(&oracle_version_dir(), &banner)
-        }
-        Err(_) => false,
-    }
+    oracle_binary_version_matches(&path, &oracle_version_dir())
 }
 
 fn require_available_oracle(path: PathBuf, available: bool) -> Result<PathBuf, HarnessError> {
@@ -626,5 +631,33 @@ mod tests {
             "5.3.15",
             "GNU bash, version 5.3.150(1)-release"
         ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn selected_oracle_probe_forces_the_c_locale() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let path =
+            std::env::temp_dir().join(format!("cherubsh-localized-bash-{}", std::process::id()));
+        std::fs::write(
+            &path,
+            concat!(
+                "#!/usr/bin/env bash\n",
+                "if [[ ${LC_ALL:-} == C ]]; then\n",
+                "  printf '%s\\n' 'GNU bash, version 5.3.15(1)-release'\n",
+                "else\n",
+                "  printf '%s\\n' 'bash GNU, versión 5.3.15(1)-release'\n",
+                "fi\n",
+            ),
+        )
+        .unwrap();
+        let mut permissions = std::fs::metadata(&path).unwrap().permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(&path, permissions).unwrap();
+
+        assert!(oracle_binary_version_matches(&path, "5.3.15"));
+
+        std::fs::remove_file(path).unwrap();
     }
 }

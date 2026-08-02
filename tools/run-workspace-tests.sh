@@ -12,7 +12,7 @@ CARGO_BIN="${CARGO_BIN:-cargo}"
 oracle_version_ok() {
     local path=$1
     [[ -x "${path}" ]] &&
-        "${path}" --version 2>/dev/null | head -n1 | grep -Fq "GNU bash, version ${ORACLE_VERSION}("
+        LC_ALL=C "${path}" --version 2>/dev/null | head -n1 | grep -Fq "GNU bash, version ${ORACLE_VERSION}("
 }
 
 if [[ -n ${BASH_ORACLE_PATH:-} ]]; then

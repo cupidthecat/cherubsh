@@ -469,6 +469,45 @@ fn workspace_test_runner_canonicalizes_a_relative_oracle_path() {
 }
 
 #[test]
+fn workspace_test_runner_forces_the_c_locale_for_version_checks() {
+    let directory = temporary_directory("workspace-test-oracle-locale");
+    let bash = directory.join("bash-5.3.15");
+    let cargo = directory.join("cargo");
+    fs::write(
+        &bash,
+        concat!(
+            "#!/usr/bin/env bash\n",
+            "if [[ ${LC_ALL:-} == C ]]; then\n",
+            "  printf '%s\\n' 'GNU bash, version 5.3.15(1)-release'\n",
+            "else\n",
+            "  printf '%s\\n' 'bash GNU, versión 5.3.15(1)-release'\n",
+            "fi\n",
+        ),
+    )
+    .expect("write localized fake Bash");
+    fs::write(&cargo, "#!/usr/bin/env bash\nexit 0\n").expect("write fake Cargo");
+    for executable in [&bash, &cargo] {
+        let mut permissions = fs::metadata(executable)
+            .expect("read fake executable metadata")
+            .permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(executable, permissions).expect("make fake executable runnable");
+    }
+
+    let output = Command::new(workspace_root().join("tools/run-workspace-tests.sh"))
+        .env("BASH_ORACLE_PATH", &bash)
+        .env("CARGO_BIN", &cargo)
+        .output()
+        .expect("run workspace test wrapper");
+
+    assert!(
+        output.status.success(),
+        "wrapper failed:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn development_guides_use_the_pinned_workspace_test_runner() {
     for path in [
         "README.md",
