@@ -181,10 +181,10 @@ Run the ordinary Rust test suite first:
 ```
 
 The runner verifies or builds the pinned Bash 5.3.15 oracle under `target/oracle`
-before invoking `cargo test --workspace --locked`. An explicit
-`BASH_ORACLE_PATH` must report that exact patch version. This keeps local
-differential tests from silently comparing against a distribution Bash with
-different semantics.
+before invoking `cargo test --workspace --locked`. It rejects an explicit
+`BASH_ORACLE_PATH` that does not report that exact patch version, so local
+differential tests cannot silently use a distribution Bash with different
+semantics.
 
 The full parity gate needs common build tools, `bison`, `texinfo`, `gpgv`, ncurses development headers, Perl, Python 3, and util-linux. On Debian or Ubuntu:
 
