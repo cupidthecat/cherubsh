@@ -15,6 +15,7 @@ fn parity_workflow_runs_the_full_gate_on_native_x64_and_arm64() {
     assert!(workflow.contains("runner: ubuntu-24.04-arm\n"));
     assert_eq!(workflow.matches("run: ./tools/run-parity.sh").count(), 1);
     assert!(workflow.contains("bubblewrap"));
+    assert!(workflow.contains("sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0"));
     assert!(workflow.contains("RUN_OILS_PARITY: \"1\""));
     assert!(!workflow.contains("continue-on-error"));
     assert!(workflow.contains("  linux:\n    name: linux\n    needs: parity\n"));
