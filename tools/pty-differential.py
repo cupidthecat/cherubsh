@@ -155,6 +155,7 @@ def build_scenarios() -> tuple[Scenario, ...]:
                     b"printf '__PTY_RESIZE__:%s:%s\\n' \"$LINES\" \"$COLUMNS\"\n"
                 ),
                 wait(b"__PTY_RESIZE__:40:100"),
+                wait(PROMPT.encode(), after=b"__PTY_RESIZE__:40:100"),
                 send(b"exit\n"),
             ),
             expected_markers=("__PTY_RESIZE__:40:100",),
@@ -767,6 +768,13 @@ def self_test() -> None:
             raise RuntimeError(f"invalid PTY scenario: {name}")
         if any(not isinstance(action, supported_actions) for action in scenario.actions):
             raise RuntimeError(f"unknown action in PTY scenario: {name}")
+
+    resize_marker = b"__PTY_RESIZE__:40:100"
+    resize_actions = SCENARIOS["resize-sigwinch"].actions
+    marker_index = resize_actions.index(WaitAction(resize_marker))
+    prompt_barrier = WaitAction(PROMPT.encode(), after=resize_marker)
+    if resize_actions[marker_index + 1] != prompt_barrier:
+        raise RuntimeError("resize scenario must wait for its prompt before sending exit")
 
 
 def main() -> int:
