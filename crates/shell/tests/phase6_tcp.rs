@@ -10,13 +10,17 @@ use std::process::{Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use cherubsh_test_harness::{cherub_path, diff, oracle_bash_path, RunOutput};
+use cherubsh_test_harness::{cherub_path, diff, required_oracle_bash_path, RunOutput};
+
+fn bash_oracle() -> std::path::PathBuf {
+    required_oracle_bash_path().expect("resolve pinned Bash oracle")
+}
 
 #[test]
 fn tcp_redirection_supports_numeric_ports_and_host_lookup() {
     for host in ["127.0.0.1", "localhost"] {
         for assign_fd in [false, true] {
-            let bash = run_round_trip(&oracle_bash_path(), host, None, assign_fd);
+            let bash = run_round_trip(&bash_oracle(), host, None, assign_fd);
             let cherub = run_round_trip(
                 &cherub_path().expect("cherub binary"),
                 host,
@@ -34,13 +38,8 @@ fn tcp_redirection_supports_numeric_ports_and_host_lookup() {
 #[test]
 fn tcp_redirection_resolves_service_names() {
     let (service, bash_listener) = bind_known_service();
-    let bash = run_round_trip_with_listener(
-        &oracle_bash_path(),
-        "127.0.0.1",
-        &service,
-        bash_listener,
-        false,
-    );
+    let bash =
+        run_round_trip_with_listener(&bash_oracle(), "127.0.0.1", &service, bash_listener, false);
 
     let cherub_listener = TcpListener::bind(("127.0.0.1", service_port(&service)))
         .expect("rebind selected service port");
@@ -60,7 +59,7 @@ fn tcp_redirection_resolves_service_names() {
 fn tcp_redirection_reports_connection_failures() {
     let (_reservation, port) = reserve_unlistened_port();
     let script = format!(": <>/dev/tcp/127.0.0.1/{port}; printf 'status=%s\\n' \"$?\"");
-    let bash = run_shell_bounded(&oracle_bash_path(), &script);
+    let bash = run_shell_bounded(&bash_oracle(), &script);
     let cherub = run_shell_bounded(&cherub_path().expect("cherub binary"), &script);
     let outcome = diff(&bash, &cherub);
 
@@ -82,7 +81,7 @@ fn tcp_redirection_reports_lookup_failures_like_bash() {
         ),
     ] {
         let script = format!(": <>/dev/tcp/{endpoint}; printf 'status=%s\\n' \"$?\"");
-        let bash = run_shell_bounded(&oracle_bash_path(), &script);
+        let bash = run_shell_bounded(&bash_oracle(), &script);
         let cherub = run_shell_bounded(&cherub_path().expect("cherub binary"), &script);
         let outcome = diff(&bash, &cherub);
 

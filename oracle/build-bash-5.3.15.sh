@@ -34,7 +34,10 @@ fi
 cd "${BASH_SRC}"
 
 oracle_version_ok() {
-    [[ -x ./bash ]] && ./bash --version 2>/dev/null | head -n1 | grep -Eq 'version 5\.3\.15'
+    local version_output
+    [[ -x ./bash ]] || return 1
+    version_output="$(LC_ALL=C ./bash --version 2>/dev/null)" || return 1
+    [[ "${version_output%%$'\n'*}" == *"GNU bash, version ${BASH_VERSION}("* ]]
 }
 
 if oracle_version_ok; then
@@ -65,9 +68,9 @@ fi
 mkdir -p tests
 cp recho zecho printenv xcase tests/
 
-if ! ./bash --version 2>/dev/null | head -n1 | grep -Eq 'version 5\.3\.15'; then
+if ! oracle_version_ok; then
     echo "error: built binary does not report version 5.3.15" >&2
-    ./bash --version >&2 || true
+    LC_ALL=C ./bash --version >&2 || true
     exit 1
 fi
 

@@ -9,7 +9,8 @@ use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use cherubsh_test_harness::{
-    cherub_path, diff, oracle_bash_path, run_shell_spec, workspace_root, RunOutput, RunSpec,
+    cherub_path, diff, required_oracle_bash_path, run_shell_spec, workspace_root, RunOutput,
+    RunSpec,
 };
 
 const AUTOMATED_CASES: &[&str] = &[
@@ -24,6 +25,10 @@ const AUTOMATED_CASES: &[&str] = &[
     "test-minus-e.2",
     "wait-bg.tests",
 ];
+
+fn bash_oracle() -> PathBuf {
+    required_oracle_bash_path().expect("resolve pinned Bash oracle")
+}
 
 #[test]
 fn misc_manifest_classifies_every_vendor_file() {
@@ -58,7 +63,7 @@ fn misc_manifest_classifies_every_vendor_file() {
 #[test]
 fn test_minus_e_scripts_match_pinned_bash() {
     for case in ["test-minus-e.1", "test-minus-e.2"] {
-        let bash = run_script_in_isolated_directory(&oracle_bash_path(), case, Some("yes\n"));
+        let bash = run_script_in_isolated_directory(&bash_oracle(), case, Some("yes\n"));
         let cherub = run_script_in_isolated_directory(
             &cherub_path().expect("cherub binary"),
             case,
@@ -87,7 +92,7 @@ fn wait_bg_matches_pinned_bash_without_wall_clock_sleep() {
         script: Some(&source),
         ..RunSpec::default()
     };
-    let bash = run_shell_spec(&oracle_bash_path(), &spec).expect("run Bash wait-bg");
+    let bash = run_shell_spec(&bash_oracle(), &spec).expect("run Bash wait-bg");
     let cherub = run_shell_spec(&cherub_path().expect("cherub binary"), &spec)
         .expect("run CherubSH wait-bg");
     assert_eq!(cherub, bash);
@@ -118,7 +123,7 @@ fn sigint_scripts_match_pinned_bash_with_short_sleeps() {
                 1,
             );
         }
-        let bash = run_with_ready_sigint(&oracle_bash_path(), case, &source);
+        let bash = run_with_ready_sigint(&bash_oracle(), case, &source);
         let cherub = run_with_ready_sigint(&cherub_path().expect("cherub binary"), case, &source);
         let outcome = diff(&bash, &cherub);
         assert!(
@@ -136,7 +141,7 @@ python3 -c 'import os, signal, sys; signal.signal(signal.SIGINT, lambda *_: os._
     python3 -c 'import os, signal, sys; signal.signal(signal.SIGINT, lambda *_: os._exit(130)); path=sys.argv[1]; open(path + ".tmp", "w").close(); os.rename(path + ".tmp", path); signal.pause()' "$SIGNAL_READY.right"
 printf 'pipeline-status=%s\n' "${PIPESTATUS[*]}"
 "#;
-    let bash = run_with_ready_sigint(&oracle_bash_path(), "sigint-pipeline", source);
+    let bash = run_with_ready_sigint(&bash_oracle(), "sigint-pipeline", source);
     let cherub = run_with_ready_sigint(
         &cherub_path().expect("cherub binary"),
         "sigint-pipeline",

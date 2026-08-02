@@ -2,12 +2,9 @@ use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
-use std::sync::Once;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use cherubsh_test_harness::{
-    cherub_path, default_bash_path, oracle_available, oracle_bash_path, oracle_version,
-};
+use cherubsh_test_harness::{cherub_path, required_oracle_bash_path};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Output {
@@ -23,41 +20,12 @@ struct Spec<'a> {
     env: Vec<(&'a str, &'a str)>,
 }
 
-static LOCAL_BASH_WARNING: Once = Once::new();
-
 fn cherub() -> PathBuf {
     cherub_path().expect("find cherubsh test binary")
 }
 
 fn bash_oracle() -> PathBuf {
-    let oracle = oracle_bash_path();
-    if oracle_available() {
-        return oracle;
-    }
-    if std::env::var_os("RUN_PARITY_TESTS").is_some() {
-        panic!(
-            "bash {} oracle missing at {}",
-            oracle_version(),
-            oracle.display()
-        );
-    }
-    let fallback = default_bash_path();
-    assert!(
-        fallback.exists(),
-        "bash {} oracle missing at {} and no system Bash at {}",
-        oracle_version(),
-        oracle.display(),
-        fallback.display()
-    );
-    LOCAL_BASH_WARNING.call_once(|| {
-        eprintln!(
-            "warn: bash {} oracle missing at {}; falling back to {}",
-            oracle_version(),
-            oracle.display(),
-            fallback.display()
-        );
-    });
-    fallback
+    required_oracle_bash_path().expect("resolve pinned Bash oracle")
 }
 
 fn run_shell(path: PathBuf, spec: &Spec<'_>) -> Output {
