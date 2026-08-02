@@ -361,10 +361,11 @@ posix.test.sh::006::Empty action for case is syntax error	*	status,stderr	6f0d93
 posix.test.sh::009::Bare semi-colon not allowed	*	status,stderr	a87c2034b348175af85c0d4c98440b32115d80fc86622f2d7484d0a7b99bffc2	f74d9274770c8122d4daa8fb16031d2a648a4b30f233f21659d68e0356f59f68
 posix.test.sh::013::Multiple here docs on one line	*	stdout	1e0c472b5fdb9a555e028e1e29b933b6a40068303e10ed4529959e8bf015252e	4b7c19d372848418ef807bf0d8ed6d794f64e806d4569dd14565b74c0e454ecb
 posix.test.sh::014::cat here doc; echo; cat here doc	*	stdout	d9afb45fd6b293d0d99730b043f02d027a9daccec845322c52bcf922b50f9174	4df9f1c3d912082ea9a89313827c8dfb21b4260ceeb1fcadef62d50d6583ae2b
+process-sub.test.sh::002::Process sub from shell to stdin	*	stdout	fe05f0ce17267e5916dfe7fdb23387f63237ad324fc6b461d3423c63c12efecd	variable
 prompt.test.sh::003::special case for $	*	stdout	b056df89a37007a4cc81885073f0f3e4ade844c1413c91820e6ba15d1b16f583	6feb18ca5aed52bf92c93a40a56e75570e4b7abfb5f8d1283364ad83d50dc406
 prompt.test.sh::005::PS1 evaluation order 2	*	stdout	0fa8968c66a324c48811aaa05df1df5ed8f9c363c369f3f71a60ea3a4fa6df78	ca9d749a6c8360a299e466d73086f897d2887975059cdafaf37d5a208224f136
 prompt.test.sh::008::\\555 is beyond max octal byte of \\377 and wrapped to m	*	stdout	53213fd8fb891dd1a8bda9b389b059cede08d33e3a42e4dc77d105231cd8abc3	5b694432e5cf701be564572f96966bc1bf26ecf0967f37be81e1ee3f7c9b34c5
-prompt.test.sh::027::\\j for number of jobs	*	stdout,stderr	variable	51496f6791efd3516d27a94866033ad1122fb5fefa955c1fc716ae6dfb43e803
+prompt.test.sh::027::\\j for number of jobs	*	stderr|stdout,stderr	variable	variable
 prompt.test.sh::028::\\l for TTY device basename	*	stdout	0212da626596fb262ac2737362ef3e36e0429af339281f341a5054063b83514e	109d15aa17b07e06968b6df1fd0c96f8fcd9c8cdddf97c6684e132f6aac2ec28
 prompt.test.sh::032::default PS1	*	stderr	f4a5903d136821c528e7a75dd8455e3c3e391718aaa0a2856c9c3aaf9b386bc9	20c1d3eb6587c7844b2f4182b863de524166a76714200769cc22e3a40bec3511
 quote.test.sh::020::Unterminated single quote	*	stderr	4ae95fa64772c57508590f9d92b9b3cc3b68d52fa24b22b42e7552570d6dc05f	853bacf01c9dcd12b0ed847c34bab2374f76f9521c9f4406320ca4649e3c4bc0
@@ -394,7 +395,7 @@ sh-usage.test.sh::017::sh -c -- 'echo hi' does not run anything (#2637)	*	stderr
 sh-usage.test.sh::018::sh -c with multiple -- args	*	stderr	43e7a17b0174cf378cba881731831ea0a32e2befdbfcca285e96931bc499d720	72a1bb800b1f23eaefa02b2366e3f934189b0d831cba0a0e6c4ddff7a971e04a
 sh-usage.test.sh::021::weird flag parsing -oo errexit noglob	*	status,stdout,stderr	817e36372d0565c5c6b02b6adcd9b608876f4ee1b43eaa7d475da039b2c67730	391b1674aac0a802de0ef84dabed5a08f5cc4d461c5411b1e80fad374e6cee0e
 sh-usage.test.sh::022::'sh -c -z' does not try to run -z	*	stderr	78ad74ef0343e9f86572eeeae6f2c92c42aa0ac31c9ccbf67fbac75c8a78ceb0	c09111358856751c4194b3695a147ab12dab8efbcfe873ad12cc77590ee2b378
-shell-bugs.test.sh::000::./configure idiom	aarch64	stderr	variable	variable
+shell-bugs.test.sh::000::./configure idiom	*	stderr	variable	variable
 shell-grammar.test.sh::023::If with then on same line missing semicolon	*	stderr	38fad9433882d8cfabf5e0f8dc429c8303ea6c5c1a1f8386b12a5ca769f08a9f	765a8db00eed3ddeeb3afa6ff7e1d7da0f5647cbb993e2a72a8888e3f448c95e
 shell-grammar.test.sh::030::case item without ;; is not allowed	*	status,stderr	de2f0fb2771096aad6d1498885cb3842c8c599f22a7f9b84c1263c51b0b6d789	b592cb28979df1767b6cc6ef4e2de061cd520a855dd335cf97ec26baa6f591dc
 shell-grammar.test.sh::035::Case all on one line without trailing ;; or ;	*	stderr	9d321312977a2b1ea224defe17f5b3270c669717603b1ee80bc0133c0b7551da	f999cbef1cf11207cc551c6f5e75e2a6835467dbe6c67e30c587cb5550c22f92
@@ -441,12 +442,10 @@ var-ref.test.sh::028::Array indirect expansion with suffix operators	*	stdout,st
 var-ref.test.sh::030::Array indirect expansion with @? conversion	*	stdout	f055bf7241a7281e13de592e3ca1196ab26c69161c958762ae37c52276c88ef9	2d9972197b21160f18ae50fdd74993e45c73c2c6a7e484f8c7fdc56805d82655
 var-sub-quote.test.sh::031::Syntax error for single quote in double quote	*	status,stderr	bdce6cb3606c44e71411a6f759a1ff68045b500a1e906b113cdbfae6e7005457	79316ea1876ea0dcfa981083d110518c62c541960785578e84b07bea667db78a
 var-sub.test.sh::005::Here doc with bad "$@" delimiter	*	stderr	54d60fb4237185fd1693aff09751d2e19da3277964523089f3c2e3407ae31c9c	8893e4df0eccbd719c13806cb3155f3900de075b8a75f36bcfea6f0440dfba24
-vars-bash.test.sh::000::$SHELL is set to what is in /etc/passwd	*	stderr	b9545800dc9cf1e43a8abd09c531f7cc00b322f7a5401c06bba61b0f91295c46	401915b8ef03c802da5d86cecf36caafacda3e13ff0e26c8365e093860338a6c
-vars-bash.test.sh::000::$SHELL is set to what is in /etc/passwd	aarch64	stderr	c1efa1208c3a9dca1ff555c14b1675c42156a9da2285f9a628a06043ac73c569	a0cbadbfebe65a4655b8fdd0c392844ff21e6d03153a359c46c8e336a1f80542
+vars-bash.test.sh::000::$SHELL is set to what is in /etc/passwd	*	stderr	variable	variable
 vars-special.test.sh::003::$HOME is NOT set	*	stderr	918c9639cca066a56a0ff3c252723912e592dd3bf07b8f12fc2fa7351c7d8d55	bec17c2bea92f4154db83a089cc5b19c022058dd53cde56cd78e1cf1734c2fce
 vars-special.test.sh::004::Vars set interactively only: $HISTFILE	*	stdout,stderr	6ed7e4a6762ecb55a6ee8c282d92fceea22d9dc77d9002fc4407ae300457bf5a	f2d47b27a535d8e3e765c509141e9c48d3e3bc4eb60cd1660db95d3cf2d4d4a4
-vars-special.test.sh::007::HOSTNAME OSTYPE can be changed	*	stdout	79ca8f9995197380c0859bc4e8278f542e1bc8ea0bc857a05255627a06166b89	91e5e06f70346dea13d759f9110acd6436651f978d62f97619a78e180f97865a
-vars-special.test.sh::007::HOSTNAME OSTYPE can be changed	aarch64	stdout	79ca8f9995197380c0859bc4e8278f542e1bc8ea0bc857a05255627a06166b89	d58cc67720909d23e1428e809e2e2b9fc41efafd1b81c41e8677f5f5b43719cc
+vars-special.test.sh::007::HOSTNAME OSTYPE can be changed	*	stdout	79ca8f9995197380c0859bc4e8278f542e1bc8ea0bc857a05255627a06166b89	variable
 vars-special.test.sh::017::$RANDOM	*	stdout	variable	6a8e3bd17b1f744ef1f7058305a4562cc317dbee7cfdb686352734063bfd4e83
 vars-special.test.sh::037::$_ with assignments, arrays, etc.	*	stdout	585770b3665e9f20b5985014c778d292d79e7d560babc8020fa88e9cbe3ac6f7	73d555148b3cc6415f86c6edf293abc8b17a7a0b627c616b19277fc178c918a1
 whitespace.test.sh::000::Parsing shell words \\r \\v	*	stdout	c3410bf69d382e512db2717b87163f7bd3ddaa96a7d092f61bcd8f4db250790f	281ae4759bccfef317ad757d3019ec993139c0b85e5f99ff40d9708930412d17

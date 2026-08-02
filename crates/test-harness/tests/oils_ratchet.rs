@@ -40,7 +40,7 @@ fn ratchet_classifies_known_drift_new_and_unexpected_pass() {
     let outcome = mismatch();
     let known = OilsKnownMismatch {
         id: outcome.id.clone(),
-        fields: vec!["status".to_string(), "stdout".to_string()],
+        field_variants: vec![vec!["status".to_string(), "stdout".to_string()]],
         oracle_fingerprint: candidate_fingerprint(&outcome.bash),
         candidate_fingerprint: candidate_fingerprint(&outcome.cherub),
     };
@@ -100,6 +100,78 @@ fn ratchet_classifies_known_drift_new_and_unexpected_pass() {
 }
 
 #[test]
+fn ratchet_classifies_only_exact_field_variants_as_known() {
+    let stderr_only = OilsOutcome {
+        id: "sample.test.sh::000::sample".to_string(),
+        bash: output(0, b"same", b"bash"),
+        cherub: output(0, b"same", b"cherub"),
+    };
+    let stdout_and_stderr = OilsOutcome {
+        id: stderr_only.id.clone(),
+        bash: output(0, b"bash", b"bash"),
+        cherub: output(0, b"cherub", b"cherub"),
+    };
+    let status_only = OilsOutcome {
+        id: stderr_only.id.clone(),
+        bash: output(0, b"same", b"same"),
+        cherub: output(1, b"same", b"same"),
+    };
+    let known = OilsKnownMismatch {
+        id: stderr_only.id.clone(),
+        field_variants: vec![
+            vec!["stderr".to_string()],
+            vec!["stdout".to_string(), "stderr".to_string()],
+        ],
+        oracle_fingerprint: "variable".to_string(),
+        candidate_fingerprint: "variable".to_string(),
+    };
+
+    assert_eq!(
+        classify_oils_outcome(&stderr_only, Some(&known)),
+        OilsVerdict::Known
+    );
+    assert_eq!(
+        classify_oils_outcome(&stdout_and_stderr, Some(&known)),
+        OilsVerdict::Known
+    );
+    assert_eq!(
+        classify_oils_outcome(&status_only, Some(&known)),
+        OilsVerdict::Drift
+    );
+}
+
+#[test]
+fn ratchet_loader_canonicalizes_reordered_fields_for_matching() {
+    let outcome = OilsOutcome {
+        id: "sample.test.sh::000::sample".to_string(),
+        bash: output(0, b"bash", b"bash"),
+        cherub: output(0, b"cherub", b"cherub"),
+    };
+    let path = ratchet_fixture_path("canonical-fields");
+    std::fs::write(
+        &path,
+        format!(
+            "case\tarch\tfields\toracle_sha256\tcandidate_sha256\n\
+             {}\t*\tstderr,stdout\t{}\t{}\n",
+            outcome.id,
+            candidate_fingerprint(&outcome.bash),
+            candidate_fingerprint(&outcome.cherub)
+        ),
+    )
+    .expect("write reordered fields fixture");
+
+    let ratchet = load_oils_ratchet(&path).expect("load reordered fields fixture");
+    std::fs::remove_file(&path).expect("remove reordered fields fixture");
+    let known = ratchet.get(&outcome.id).expect("load known mismatch");
+
+    assert_eq!(known.field_variants, vec![vec!["stdout", "stderr"]]);
+    assert_eq!(
+        classify_oils_outcome(&outcome, Some(known)),
+        OilsVerdict::Known
+    );
+}
+
+#[test]
 fn timeout_fields_are_part_of_the_ratchet_contract() {
     let mut outcome = mismatch();
     outcome.bash.timed_out = true;
@@ -121,7 +193,7 @@ fn ratchet_prefers_architecture_specific_overrides() {
         format!(
             "case\tarch\tfields\toracle_sha256\tcandidate_sha256\n\
              sample.test.sh::000::sample\t*\tstdout\t{generic}\t{generic}\n\
-             sample.test.sh::000::sample\taarch64\tstderr\t{arm}\t{arm}\n\
+             sample.test.sh::000::sample\taarch64\tstderr|stdout,stderr\t{arm}\t{arm}\n\
              arm-only.test.sh::000::sample\taarch64\tstatus\t{arm}\t{arm}\n"
         ),
     )
@@ -131,10 +203,137 @@ fn ratchet_prefers_architecture_specific_overrides() {
     let aarch64 = load_oils_ratchet_for_arch(&path, "aarch64").expect("load aarch64 ratchet");
     std::fs::remove_file(&path).expect("remove ratchet fixture");
 
-    assert_eq!(x86["sample.test.sh::000::sample"].fields, ["stdout"]);
+    assert_eq!(
+        x86["sample.test.sh::000::sample"].field_variants,
+        vec![vec!["stdout"]]
+    );
     assert!(!x86.contains_key("arm-only.test.sh::000::sample"));
-    assert_eq!(aarch64["sample.test.sh::000::sample"].fields, ["stderr"]);
+    assert_eq!(
+        aarch64["sample.test.sh::000::sample"].field_variants,
+        vec![vec!["stderr"], vec!["stdout", "stderr"]]
+    );
     assert!(aarch64.contains_key("arm-only.test.sh::000::sample"));
+}
+
+#[test]
+fn checked_in_ratchet_uses_portable_rows_for_host_sensitive_cases() {
+    let path = workspace_root().join("crates/test-harness/oils-known-mismatches.tsv");
+    let x86 = load_oils_ratchet_for_arch(&path, "x86_64").expect("load x86 ratchet");
+    let aarch64 = load_oils_ratchet_for_arch(&path, "aarch64").expect("load aarch64 ratchet");
+    let expected = [
+        (
+            "process-sub.test.sh::002::Process sub from shell to stdin",
+            vec![vec!["stdout"]],
+            "fe05f0ce17267e5916dfe7fdb23387f63237ad324fc6b461d3423c63c12efecd",
+            "variable",
+        ),
+        (
+            "prompt.test.sh::027::\\j for number of jobs",
+            vec![vec!["stderr"], vec!["stdout", "stderr"]],
+            "variable",
+            "variable",
+        ),
+        (
+            "shell-bugs.test.sh::000::./configure idiom",
+            vec![vec!["stderr"]],
+            "variable",
+            "variable",
+        ),
+        (
+            "vars-bash.test.sh::000::$SHELL is set to what is in /etc/passwd",
+            vec![vec!["stderr"]],
+            "variable",
+            "variable",
+        ),
+        (
+            "vars-special.test.sh::007::HOSTNAME OSTYPE can be changed",
+            vec![vec!["stdout"]],
+            "79ca8f9995197380c0859bc4e8278f542e1bc8ea0bc857a05255627a06166b89",
+            "variable",
+        ),
+    ];
+
+    for (id, fields, oracle, candidate) in &expected {
+        for ratchet in [&x86, &aarch64] {
+            let entry = ratchet.get(*id).expect("load portable ratchet entry");
+            assert_eq!(&entry.field_variants, fields, "field variants for {id}");
+            assert_eq!(&entry.oracle_fingerprint, oracle, "oracle for {id}");
+            assert_eq!(
+                &entry.candidate_fingerprint, candidate,
+                "candidate for {id}"
+            );
+        }
+    }
+
+    assert_ne!(
+        x86["builtin-bash.test.sh::000::help"].oracle_fingerprint,
+        aarch64["builtin-bash.test.sh::000::help"].oracle_fingerprint
+    );
+
+    let text = std::fs::read_to_string(path).expect("read checked-in ratchet");
+    for (id, _, _, _) in &expected {
+        let rows = text
+            .lines()
+            .filter(|line| line.starts_with(&format!("{}\t", id.replace('\\', "\\\\"))))
+            .collect::<Vec<_>>();
+        assert_eq!(rows.len(), 1, "one portable row for {id}");
+        assert_eq!(
+            rows[0].split('\t').nth(1),
+            Some("*"),
+            "generic row for {id}"
+        );
+    }
+}
+
+#[test]
+fn ratchet_loader_rejects_invalid_field_variants() {
+    let fingerprint = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    for (name, fields, expected_error) in [
+        (
+            "empty-variant",
+            "stderr|",
+            "empty Oils ratchet field variant",
+        ),
+        ("unknown-field", "unknown", "invalid Oils ratchet field"),
+        (
+            "duplicate-field",
+            "stderr,stderr",
+            "duplicate Oils ratchet field",
+        ),
+        (
+            "middle-empty-field",
+            "stderr,,stdout",
+            "invalid Oils ratchet field",
+        ),
+        (
+            "duplicate-variant",
+            "stderr|stderr",
+            "duplicate Oils ratchet field variant",
+        ),
+        (
+            "reordered-duplicate-variant",
+            "stdout,stderr|stderr,stdout",
+            "duplicate Oils ratchet field variant",
+        ),
+    ] {
+        let path = ratchet_fixture_path(name);
+        std::fs::write(
+            &path,
+            format!(
+                "case\tarch\tfields\toracle_sha256\tcandidate_sha256\n\
+                 sample.test.sh::000::sample\t*\t{fields}\t{fingerprint}\t{fingerprint}\n"
+            ),
+        )
+        .expect("write invalid fields fixture");
+
+        let error = load_oils_ratchet(&path).expect_err("invalid field variants must fail");
+        std::fs::remove_file(&path).expect("remove invalid fields fixture");
+
+        assert!(
+            error.to_string().contains(expected_error),
+            "unexpected error for {name}: {error}"
+        );
+    }
 }
 
 #[test]
@@ -188,7 +387,7 @@ fn assessment_is_sorted_and_reports_stale_entries() {
     let outcome = mismatch();
     let stale = OilsKnownMismatch {
         id: "z.test.sh::000::stale".to_string(),
-        fields: vec!["status".to_string()],
+        field_variants: vec![vec!["status".to_string()]],
         oracle_fingerprint: "0".repeat(64),
         candidate_fingerprint: "0".repeat(64),
     };

@@ -28,13 +28,16 @@ fn nondeterministic_case_manifest_only_names_vendored_cases() {
     let nondeterministic =
         oils_nondeterministic_case_ids().expect("load Oils nondeterministic case manifest");
 
-    assert_eq!(nondeterministic.len(), 15);
+    assert_eq!(nondeterministic.len(), 18);
     for id in [
         "builtin-kill.test.sh::001::kill -KILL kills the process with SIGKILL",
         "paren-ambiguity.test.sh::005::((gzip example - zdiff package - #2337",
         "posix.test.sh::012::Newlines in compound lists",
+        "process-sub.test.sh::002::Process sub from shell to stdin",
         "sh-options-bash.test.sh::000::SHELLOPTS is updated when options are changed",
         "shell-bugs.test.sh::000::./configure idiom",
+        "vars-bash.test.sh::000::$SHELL is set to what is in /etc/passwd",
+        "vars-special.test.sh::007::HOSTNAME OSTYPE can be changed",
     ] {
         assert!(
             nondeterministic.contains(id),

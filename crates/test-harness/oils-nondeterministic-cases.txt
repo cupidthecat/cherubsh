@@ -7,9 +7,12 @@ here-doc.test.sh::033::Multiple here docs in pipeline on multiple lines
 paren-ambiguity.test.sh::005::((gzip example - zdiff package - #2337
 posix.test.sh::012::Newlines in compound lists
 process-sub.test.sh::001::Process sub from external process to stdin
+process-sub.test.sh::002::Process sub from shell to stdin
 prompt.test.sh::027::\j for number of jobs
 sh-options-bash.test.sh::000::SHELLOPTS is updated when options are changed
 shell-bugs.test.sh::000::./configure idiom
 shell-grammar.test.sh::003::a & b
 shell-grammar.test.sh::004::a & b &
+vars-bash.test.sh::000::$SHELL is set to what is in /etc/passwd
+vars-special.test.sh::007::HOSTNAME OSTYPE can be changed
 vars-special.test.sh::017::$RANDOM

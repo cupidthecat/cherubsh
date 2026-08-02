@@ -22,6 +22,13 @@ const FILE_METADATA_FIELDS: &[&str] = &[
     "oils_cpp_failures_allowed",
     "legacy_tmp_dir",
 ];
+const OBSERVED_FIELD_ORDER: [&str; 5] = [
+    "bash-timeout",
+    "cherub-timeout",
+    "status",
+    "stdout",
+    "stderr",
+];
 const SIGKILL: i32 = 9;
 
 static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -99,7 +106,7 @@ impl OilsOutcome {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OilsKnownMismatch {
     pub id: String,
-    pub fields: Vec<String>,
+    pub field_variants: Vec<Vec<String>>,
     pub oracle_fingerprint: String,
     pub candidate_fingerprint: String,
 }
@@ -185,7 +192,10 @@ pub fn classify_oils_outcome(
         .into_iter()
         .map(str::to_owned)
         .collect::<Vec<_>>();
-    if fields == known.fields
+    if known
+        .field_variants
+        .iter()
+        .any(|variant| variant == &fields)
         && (known.oracle_fingerprint == "variable"
             || candidate_fingerprint(&outcome.bash) == known.oracle_fingerprint)
         && (known.candidate_fingerprint == "variable"
@@ -222,13 +232,7 @@ pub fn load_oils_ratchet_for_arch(
         return Err(invalid_data("invalid Oils ratchet header".to_string()));
     }
 
-    let allowed_fields = BTreeSet::from([
-        "bash-timeout",
-        "cherub-timeout",
-        "status",
-        "stdout",
-        "stderr",
-    ]);
+    let allowed_fields = BTreeSet::from(OBSERVED_FIELD_ORDER);
     let nondeterministic = oils_nondeterministic_case_ids()?;
     let mut generic_entries = BTreeMap::new();
     let mut architecture_entries = BTreeMap::new();
@@ -248,17 +252,7 @@ pub fn load_oils_ratchet_for_arch(
                 line_index + 1
             )));
         }
-        let fields = columns[2].split(',').map(str::to_owned).collect::<Vec<_>>();
-        if fields.is_empty()
-            || fields
-                .iter()
-                .any(|field| !allowed_fields.contains(field.as_str()))
-        {
-            return Err(invalid_data(format!(
-                "invalid Oils ratchet fields on line {}",
-                line_index + 1
-            )));
-        }
+        let field_variants = parse_field_variants(columns[2], line_index + 1, &allowed_fields)?;
         let oracle_fingerprint = columns[3];
         let candidate_fingerprint = columns[4];
         if !(oracle_fingerprint == "variable" || valid_fingerprint(oracle_fingerprint))
@@ -287,7 +281,7 @@ pub fn load_oils_ratchet_for_arch(
         }
         let entry = OilsKnownMismatch {
             id,
-            fields,
+            field_variants,
             oracle_fingerprint: oracle_fingerprint.to_ascii_lowercase(),
             candidate_fingerprint: candidate_fingerprint.to_ascii_lowercase(),
         };
@@ -299,6 +293,52 @@ pub fn load_oils_ratchet_for_arch(
     }
     generic_entries.extend(architecture_entries);
     Ok(generic_entries)
+}
+
+fn parse_field_variants(
+    value: &str,
+    line_number: usize,
+    allowed_fields: &BTreeSet<&str>,
+) -> Result<Vec<Vec<String>>, HarnessError> {
+    let mut field_variants = Vec::new();
+    let mut seen_variants = BTreeSet::new();
+    for raw_variant in value.split('|') {
+        if raw_variant.is_empty() {
+            return Err(invalid_data(format!(
+                "empty Oils ratchet field variant on line {line_number}"
+            )));
+        }
+
+        let mut fields = Vec::new();
+        let mut seen_fields = BTreeSet::new();
+        for field in raw_variant.split(',') {
+            if !allowed_fields.contains(field) {
+                return Err(invalid_data(format!(
+                    "invalid Oils ratchet field on line {line_number}: {field}"
+                )));
+            }
+            if !seen_fields.insert(field) {
+                return Err(invalid_data(format!(
+                    "duplicate Oils ratchet field on line {line_number}: {field}"
+                )));
+            }
+            fields.push(field.to_string());
+        }
+        fields.sort_by_key(|field| {
+            OBSERVED_FIELD_ORDER
+                .iter()
+                .position(|candidate| candidate == field)
+                .unwrap_or(OBSERVED_FIELD_ORDER.len())
+        });
+
+        if !seen_variants.insert(fields.clone()) {
+            return Err(invalid_data(format!(
+                "duplicate Oils ratchet field variant on line {line_number}: {raw_variant}"
+            )));
+        }
+        field_variants.push(fields);
+    }
+    Ok(field_variants)
 }
 
 fn valid_fingerprint(fingerprint: &str) -> bool {
