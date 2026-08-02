@@ -13,6 +13,7 @@ mod render;
 mod termcap;
 mod vi;
 
+use buffer::CompletionApplication;
 pub use buffer::EditBuffer;
 pub use input::{set_input_deadline, InputDecoder};
 pub use key::KeyEvent;
@@ -49,9 +50,20 @@ pub struct Completion {
     pub filenames: bool,
 }
 
+/// Controls when ambiguous completion candidates are displayed.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct CompletionDisplayPolicy {
+    pub show_all_if_ambiguous: bool,
+    pub show_all_if_unmodified: bool,
+}
+
 /// Supplies candidates when the user presses Tab.
 pub trait CompletionProvider {
     fn complete(&mut self, line: &str, point: usize) -> Completion;
+
+    fn completion_display_policy(&self) -> CompletionDisplayPolicy {
+        CompletionDisplayPolicy::default()
+    }
 
     fn run_shell_command(
         &mut self,
@@ -90,6 +102,7 @@ pub struct LineEditor {
     original_line: String,
     pending_history_index: Option<usize>,
     pending_history_entries: Option<Vec<String>>,
+    last_completion_changed: bool,
 }
 
 #[derive(Clone)]
@@ -116,6 +129,7 @@ impl LineEditor {
             original_line: String::new(),
             pending_history_index: None,
             pending_history_entries: None,
+            last_completion_changed: false,
         }
     }
 
@@ -308,7 +322,12 @@ impl LineEditor {
                     return Ok(LoopOutcome::Eof);
                 }
                 if buf.char_point() == buf.len() {
-                    display_completions(&completion.complete(&buf.as_str(), buf.point()))?;
+                    if display_completions(
+                        &completion.complete(&buf.as_str(), buf.point()),
+                        renderer.columns(),
+                    )? {
+                        renderer.invalidate();
+                    }
                 } else {
                     buf.delete_forward();
                 }
@@ -400,12 +419,53 @@ impl LineEditor {
                 return Ok(LoopOutcome::Interrupted);
             }
             EditAction::Complete => {
+                let mode = completion_mode(
+                    previous_action,
+                    self.last_completion_changed,
+                    completion.completion_display_policy(),
+                );
                 let line = buf.as_str();
                 let result = completion.complete(&line, buf.point());
-                buf.apply_completion(&result);
+                self.last_completion_changed = if mode == CompletionDisplayMode::List {
+                    if display_completions(&result, renderer.columns())? {
+                        renderer.invalidate();
+                    }
+                    false
+                } else {
+                    match buf.apply_completion_result(&result) {
+                        CompletionApplication::NoMatches => {
+                            ring_bell();
+                            false
+                        }
+                        CompletionApplication::Unique { changed } => changed,
+                        CompletionApplication::Ambiguous { changed } => {
+                            match mode {
+                                CompletionDisplayMode::Normal => ring_bell(),
+                                CompletionDisplayMode::ShowAll => {
+                                    if display_completions(&result, renderer.columns())? {
+                                        renderer.invalidate();
+                                    }
+                                }
+                                CompletionDisplayMode::ShowUnmodified if !changed => {
+                                    if display_completions(&result, renderer.columns())? {
+                                        renderer.invalidate();
+                                    }
+                                }
+                                CompletionDisplayMode::ShowUnmodified
+                                | CompletionDisplayMode::List => {}
+                            }
+                            changed
+                        }
+                    }
+                };
             }
             EditAction::PossibleCompletions => {
-                display_completions(&completion.complete(&buf.as_str(), buf.point()))?;
+                if display_completions(
+                    &completion.complete(&buf.as_str(), buf.point()),
+                    renderer.columns(),
+                )? {
+                    renderer.invalidate();
+                }
             }
             EditAction::InsertCompletions => {
                 let result = completion.complete(&buf.as_str(), buf.point());
@@ -1028,18 +1088,69 @@ fn vi_motion_range(buf: &EditBuffer, motion: char, count: usize) -> Option<(usiz
     })
 }
 
-fn display_completions(completion: &Completion) -> io::Result<()> {
+fn display_completions(completion: &Completion, terminal_columns: usize) -> io::Result<bool> {
     if completion.matches.is_empty() {
         ring_bell();
-        return Ok(());
+        return Ok(false);
     }
     let mut stderr = io::stderr().lock();
     stderr.write_all(b"\n")?;
-    for candidate in &completion.matches {
-        stderr.write_all(candidate.as_bytes())?;
-        stderr.write_all(b"\n")?;
+    stderr.write_all(format_completion_rows(&completion.matches, terminal_columns).as_bytes())?;
+    stderr.flush()?;
+    Ok(true)
+}
+
+fn format_completion_rows(matches: &[String], terminal_columns: usize) -> String {
+    let widths: Vec<usize> = matches
+        .iter()
+        .map(|candidate| candidate.chars().map(render::char_width).sum())
+        .collect();
+    let column_width = widths.iter().copied().max().unwrap_or(0).saturating_add(2);
+    let mut columns = terminal_columns / column_width.max(1);
+    if columns != 1 && columns.saturating_mul(column_width) == terminal_columns {
+        columns = columns.saturating_sub(1);
     }
-    stderr.flush()
+    columns = columns.max(1);
+    let rows = matches.len().div_ceil(columns);
+    let mut output = String::new();
+    for row in 0..rows {
+        for column in 0..columns {
+            let index = row + column * rows;
+            let Some(candidate) = matches.get(index) else {
+                break;
+            };
+            output.push_str(candidate);
+            if column + 1 < columns {
+                output.push_str(&" ".repeat(column_width.saturating_sub(widths[index])));
+            }
+        }
+        output.push('\n');
+    }
+    output
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CompletionDisplayMode {
+    Normal,
+    List,
+    ShowAll,
+    ShowUnmodified,
+}
+
+fn completion_mode(
+    previous_action: Option<EditAction>,
+    previous_changed: bool,
+    policy: CompletionDisplayPolicy,
+) -> CompletionDisplayMode {
+    if previous_action == Some(EditAction::Complete) && !previous_changed {
+        CompletionDisplayMode::List
+    } else if policy.show_all_if_ambiguous {
+        CompletionDisplayMode::ShowAll
+    } else if policy.show_all_if_unmodified {
+        CompletionDisplayMode::ShowUnmodified
+    } else {
+        CompletionDisplayMode::Normal
+    }
 }
 
 fn ring_bell() {
@@ -1122,7 +1233,146 @@ fn expand_tilde_at_point(buf: &mut EditBuffer) {
 
 #[cfg(test)]
 mod tests {
-    use super::{shell_words, vi_motion_range, EditBuffer};
+    use std::cell::RefCell;
+
+    use super::{
+        completion_mode, format_completion_rows, render, shell_words, vi_motion_range, Completion,
+        CompletionDisplayMode, CompletionDisplayPolicy, CompletionProvider, EditAction, EditBuffer,
+        HistoryProvider, KeyEvent, Keymap, LineEditor,
+    };
+
+    struct EmptyHistory;
+
+    impl HistoryProvider for EmptyHistory {
+        fn len(&self) -> usize {
+            0
+        }
+
+        fn get(&self, _idx: usize) -> Option<String> {
+            None
+        }
+    }
+
+    struct MutatingPolicyProvider {
+        calls: RefCell<Vec<&'static str>>,
+        show_all: bool,
+    }
+
+    impl CompletionProvider for MutatingPolicyProvider {
+        fn complete(&mut self, _line: &str, _point: usize) -> Completion {
+            self.calls.borrow_mut().push("complete");
+            self.show_all = true;
+            Completion {
+                matches: vec!["source".to_string(), "sort".to_string()],
+                ..Completion::default()
+            }
+        }
+
+        fn completion_display_policy(&self) -> CompletionDisplayPolicy {
+            self.calls.borrow_mut().push("policy");
+            CompletionDisplayPolicy {
+                show_all_if_ambiguous: self.show_all,
+                show_all_if_unmodified: false,
+            }
+        }
+    }
+
+    #[test]
+    fn completion_policy_is_sampled_before_candidates_are_generated() {
+        let mut keymap = Keymap::new("emacs");
+        keymap.install_emacs_defaults();
+        let mut editor = LineEditor::new(keymap);
+        let mut buffer = EditBuffer::new();
+        buffer.insert_str("so");
+        let mut history = EmptyHistory;
+        let mut history_index = None;
+        let mut saved_current = None;
+        let mut provider = MutatingPolicyProvider {
+            calls: RefCell::new(Vec::new()),
+            show_all: false,
+        };
+        let mut renderer = render::Renderer::silent("");
+
+        editor
+            .dispatch(
+                KeyEvent::Tab,
+                &mut buffer,
+                &mut history,
+                &mut history_index,
+                &mut saved_current,
+                &mut provider,
+                &mut renderer,
+            )
+            .unwrap();
+
+        assert_eq!(*provider.calls.borrow(), ["policy", "complete"]);
+    }
+
+    #[test]
+    fn completion_grid_lists_candidates_down_columns() {
+        let matches = ["a", "b", "c", "d", "e"].map(str::to_string);
+
+        assert_eq!(format_completion_rows(&matches, 9), "a  d\nb  e\nc  \n");
+    }
+
+    #[test]
+    fn completion_mode_repeats_only_after_an_unchanged_completion() {
+        let policy = CompletionDisplayPolicy::default();
+
+        assert_eq!(
+            completion_mode(None, false, policy),
+            CompletionDisplayMode::Normal
+        );
+        assert_eq!(
+            completion_mode(Some(EditAction::Complete), true, policy),
+            CompletionDisplayMode::Normal
+        );
+        assert_eq!(
+            completion_mode(Some(EditAction::Complete), false, policy),
+            CompletionDisplayMode::List
+        );
+        assert_eq!(
+            completion_mode(Some(EditAction::BackwardChar), false, policy),
+            CompletionDisplayMode::Normal
+        );
+    }
+
+    #[test]
+    fn completion_mode_honors_readline_display_policies() {
+        assert_eq!(
+            completion_mode(
+                None,
+                false,
+                CompletionDisplayPolicy {
+                    show_all_if_ambiguous: true,
+                    show_all_if_unmodified: false,
+                },
+            ),
+            CompletionDisplayMode::ShowAll
+        );
+        assert_eq!(
+            completion_mode(
+                None,
+                false,
+                CompletionDisplayPolicy {
+                    show_all_if_ambiguous: false,
+                    show_all_if_unmodified: true,
+                },
+            ),
+            CompletionDisplayMode::ShowUnmodified
+        );
+        assert_eq!(
+            completion_mode(
+                Some(EditAction::Complete),
+                false,
+                CompletionDisplayPolicy {
+                    show_all_if_ambiguous: true,
+                    show_all_if_unmodified: false,
+                },
+            ),
+            CompletionDisplayMode::List
+        );
+    }
 
     #[test]
     fn history_arguments_follow_shell_quotes() {

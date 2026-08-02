@@ -78,7 +78,9 @@ for side in oracle implementation; do
     "${REPORT_ROOT}/${side}/abi-layout" > "${REPORT_ROOT}/${side}/abi-layout.out"
     "${REPORT_ROOT}/${side}/allocator-ownership" > "${REPORT_ROOT}/${side}/allocator-ownership.out"
     "${REPORT_ROOT}/${side}/callback-lifecycle" > "${REPORT_ROOT}/${side}/callback-lifecycle.out"
-    "${REPORT_ROOT}/${side}/completion-inputrc" > "${REPORT_ROOT}/${side}/completion-inputrc.out"
+    "${REPORT_ROOT}/${side}/completion-inputrc" \
+        > "${REPORT_ROOT}/${side}/completion-inputrc.out" \
+        2> "${REPORT_ROOT}/${side}/completion-inputrc.err"
     "${REPORT_ROOT}/${side}/history-state" > "${REPORT_ROOT}/${side}/history-state.out"
     "${REPORT_ROOT}/${side}/redisplay-streams" > "${REPORT_ROOT}/${side}/redisplay-streams.out"
     for fixture in allocator-ownership callback-lifecycle completion-inputrc history-state; do
@@ -89,6 +91,10 @@ for side in oracle implementation; do
         | HOME="${REPORT_ROOT}/home" LC_ALL=C.UTF-8 TERM=xterm-256color \
             python3 "${PTY_CAPTURE}" "${REPORT_ROOT}/${side}/readline-loop" \
         > "${REPORT_ROOT}/${side}/readline-loop.out"
+    printf 'so\t\t\n\004' \
+        | HOME="${REPORT_ROOT}/home" LC_ALL=C.UTF-8 TERM=xterm-256color \
+            python3 "${PTY_CAPTURE}" "${REPORT_ROOT}/${side}/readline-loop" \
+        > "${REPORT_ROOT}/${side}/readline-loop-completion.out"
     printf '\030q\n\030m\nr\n' \
         | HOME="${REPORT_ROOT}/home" LC_ALL=C.UTF-8 TERM=xterm-256color \
             python3 "${PTY_CAPTURE}" "${REPORT_ROOT}/${side}/custom-binding" \
@@ -98,12 +104,14 @@ done
 diff -u "${REPORT_ROOT}/oracle/abi-smoke.out" "${REPORT_ROOT}/implementation/abi-smoke.out"
 diff -u "${REPORT_ROOT}/oracle/history-link.out" "${REPORT_ROOT}/implementation/history-link.out"
 diff -u "${REPORT_ROOT}/oracle/readline-loop.out" "${REPORT_ROOT}/implementation/readline-loop.out"
+diff -u "${REPORT_ROOT}/oracle/readline-loop-completion.out" "${REPORT_ROOT}/implementation/readline-loop-completion.out"
 diff -u "${REPORT_ROOT}/oracle/custom-binding.out" "${REPORT_ROOT}/implementation/custom-binding.out"
 diff -u "${REPORT_ROOT}/oracle/public-behavior.out" "${REPORT_ROOT}/implementation/public-behavior.out"
 diff -u "${REPORT_ROOT}/oracle/abi-layout.out" "${REPORT_ROOT}/implementation/abi-layout.out"
 diff -u "${REPORT_ROOT}/oracle/allocator-ownership.out" "${REPORT_ROOT}/implementation/allocator-ownership.out"
 diff -u "${REPORT_ROOT}/oracle/callback-lifecycle.out" "${REPORT_ROOT}/implementation/callback-lifecycle.out"
 diff -u "${REPORT_ROOT}/oracle/completion-inputrc.out" "${REPORT_ROOT}/implementation/completion-inputrc.out"
+diff -u "${REPORT_ROOT}/oracle/completion-inputrc.err" "${REPORT_ROOT}/implementation/completion-inputrc.err"
 diff -u "${REPORT_ROOT}/oracle/history-state.out" "${REPORT_ROOT}/implementation/history-state.out"
 diff -u "${REPORT_ROOT}/oracle/redisplay-streams.out" "${REPORT_ROOT}/implementation/redisplay-streams.out"
 

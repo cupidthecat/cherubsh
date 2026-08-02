@@ -22,4 +22,13 @@ mod tests {
         );
         unsafe { libc::free(output.cast()) };
     }
+
+    #[test]
+    fn only_normal_ambiguous_completion_rings_the_bell() {
+        assert!(completion_rings_bell(b'\t' as c_int, true));
+        assert!(!completion_rings_bell(b'\t' as c_int, false));
+        assert!(!completion_rings_bell(b'!' as c_int, true));
+        assert!(!completion_rings_bell(b'@' as c_int, true));
+        assert!(!completion_rings_bell(b'?' as c_int, true));
+    }
 }

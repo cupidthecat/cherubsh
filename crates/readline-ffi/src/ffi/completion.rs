@@ -118,11 +118,24 @@ pub unsafe extern "C" fn username_completion_function(
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn rl_complete_internal(_what_to_do: c_int) -> c_int {
+pub unsafe extern "C" fn rl_complete_internal(what_to_do: c_int) -> c_int {
+    rl_completion_type = what_to_do;
     let line = current_line();
     let completion = ffi_complete(&line, rl_point.max(0) as usize);
     if completion.matches.is_empty() {
+        readline_store()
+            .lock()
+            .expect("readline lock")
+            .completion_changed_buffer = false;
         return rl_ding();
+    }
+    if what_to_do == b'?' as c_int {
+        display_completion_matches(&completion);
+        readline_store()
+            .lock()
+            .expect("readline lock")
+            .completion_changed_buffer = false;
+        return 0;
     }
     let chosen = if completion.matches.len() == 1 {
         completion.matches[0].clone()
@@ -131,26 +144,49 @@ pub unsafe extern "C" fn rl_complete_internal(_what_to_do: c_int) -> c_int {
     };
     let start = clamp_boundary(&line, completion.replace_start);
     let point = clamp_boundary(&line, rl_point.max(0) as usize);
-    if chosen.is_empty() || chosen == line[start..point] {
-        if _what_to_do == b'?' as c_int || _what_to_do == b'!' as c_int {
-            let array = completion_array(&completion.matches, false);
-            rl_display_match_list(array, completion.matches.len() as c_int, 0);
-            free_string_array(array);
-        }
-        return 0;
+    let multiple = completion.matches.len() > 1;
+    let extends_common_prefix = !chosen.is_empty() && chosen != line[start..point];
+    let mut updated = line.clone();
+    let mut new_point = point;
+    if extends_common_prefix {
+        updated.replace_range(start..point, &chosen);
+        new_point = start + chosen.len();
     }
-    save_undo();
-    let mut updated = line;
-    updated.replace_range(start..point, &chosen);
-    let mut new_point = start + chosen.len();
-    if completion.matches.len() == 1 && !completion.suppress_append {
+    if !multiple && !chosen.is_empty() && !completion.suppress_append {
         if let Some(ch) = completion.append_character {
             updated.insert(new_point, ch);
             new_point += ch.len_utf8();
         }
     }
-    set_line_buffer(&updated, new_point);
+    if updated != line {
+        save_undo();
+        set_line_buffer(&updated, new_point);
+    }
+
+    let should_display = multiple
+        && (what_to_do == b'!' as c_int
+            || what_to_do == b'@' as c_int && !extends_common_prefix);
+    if should_display {
+        display_completion_matches(&completion);
+    } else if completion_rings_bell(what_to_do, multiple) {
+        rl_ding();
+    }
+    let changed = current_line() != line;
+    readline_store()
+        .lock()
+        .expect("readline lock")
+        .completion_changed_buffer = changed;
     0
+}
+
+fn completion_rings_bell(what_to_do: c_int, multiple: bool) -> bool {
+    multiple && what_to_do == b'\t' as c_int
+}
+
+unsafe fn display_completion_matches(completion: &Completion) {
+    let array = completion_array(&completion.matches, true);
+    rl_display_match_list(array, completion.matches.len() as c_int, 0);
+    free_string_array(array);
 }
 
 unsafe fn free_string_array(array: *mut *mut c_char) {
@@ -176,7 +212,7 @@ pub unsafe extern "C" fn rl_display_match_list(matches: *mut *mut c_char, len: c
     }
     libc::write(libc::STDERR_FILENO, b"\n".as_ptr().cast(), 1);
     for index in 0..len.max(0) as usize {
-        let value = *matches.add(index);
+        let value = *matches.add(index + 1);
         if value.is_null() {
             break;
         }
@@ -188,7 +224,7 @@ pub unsafe extern "C" fn rl_display_match_list(matches: *mut *mut c_char, len: c
 
 #[no_mangle]
 pub unsafe extern "C" fn rl_complete(_count: c_int, _key: c_int) -> c_int {
-    rl_complete_internal(b'\t' as c_int)
+    rl_complete_internal(rl_completion_mode(Some(rl_complete)))
 }
 
 #[no_mangle]
