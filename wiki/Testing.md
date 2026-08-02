@@ -30,7 +30,7 @@ Then run the main driver. Set `RUN_BRUSH_PARITY=1` to include all eligible Brush
 RUN_BRUSH_PARITY=1 ./tools/run-parity.sh
 ```
 
-The driver builds a Bash 5.3.15 oracle under `target/oracle`, runs the Rust workspace tests and upstream Bash suites, and finishes with the Readline gate. It writes reports below `target/parity`; the CI job also preserves those reports as an artifact.
+The driver builds a Bash 5.3.15 oracle under `target/oracle`, runs the Rust workspace tests, the Oils OSH corpus, and the upstream Bash suites, then finishes with the Readline gate. It writes reports below `target/parity`; the CI job also preserves those reports as an artifact. Bubblewrap is required for the Oils sandbox.
 
 ## Focused checks
 
@@ -49,6 +49,18 @@ RUN_BRUSH_PARITY=1 \
 BRUSH_PARITY_FILTER='Builtins: wait' \
 cargo test -p cherubsh --test brush_parity -- --nocapture
 ```
+
+Run Oils cases whose stable ID contains a string:
+
+```sh
+RUN_OILS_PARITY=1 \
+OILS_PARITY_FILTER='command-sub.test.sh' \
+cargo test -p cherubsh --test oils_parity -- --nocapture
+```
+
+Set `OILS_PARITY_JOBS` to cap worker threads or `OILS_PARITY_REPORT_DIR` to move the report. The default report directory is `target/parity/oils`. `report.tsv` records every verdict, and `failures/` keeps raw Bash and CherubSH streams for each mismatch. `suggested-ratchet.tsv` contains a complete replacement candidate for review.
+
+The checked-in ratchet accepts 472 known observations. It still fails on a new mismatch (`FAIL`), a changed known mismatch (`DRIFT`), a fixed known mismatch (`XPASS`), or an entry with no matching case (`STALE`). Remove an `XPASS` entry instead of leaving a resolved behavior in the baseline.
 
 Run the C-library compatibility checks only:
 
