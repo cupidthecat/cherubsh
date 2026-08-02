@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 pub mod brush;
+pub mod oils;
 pub mod readline;
 pub mod upstream;
 
