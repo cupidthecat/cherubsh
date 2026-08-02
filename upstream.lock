@@ -12,3 +12,6 @@ READLINE_PATCHLEVEL=3
 BASH_COMPLETION_REPOSITORY=https://github.com/scop/bash-completion.git
 BASH_COMPLETION_TAG=2.18.0
 BASH_COMPLETION_TAG_OBJECT=b80d38cce5645fb98acd4eba857843fdf66be570
+
+OILS_REPOSITORY=https://github.com/oils-for-unix/oils.git
+OILS_COMMIT=15de8fd779569e6e3a9f5fcbfc00e7df0ebe0380

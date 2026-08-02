@@ -1,0 +1,22 @@
+# Similar to .builds/cpp.yaml for sourcehut
+
+#use dialect sourcehut
+
+const image = 'debian/buster'
+
+# This should be an error, YUP
+# image = 'oops'
+
+const packages = %(zip wget)
+
+const secrets = %(0123-abcd)
+
+TASK cpp {
+  cd oil
+  services/toil-worker.sh run-cpp
+}
+
+TASK publish-html {
+  cd oil
+  services/sourcehut.sh publish-html-assuming-key
+}
