@@ -1,6 +1,6 @@
 # CherubSH
 
-CherubSH (`cherubsh`), formerly cupidshell, is a Rust implementation of Bash 5.3 behavior. It includes its own UTF-8 line editor and C-compatible GNU Readline and History libraries. Compatibility is checked against pinned builds of Bash 5.3.15 and Readline 8.3 patch 3, plus the Brush shell test corpus.
+CherubSH (`cherubsh`), formerly cupidshell, is a Rust implementation of Bash 5.3 behavior. It includes its own UTF-8 line editor and C-compatible GNU Readline and History libraries. Compatibility is checked against pinned builds of Bash 5.3.15 and Readline 8.3 patch 3, plus the Brush and Oils shell test corpora.
 
 CherubSH is developed and tested on Linux. The same build and test commands work under WSL.
 
@@ -16,10 +16,15 @@ The v0.4.0 parity gates report:
 | --- | ---: |
 | Upstream Bash 5.3 `run-*` drivers | 86 / 86 passing |
 | CherubSH differential fixtures | 99 / 99 passing |
+| Oils OSH cases compared with Bash 5.3.15 | 2,332 exact matches; 472 tracked differences |
 | Runnable Brush compatibility cases | 2,104 / 2,104 passing |
 | Brush cases skipped by their metadata or Bash version | 1 |
 
-The upstream Bash gate uses the original `.right` files. The Brush gate runs each case once with Bash 5.3.15 and once with CherubSH, then compares status, output, and files left behind. Two `read -t 0` pipeline cases are labeled `ported-nondeterministic` because Bash can report either readiness result depending on process scheduling; only those documented results are accepted. Readline tests compile the same C fixtures and upstream examples against GNU Readline and the CherubSH library.
+The upstream Bash gate uses the original `.right` files. The Oils gate runs 2,804 OSH spec cases in a Bubblewrap sandbox and compares raw status, standard output, standard error, and timeout state with Bash 5.3.15. Its checked-in ratchet records the mismatch fields and, by default, exact Bash and CherubSH fingerprints for each known difference. A changed failure, a new failure, or an unexpected pass stops CI.
+
+A short manifest limits variable fingerprints to cases affected by timing, process data, output ordering, or `$RANDOM`. The Bash fingerprint, the CherubSH fingerprint, or both may be variable for those named cases. Their mismatch fields normally stay exact, and a case with a variable CherubSH fingerprint may either match or differ on a given run. When the mismatched fields can also vary, a named case may list a small set of accepted combinations separated by `|`, such as `stdout|status,stdout`. For a mismatching run, an unlisted field combination is `DRIFT`.
+
+The Brush gate compares status, output, and files left behind. Two `read -t 0` pipeline cases are labeled `ported-nondeterministic` because Bash can report either readiness result depending on process scheduling; only those documented results are accepted. Readline tests compile the same C fixtures and upstream examples against GNU Readline and the CherubSH library.
 
 Bash is used only as a test oracle. CherubSH does not call Bash to parse commands, print syntax trees, extract translation strings, expand completions, or run loadable builtins.
 
@@ -188,11 +193,11 @@ semantics.
 
 The first run also needs the build dependencies listed below.
 
-The full parity gate needs common build tools, `bison`, `texinfo`, `gpgv`, ncurses development headers, Perl, Python 3, and util-linux. On Debian or Ubuntu:
+The full parity gate needs common build tools, `bison`, `texinfo`, `gpgv`, ncurses development headers, Perl, Python 3, util-linux, and Bubblewrap. On Debian or Ubuntu:
 
 ```sh
 sudo apt-get install \
-  autoconf bison build-essential curl git gpgv \
+  autoconf bison bubblewrap build-essential curl git gpgv \
   libncurses-dev patch perl python3 texinfo util-linux
 ```
 
@@ -205,7 +210,7 @@ RUN_BRUSH_PARITY=1 ./tools/run-parity.sh
 
 `tools/fetch-upstream.sh` checks the recorded tag objects, SHA-256 hashes, and GNU patch signatures before preparing Bash 5.3.15 and Readline 8.3 patch 3. The exact references live in `upstream.lock` and `upstream.sha256`.
 
-The main driver builds a Bash 5.3.15 oracle under `target/oracle`, runs the Rust workspace and upstream Bash suites, and finishes with the Readline gate. Add `RUN_BRUSH_PARITY=1` to include all 2,105 Brush cases, as shown above.
+The main driver builds a Bash 5.3.15 oracle under `target/oracle`, runs the Rust workspace, Oils, and upstream Bash suites, and finishes with the Readline gate. Add `RUN_BRUSH_PARITY=1` to include all 2,105 Brush cases, as shown above.
 
 Useful focused commands:
 
@@ -219,6 +224,11 @@ cargo test -p cherubsh --test upstream_parity -- --nocapture
 RUN_BRUSH_PARITY=1 \
 BRUSH_PARITY_FILTER='Builtins: wait' \
 cargo test -p cherubsh --test brush_parity -- --nocapture
+
+# Oils cases whose stable ID contains this text
+RUN_OILS_PARITY=1 \
+OILS_PARITY_FILTER='command-sub.test.sh' \
+cargo test -p cherubsh --test oils_parity -- --nocapture
 
 # Bash loadable ABI only, after building the oracle modules
 oracle/build-bash-5.3.15-loadables.sh
@@ -393,6 +403,7 @@ CherubSH is an independent implementation. Its behavior and tests draw on severa
 - [GNU Bash](https://www.gnu.org/software/bash/) provides the compatibility target and upstream test corpus. Its source and tests are GPL-3.0-or-later.
 - [GNU Readline](https://www.gnu.org/software/readline/) provides the C API and behavioral reference for the compatible Readline and History libraries. Its source and headers are GPL-3.0-or-later.
 - [Brush](https://github.com/reubeno/brush) provides the MIT-licensed shell compatibility cases under `vendor/brush`.
+- [Oils](https://github.com/oils-for-unix/oils) provides the Apache-2.0 OSH spec cases under `vendor/oils`.
 - [bash-completion](https://github.com/scop/bash-completion) provides the GPL-2.0-or-later completion corpus used for compatibility testing.
 - [shellgei/rusty_bash](https://github.com/shellgei/rusty_bash) is useful related work on a Bash-compatible shell in Rust.
 

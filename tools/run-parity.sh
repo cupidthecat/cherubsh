@@ -50,7 +50,9 @@ export BASH_TESTS_DIR="${BASH_TESTS_DIR:-${DEFAULT_TESTS_DIR}}"
 export RUN_PARITY_TESTS=1
 export RUN_UPSTREAM_PARITY=1
 export RUN_LOADABLE_PARITY=1
+export RUN_OILS_PARITY=1
 export UPSTREAM_PARITY_REPORT_DIR="${UPSTREAM_PARITY_REPORT_DIR:-${WS_ROOT}/target/parity/upstream}"
+export OILS_PARITY_REPORT_DIR="${OILS_PARITY_REPORT_DIR:-${WS_ROOT}/target/parity/oils}"
 if [[ "${RUN_BRUSH_PARITY:-}" == "1" ]]; then
     export BRUSH_PARITY_REPORT_DIR="${BRUSH_PARITY_REPORT_DIR:-${WS_ROOT}/target/parity/brush}"
 fi
@@ -92,10 +94,26 @@ if [[ "${RUN_BRUSH_PARITY:-}" == "1" ]] && [[ -f "${BRUSH_PARITY_REPORT_DIR}/rep
     echo ">> brush parity: PASS=${BRUSH_PASS} FAIL=${BRUSH_FAIL} SKIP=${BRUSH_SKIP}"
     echo ">> brush report: ${BRUSH_PARITY_REPORT_DIR}/report.tsv"
 fi
+OILS_PASS=0
+OILS_KNOWN=0
+OILS_FAIL=0
+OILS_DRIFT=0
+OILS_XPASS=0
+OILS_STALE=0
+if [[ -f "${OILS_PARITY_REPORT_DIR}/report.tsv" ]]; then
+    OILS_PASS=$(awk -F '\t' '$1 == "PASS" { count++ } END { print count + 0 }' "${OILS_PARITY_REPORT_DIR}/report.tsv")
+    OILS_KNOWN=$(awk -F '\t' '$1 == "KNOWN" { count++ } END { print count + 0 }' "${OILS_PARITY_REPORT_DIR}/report.tsv")
+    OILS_FAIL=$(awk -F '\t' '$1 == "FAIL" { count++ } END { print count + 0 }' "${OILS_PARITY_REPORT_DIR}/report.tsv")
+    OILS_DRIFT=$(awk -F '\t' '$1 == "DRIFT" { count++ } END { print count + 0 }' "${OILS_PARITY_REPORT_DIR}/report.tsv")
+    OILS_XPASS=$(awk -F '\t' '$1 == "XPASS" { count++ } END { print count + 0 }' "${OILS_PARITY_REPORT_DIR}/report.tsv")
+    OILS_STALE=$(awk -F '\t' '$1 == "STALE" { count++ } END { print count + 0 }' "${OILS_PARITY_REPORT_DIR}/report.tsv")
+    echo ">> Oils parity: PASS=${OILS_PASS} KNOWN=${OILS_KNOWN} FAIL=${OILS_FAIL} DRIFT=${OILS_DRIFT} XPASS=${OILS_XPASS} STALE=${OILS_STALE}"
+    echo ">> Oils report: ${OILS_PARITY_REPORT_DIR}/report.tsv"
+fi
 echo ">> cargo test exit: ${CARGO_RC}"
 echo ">> readline parity exit: ${READLINE_RC}"
 
-if [[ ${CARGO_RC} -ne 0 ]] || [[ ${READLINE_RC} -ne 0 ]] || [[ ${FAIL} -ne 0 ]] || [[ ${TIMEOUT} -ne 0 ]] || [[ ${XPASS} -ne 0 ]]; then
+if [[ ${CARGO_RC} -ne 0 ]] || [[ ${READLINE_RC} -ne 0 ]] || [[ ${FAIL} -ne 0 ]] || [[ ${TIMEOUT} -ne 0 ]] || [[ ${XPASS} -ne 0 ]] || [[ ${OILS_FAIL} -ne 0 ]] || [[ ${OILS_DRIFT} -ne 0 ]] || [[ ${OILS_XPASS} -ne 0 ]] || [[ ${OILS_STALE} -ne 0 ]]; then
     echo ">> FAIL: parity sweep has unexpected outcomes" >&2
     exit 1
 fi

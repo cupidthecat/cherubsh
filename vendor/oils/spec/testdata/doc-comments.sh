@@ -1,0 +1,29 @@
+# for spec/oil-builtin-pp.test.sh
+
+f() {
+  ### doc ' comment with " quotes
+  echo
+}
+
+g() {
+  echo hi
+  ### not a doc comment
+}
+
+proc myproc {
+  ### YSH-style proc
+  echo myproc
+}
+
+proc true {
+  ### Special quoting rule
+  echo hi
+}
+
+shfunc-none() { 
+  echo hi
+}
+
+proc proc-none { 
+  echo hi
+}

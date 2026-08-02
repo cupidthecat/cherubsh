@@ -1,0 +1,9 @@
+
+echo 'hi from this_dir.ysh'
+
+write -n '$_this_dir = '
+
+# support git/oilshell/oil/ or git/oils-for-unix/oils
+echo $_this_dir | sed 's;.*/oils\?/;REPLACED/oils/;'
+
+source $_this_dir/empty.ysh

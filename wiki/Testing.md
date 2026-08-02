@@ -30,7 +30,7 @@ Then run the main driver. Set `RUN_BRUSH_PARITY=1` to include all eligible Brush
 RUN_BRUSH_PARITY=1 ./tools/run-parity.sh
 ```
 
-The driver builds a Bash 5.3.15 oracle under `target/oracle`, runs the Rust workspace tests and upstream Bash suites, and finishes with the Readline gate. It writes reports below `target/parity`; the CI job also preserves those reports as an artifact.
+The driver builds a Bash 5.3.15 oracle under `target/oracle`, runs the Rust workspace tests, the Oils OSH corpus, and the upstream Bash suites, then finishes with the Readline gate. It writes reports below `target/parity`; the CI job also preserves those reports as an artifact. Bubblewrap is required for the Oils sandbox.
 
 ## Focused checks
 
@@ -49,6 +49,18 @@ RUN_BRUSH_PARITY=1 \
 BRUSH_PARITY_FILTER='Builtins: wait' \
 cargo test -p cherubsh --test brush_parity -- --nocapture
 ```
+
+Run Oils cases whose stable ID contains a string:
+
+```sh
+RUN_OILS_PARITY=1 \
+OILS_PARITY_FILTER='command-sub.test.sh' \
+cargo test -p cherubsh --test oils_parity -- --nocapture
+```
+
+Set `OILS_PARITY_JOBS` to cap worker threads or `OILS_PARITY_REPORT_DIR` to move the report. The default report directory is `target/parity/oils`. `report.tsv` records every verdict, and `failures/` keeps raw Bash and CherubSH streams for each mismatch. `observed-ratchet-<arch>.tsv` contains the current architecture's mismatch observations. Review those rows and merge intentional changes into the checked-in ratchet; the file is not a complete cross-architecture replacement.
+
+The checked-in ratchet tracks known observations. It normally stores exact Bash and CherubSH fingerprints. Cases named in `crates/test-harness/oils-nondeterministic-cases.txt` may use a variable fingerprint for Bash, CherubSH, or both when timing, process data, random values, or output ordering changes between runs. Their mismatch fields normally remain exact. If those fields also vary, a named case may record a small set of accepted combinations separated by `|`, such as `stdout|status,stdout`. Each combination is matched as a whole. For a mismatching run, an unlisted field combination is `DRIFT`. The gate also fails on a new mismatch (`FAIL`), a fixed known mismatch (`XPASS`), or an entry with no matching case (`STALE`). A case with a variable CherubSH fingerprint may pass on a given run without becoming an `XPASS`. Remove other `XPASS` entries instead of leaving resolved behavior in the baseline.
 
 Run the C-library compatibility checks only:
 

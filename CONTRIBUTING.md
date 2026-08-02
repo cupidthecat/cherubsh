@@ -31,6 +31,8 @@ Run the focused upstream, Brush, PTY, Readline, packaging, or fuzz check for the
 RUN_BRUSH_PARITY=1 ./tools/run-parity.sh
 ```
 
+The full driver always runs the vendored Oils OSH corpus. Its ratchet is strict: `FAIL`, `DRIFT`, `XPASS`, and `STALE` are all test failures. Do not replace `crates/test-harness/oils-known-mismatches.tsv` just to make a change pass. Inspect the raw files under `target/parity/oils/failures`, confirm that each changed observation is intentional, and keep the ratchet diff in the same focused compatibility change. Each run also writes `observed-ratchet-<arch>.tsv`. That file contains observations for one architecture, so merge reviewed rows into the checked-in ratchet instead of using it as a complete replacement.
+
 ## Issues and pull requests
 
 Use the compatibility issue form when CherubSH and the pinned Bash build produce different observable results. Use the bug form when the problem is specific to CherubSH, its packaging, or its tools. Feature requests should describe the user problem before proposing an interface.

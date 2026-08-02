@@ -1,0 +1,34 @@
+shopt --set oil:upgrade
+
+hay define Foo/TASK
+
+
+Foo {
+  a = 'x'
+
+  # aliases not allowed oil:upgrade
+  # alias ll='ls -l'
+  # ll _test
+
+  # Dynamic parsing allowed in OSH, not YSH
+  #b[1]=1
+
+  echo `echo backticks`
+  eval 'echo eval'
+
+  # At parse time, all the lines must be contiguous
+
+  TASK {
+    echo `echo task backticks`
+    eval 'echo task eval'
+  }
+}
+
+const children = _hay().children[0].children
+
+for child in (children) {
+  echo "TYPE $[child.type]"
+  if (child.type === 'TASK') {
+    echo "CODE $[child.code_str]___"
+  }
+}
