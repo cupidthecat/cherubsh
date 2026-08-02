@@ -508,6 +508,98 @@ fn workspace_test_runner_forces_the_c_locale_for_version_checks() {
 }
 
 #[test]
+fn bash_oracle_builder_rebuilds_a_prefix_colliding_version() {
+    let directory = temporary_directory("bash-builder-prefix-oracle");
+    let bash = directory.join("bash");
+    let replacement = directory.join("replacement-bash");
+    let marker = directory.join("rebuilt");
+    fs::write(
+        &bash,
+        "#!/usr/bin/env bash\nprintf '%s\\n' 'GNU bash, version 5.3.150(1)-release'\n",
+    )
+    .expect("write prefix-colliding fake Bash");
+    fs::write(
+        &replacement,
+        "#!/usr/bin/env bash\nprintf '%s\\n' 'GNU bash, version 5.3.15(1)-release'\n",
+    )
+    .expect("write replacement fake Bash");
+    fs::write(
+        directory.join("Makefile"),
+        concat!(
+            "all:\n",
+            "\tcp replacement-bash bash\n",
+            "\tchmod +x bash\n",
+            "\ttouch rebuilt\n",
+            "recho zecho printenv xcase:\n",
+            "\ttouch $@\n",
+        ),
+    )
+    .expect("write fake Bash Makefile");
+    fs::write(directory.join(".cherubsh-lf-normalized"), "").expect("write line-ending marker");
+    for executable in [&bash, &replacement] {
+        let mut permissions = fs::metadata(executable)
+            .expect("read fake executable metadata")
+            .permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(executable, permissions).expect("make fake executable runnable");
+    }
+
+    let output = Command::new(workspace_root().join("oracle/build-bash-5.3.15.sh"))
+        .env("BASH_SRC", &directory)
+        .output()
+        .expect("run Bash oracle builder");
+
+    assert!(
+        output.status.success(),
+        "builder failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(marker.is_file(), "builder accepted Bash 5.3.150 as 5.3.15");
+    let _ = fs::remove_dir_all(directory);
+}
+
+#[test]
+fn bash_oracle_builder_forces_the_c_locale_for_version_checks() {
+    let directory = temporary_directory("bash-builder-oracle-locale");
+    let bash = directory.join("bash");
+    fs::write(
+        &bash,
+        concat!(
+            "#!/usr/bin/env bash\n",
+            "if [[ ${LC_ALL:-} == C ]]; then\n",
+            "  printf '%s\\n' 'GNU bash, version 5.3.15(1)-release'\n",
+            "else\n",
+            "  printf '%s\\n' 'bash GNU, versión 5.3.15(1)-release'\n",
+            "fi\n",
+        ),
+    )
+    .expect("write localized fake Bash");
+    fs::write(directory.join("Makefile"), "all:\n\texit 97\n")
+        .expect("write failing fake Bash Makefile");
+    fs::write(directory.join(".cherubsh-lf-normalized"), "").expect("write line-ending marker");
+    let mut permissions = fs::metadata(&bash)
+        .expect("read fake Bash metadata")
+        .permissions();
+    permissions.set_mode(0o755);
+    fs::set_permissions(&bash, permissions).expect("make fake Bash runnable");
+
+    let output = Command::new(workspace_root().join("oracle/build-bash-5.3.15.sh"))
+        .env("BASH_SRC", &directory)
+        .env("LC_ALL", "C.UTF-8")
+        .output()
+        .expect("run Bash oracle builder");
+
+    assert!(
+        output.status.success(),
+        "builder failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let _ = fs::remove_dir_all(directory);
+}
+
+#[test]
 fn development_guides_use_the_pinned_workspace_test_runner() {
     for path in [
         "README.md",
