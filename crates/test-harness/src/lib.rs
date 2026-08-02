@@ -219,7 +219,7 @@ fn oracle_binary_version_matches(path: &Path, version: &str) -> bool {
     match output {
         Ok(output) => {
             let banner = String::from_utf8_lossy(&output.stdout);
-            oracle_banner_matches(version, &banner)
+            output.status.success() && oracle_banner_matches(version, &banner)
         }
         Err(_) => false,
     }
@@ -657,6 +657,17 @@ mod tests {
         std::fs::set_permissions(&path, permissions).unwrap();
 
         assert!(oracle_binary_version_matches(&path, "5.3.15"));
+
+        std::fs::write(
+            &path,
+            concat!(
+                "#!/usr/bin/env bash\n",
+                "printf '%s\\n' 'GNU bash, version 5.3.15(1)-release'\n",
+                "exit 7\n",
+            ),
+        )
+        .unwrap();
+        assert!(!oracle_binary_version_matches(&path, "5.3.15"));
 
         std::fs::remove_file(path).unwrap();
     }
