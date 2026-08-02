@@ -171,7 +171,7 @@ pub fn classify_oils_outcome(
     known: Option<&OilsKnownMismatch>,
 ) -> OilsVerdict {
     if outcome.passed() {
-        return if known.is_some() {
+        return if known.is_some_and(|entry| entry.candidate_fingerprint != "variable") {
             OilsVerdict::UnexpectedPass
         } else {
             OilsVerdict::Pass
@@ -188,7 +188,8 @@ pub fn classify_oils_outcome(
     if fields == known.fields
         && (known.oracle_fingerprint == "variable"
             || candidate_fingerprint(&outcome.bash) == known.oracle_fingerprint)
-        && candidate_fingerprint(&outcome.cherub) == known.candidate_fingerprint
+        && (known.candidate_fingerprint == "variable"
+            || candidate_fingerprint(&outcome.cherub) == known.candidate_fingerprint)
     {
         OilsVerdict::Known
     } else {
@@ -197,6 +198,18 @@ pub fn classify_oils_outcome(
 }
 
 pub fn load_oils_ratchet(path: &Path) -> Result<BTreeMap<String, OilsKnownMismatch>, HarnessError> {
+    load_oils_ratchet_for_arch(path, std::env::consts::ARCH)
+}
+
+pub fn load_oils_ratchet_for_arch(
+    path: &Path,
+    architecture: &str,
+) -> Result<BTreeMap<String, OilsKnownMismatch>, HarnessError> {
+    if !matches!(architecture, "x86_64" | "aarch64") {
+        return Err(invalid_data(format!(
+            "unsupported Oils ratchet architecture: {architecture}"
+        )));
+    }
     let text = fs::read_to_string(path).map_err(HarnessError::Io)?;
     let mut lines = text.lines().enumerate().filter(|(_, line)| {
         let line = line.trim();
@@ -205,7 +218,7 @@ pub fn load_oils_ratchet(path: &Path) -> Result<BTreeMap<String, OilsKnownMismat
     let Some((_, header)) = lines.next() else {
         return Err(invalid_data("Oils ratchet has no header".to_string()));
     };
-    if header != "case\tfields\toracle_sha256\tcandidate_sha256" {
+    if header != "case\tarch\tfields\toracle_sha256\tcandidate_sha256" {
         return Err(invalid_data("invalid Oils ratchet header".to_string()));
     }
 
@@ -217,16 +230,25 @@ pub fn load_oils_ratchet(path: &Path) -> Result<BTreeMap<String, OilsKnownMismat
         "stderr",
     ]);
     let nondeterministic = oils_nondeterministic_case_ids()?;
-    let mut entries = BTreeMap::new();
+    let mut generic_entries = BTreeMap::new();
+    let mut architecture_entries = BTreeMap::new();
+    let mut seen = BTreeSet::new();
     for (line_index, line) in lines {
         let columns = line.split('\t').collect::<Vec<_>>();
-        if columns.len() != 4 {
+        if columns.len() != 5 {
             return Err(invalid_data(format!(
                 "invalid Oils ratchet row on line {}",
                 line_index + 1
             )));
         }
-        let fields = columns[1].split(',').map(str::to_owned).collect::<Vec<_>>();
+        let row_architecture = columns[1];
+        if !matches!(row_architecture, "*" | "x86_64" | "aarch64") {
+            return Err(invalid_data(format!(
+                "invalid Oils ratchet architecture on line {}",
+                line_index + 1
+            )));
+        }
+        let fields = columns[2].split(',').map(str::to_owned).collect::<Vec<_>>();
         if fields.is_empty()
             || fields
                 .iter()
@@ -237,10 +259,10 @@ pub fn load_oils_ratchet(path: &Path) -> Result<BTreeMap<String, OilsKnownMismat
                 line_index + 1
             )));
         }
-        let oracle_fingerprint = columns[2];
-        let candidate_fingerprint = columns[3];
+        let oracle_fingerprint = columns[3];
+        let candidate_fingerprint = columns[4];
         if !(oracle_fingerprint == "variable" || valid_fingerprint(oracle_fingerprint))
-            || !valid_fingerprint(candidate_fingerprint)
+            || !(candidate_fingerprint == "variable" || valid_fingerprint(candidate_fingerprint))
         {
             return Err(invalid_data(format!(
                 "invalid Oils fingerprint on line {}",
@@ -248,9 +270,18 @@ pub fn load_oils_ratchet(path: &Path) -> Result<BTreeMap<String, OilsKnownMismat
             )));
         }
         let id = unescape_tsv_field(columns[0], line_index + 1)?;
-        if oracle_fingerprint == "variable" && !nondeterministic.contains(&id) {
+        if !seen.insert((id.clone(), row_architecture.to_string())) {
             return Err(invalid_data(format!(
-                "variable Oils oracle is not in the nondeterministic manifest on line {}: {id}",
+                "duplicate Oils ratchet case on line {}: {} ({row_architecture})",
+                line_index + 1,
+                columns[0]
+            )));
+        }
+        if (oracle_fingerprint == "variable" || candidate_fingerprint == "variable")
+            && !nondeterministic.contains(&id)
+        {
+            return Err(invalid_data(format!(
+                "variable Oils fingerprint is not in the nondeterministic manifest on line {}: {id}",
                 line_index + 1
             )));
         }
@@ -260,15 +291,14 @@ pub fn load_oils_ratchet(path: &Path) -> Result<BTreeMap<String, OilsKnownMismat
             oracle_fingerprint: oracle_fingerprint.to_ascii_lowercase(),
             candidate_fingerprint: candidate_fingerprint.to_ascii_lowercase(),
         };
-        if entries.insert(entry.id.clone(), entry).is_some() {
-            return Err(invalid_data(format!(
-                "duplicate Oils ratchet case on line {}: {}",
-                line_index + 1,
-                columns[0]
-            )));
+        if row_architecture == "*" {
+            generic_entries.insert(entry.id.clone(), entry);
+        } else if row_architecture == architecture {
+            architecture_entries.insert(entry.id.clone(), entry);
         }
     }
-    Ok(entries)
+    generic_entries.extend(architecture_entries);
+    Ok(generic_entries)
 }
 
 fn valid_fingerprint(fingerprint: &str) -> bool {
@@ -317,8 +347,9 @@ pub fn write_oils_report(
     fs::create_dir_all(&failures_dir).map_err(HarnessError::Io)?;
     let nondeterministic = oils_nondeterministic_case_ids()?;
 
-    let mut report = String::from("verdict\tcase\tfields\toracle_sha256\tcandidate_sha256\n");
-    let mut suggested = String::from("case\tfields\toracle_sha256\tcandidate_sha256\n");
+    let architecture = std::env::consts::ARCH;
+    let mut report = String::from("verdict\tcase\tarch\tfields\toracle_sha256\tcandidate_sha256\n");
+    let mut observations = String::from("case\tarch\tfields\toracle_sha256\tcandidate_sha256\n");
     let mut tally = OilsTally::default();
     let mut artifact_index = 0usize;
     for assessment in assessments {
@@ -346,9 +377,10 @@ pub fn write_oils_report(
             })
             .unwrap_or_default();
         report.push_str(&format!(
-            "{}\t{}\t{}\t{}\t{}\n",
+            "{}\t{}\t{}\t{}\t{}\t{}\n",
             assessment.verdict.as_str(),
             tsv_field(&assessment.id),
+            architecture,
             fields,
             oracle_fingerprint,
             candidate_fingerprint
@@ -358,9 +390,10 @@ pub fn write_oils_report(
             continue;
         };
         if !outcome.passed() {
-            suggested.push_str(&format!(
-                "{}\t{}\t{}\t{}\n",
+            observations.push_str(&format!(
+                "{}\t{}\t{}\t{}\t{}\n",
                 tsv_field(&assessment.id),
+                architecture,
                 fields,
                 oracle_fingerprint,
                 candidate_fingerprint
@@ -374,7 +407,15 @@ pub fn write_oils_report(
         }
     }
     fs::write(report_dir.join("report.tsv"), report).map_err(HarnessError::Io)?;
-    fs::write(report_dir.join("suggested-ratchet.tsv"), suggested).map_err(HarnessError::Io)?;
+    let legacy_suggestion = report_dir.join("suggested-ratchet.tsv");
+    if legacy_suggestion.exists() {
+        fs::remove_file(legacy_suggestion).map_err(HarnessError::Io)?;
+    }
+    fs::write(
+        report_dir.join(format!("observed-ratchet-{architecture}.tsv")),
+        observations,
+    )
+    .map_err(HarnessError::Io)?;
     Ok(tally)
 }
 

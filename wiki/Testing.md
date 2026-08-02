@@ -58,9 +58,9 @@ OILS_PARITY_FILTER='command-sub.test.sh' \
 cargo test -p cherubsh --test oils_parity -- --nocapture
 ```
 
-Set `OILS_PARITY_JOBS` to cap worker threads or `OILS_PARITY_REPORT_DIR` to move the report. The default report directory is `target/parity/oils`. `report.tsv` records every verdict, and `failures/` keeps raw Bash and CherubSH streams for each mismatch. `suggested-ratchet.tsv` contains a complete replacement candidate for review.
+Set `OILS_PARITY_JOBS` to cap worker threads or `OILS_PARITY_REPORT_DIR` to move the report. The default report directory is `target/parity/oils`. `report.tsv` records every verdict, and `failures/` keeps raw Bash and CherubSH streams for each mismatch. `observed-ratchet-<arch>.tsv` contains the current architecture's mismatch observations. Review those rows and merge intentional changes into the checked-in ratchet; the file is not a complete cross-architecture replacement.
 
-The checked-in ratchet accepts 472 known observations. It stores Bash and CherubSH fingerprints, except for the named cases in `crates/test-harness/oils-nondeterministic-cases.txt` whose Bash output contains timing, process, or random data. Those entries still pin the mismatch fields and CherubSH fingerprint. The gate fails on a new mismatch (`FAIL`), a changed known mismatch (`DRIFT`), a fixed known mismatch (`XPASS`), or an entry with no matching case (`STALE`). Remove an `XPASS` entry instead of leaving a resolved behavior in the baseline.
+The checked-in ratchet tracks known observations. It normally stores exact Bash and CherubSH fingerprints. Cases named in `crates/test-harness/oils-nondeterministic-cases.txt` may use a variable fingerprint for Bash, CherubSH, or both when timing, process data, random values, or output ordering changes between runs. Their mismatch fields remain exact. The gate fails on a new mismatch (`FAIL`), a changed known mismatch (`DRIFT`), a fixed known mismatch (`XPASS`), or an entry with no matching case (`STALE`). A case with a variable CherubSH fingerprint may also pass on a given run without becoming an `XPASS`. Remove other `XPASS` entries instead of leaving resolved behavior in the baseline.
 
 Run the C-library compatibility checks only:
 

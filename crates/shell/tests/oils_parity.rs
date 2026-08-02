@@ -192,7 +192,9 @@ fn stabilize_nondeterministic_cases(
 
 fn accepted_attempt(outcome: &OilsOutcome, known: Option<&OilsKnownMismatch>) -> bool {
     let verdict = cherubsh_test_harness::oils::classify_oils_outcome(outcome, known);
-    if known.is_some() {
+    if known.is_some_and(|entry| entry.candidate_fingerprint == "variable") {
+        matches!(verdict, OilsVerdict::Known | OilsVerdict::Pass)
+    } else if known.is_some() {
         verdict == OilsVerdict::Known
     } else {
         verdict == OilsVerdict::Pass

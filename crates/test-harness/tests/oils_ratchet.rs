@@ -2,7 +2,8 @@ use std::path::PathBuf;
 
 use cherubsh_test_harness::oils::{
     assess_oils_outcomes, candidate_fingerprint, classify_oils_outcome, load_oils_ratchet,
-    write_oils_report, OilsKnownMismatch, OilsOutcome, OilsRunOutput, OilsVerdict,
+    load_oils_ratchet_for_arch, write_oils_report, OilsKnownMismatch, OilsOutcome, OilsRunOutput,
+    OilsVerdict,
 };
 use cherubsh_test_harness::workspace_root;
 
@@ -84,6 +85,18 @@ fn ratchet_classifies_known_drift_new_and_unexpected_pass() {
         classify_oils_outcome(&passing, Some(&known)),
         OilsVerdict::UnexpectedPass
     );
+
+    let mut variable_candidate = known;
+    variable_candidate.oracle_fingerprint = "variable".to_string();
+    variable_candidate.candidate_fingerprint = "variable".to_string();
+    assert_eq!(
+        classify_oils_outcome(&changed, Some(&variable_candidate)),
+        OilsVerdict::Known
+    );
+    assert_eq!(
+        classify_oils_outcome(&passing, Some(&variable_candidate)),
+        OilsVerdict::Pass
+    );
 }
 
 #[test]
@@ -99,13 +112,40 @@ fn timeout_fields_are_part_of_the_ratchet_contract() {
 }
 
 #[test]
+fn ratchet_prefers_architecture_specific_overrides() {
+    let path = ratchet_fixture_path("architectures");
+    let generic = "0".repeat(64);
+    let arm = "1".repeat(64);
+    std::fs::write(
+        &path,
+        format!(
+            "case\tarch\tfields\toracle_sha256\tcandidate_sha256\n\
+             sample.test.sh::000::sample\t*\tstdout\t{generic}\t{generic}\n\
+             sample.test.sh::000::sample\taarch64\tstderr\t{arm}\t{arm}\n\
+             arm-only.test.sh::000::sample\taarch64\tstatus\t{arm}\t{arm}\n"
+        ),
+    )
+    .expect("write architecture ratchet fixture");
+
+    let x86 = load_oils_ratchet_for_arch(&path, "x86_64").expect("load x86 ratchet");
+    let aarch64 = load_oils_ratchet_for_arch(&path, "aarch64").expect("load aarch64 ratchet");
+    std::fs::remove_file(&path).expect("remove ratchet fixture");
+
+    assert_eq!(x86["sample.test.sh::000::sample"].fields, ["stdout"]);
+    assert!(!x86.contains_key("arm-only.test.sh::000::sample"));
+    assert_eq!(aarch64["sample.test.sh::000::sample"].fields, ["stderr"]);
+    assert!(aarch64.contains_key("arm-only.test.sh::000::sample"));
+}
+
+#[test]
 fn ratchet_loader_rejects_duplicate_case_ids() {
     let path = ratchet_fixture_path("duplicate");
     let fingerprint = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
-    let row = format!("sample.test.sh::000::sample\tstatus,stdout\t{fingerprint}\t{fingerprint}\n");
+    let row =
+        format!("sample.test.sh::000::sample\t*\tstatus,stdout\t{fingerprint}\t{fingerprint}\n");
     std::fs::write(
         &path,
-        format!("case\tfields\toracle_sha256\tcandidate_sha256\n{row}{row}"),
+        format!("case\tarch\tfields\toracle_sha256\tcandidate_sha256\n{row}{row}"),
     )
     .expect("write ratchet fixture");
 
@@ -122,8 +162,8 @@ fn ratchet_loader_rejects_unlisted_variable_oracles() {
     std::fs::write(
         &path,
         format!(
-            "case\tfields\toracle_sha256\tcandidate_sha256\n\
-             sample.test.sh::000::sample\tstdout\tvariable\t{fingerprint}\n"
+            "case\tarch\tfields\toracle_sha256\tcandidate_sha256\n\
+             sample.test.sh::000::sample\t*\tstdout\tvariable\t{fingerprint}\n"
         ),
     )
     .expect("write variable oracle fixture");
@@ -165,7 +205,7 @@ fn assessment_is_sorted_and_reports_stale_entries() {
 }
 
 #[test]
-fn report_contains_tally_artifacts_and_replacement_ratchet() {
+fn report_contains_tally_artifacts_and_arch_observations() {
     let report_dir = workspace_root().join("target/oils-report-fixture");
     if report_dir.exists() {
         std::fs::remove_dir_all(&report_dir).expect("remove old report fixture");
@@ -173,16 +213,26 @@ fn report_contains_tally_artifacts_and_replacement_ratchet() {
     let outcome = mismatch();
     let assessments = assess_oils_outcomes(vec![outcome.clone()], &Default::default());
 
+    std::fs::create_dir_all(&report_dir).expect("create report fixture");
+    std::fs::write(report_dir.join("suggested-ratchet.tsv"), "obsolete")
+        .expect("write legacy suggested ratchet");
+
     let tally = write_oils_report(&report_dir, &assessments).expect("write Oils report");
 
     assert_eq!(tally.fail, 1);
     let report = std::fs::read_to_string(report_dir.join("report.tsv")).expect("read report");
-    assert!(report.contains("verdict\tcase\tfields\toracle_sha256\tcandidate_sha256"));
-    assert!(report.contains("FAIL\tsample.test.sh::000::sample\tstatus,stdout"));
-    let suggested = std::fs::read_to_string(report_dir.join("suggested-ratchet.tsv"))
-        .expect("read suggested ratchet");
-    assert!(suggested.contains(&candidate_fingerprint(&outcome.bash)));
-    assert!(suggested.contains(&candidate_fingerprint(&outcome.cherub)));
+    assert!(report.contains("verdict\tcase\tarch\tfields\toracle_sha256\tcandidate_sha256"));
+    assert!(report.contains(&format!(
+        "FAIL\tsample.test.sh::000::sample\t{}\tstatus,stdout",
+        std::env::consts::ARCH
+    )));
+    let observations = std::fs::read_to_string(
+        report_dir.join(format!("observed-ratchet-{}.tsv", std::env::consts::ARCH)),
+    )
+    .expect("read architecture observations");
+    assert!(observations.contains(&candidate_fingerprint(&outcome.bash)));
+    assert!(observations.contains(&candidate_fingerprint(&outcome.cherub)));
+    assert!(!report_dir.join("suggested-ratchet.tsv").exists());
     assert_eq!(
         std::fs::read(report_dir.join("failures/0000/bash.stdout")).expect("read Bash stdout"),
         b"bash\n"
@@ -203,8 +253,10 @@ fn report_and_loader_round_trip_case_ids_with_escapes() {
     let assessments = assess_oils_outcomes(vec![outcome.clone()], &Default::default());
     write_oils_report(&report_dir, &assessments).expect("write escaped Oils report");
 
-    let loaded = load_oils_ratchet(&report_dir.join("suggested-ratchet.tsv"))
-        .expect("load escaped Oils report");
+    let loaded = load_oils_ratchet(
+        &report_dir.join(format!("observed-ratchet-{}.tsv", std::env::consts::ARCH)),
+    )
+    .expect("load escaped Oils report");
 
     assert!(loaded.contains_key(&outcome.id));
     std::fs::remove_dir_all(report_dir).expect("remove escaped report fixture");

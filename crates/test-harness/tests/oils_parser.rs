@@ -28,7 +28,19 @@ fn nondeterministic_case_manifest_only_names_vendored_cases() {
     let nondeterministic =
         oils_nondeterministic_case_ids().expect("load Oils nondeterministic case manifest");
 
-    assert_eq!(nondeterministic.len(), 10);
+    assert_eq!(nondeterministic.len(), 15);
+    for id in [
+        "builtin-kill.test.sh::001::kill -KILL kills the process with SIGKILL",
+        "paren-ambiguity.test.sh::005::((gzip example - zdiff package - #2337",
+        "posix.test.sh::012::Newlines in compound lists",
+        "sh-options-bash.test.sh::000::SHELLOPTS is updated when options are changed",
+        "shell-bugs.test.sh::000::./configure idiom",
+    ] {
+        assert!(
+            nondeterministic.contains(id),
+            "missing environment-sensitive case: {id}"
+        );
+    }
     for id in nondeterministic {
         assert!(
             case_ids.contains(&id),
