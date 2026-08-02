@@ -8,6 +8,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use sha2::{Digest, Sha256};
+
 use crate::{workspace_root, HarnessError};
 
 const FILE_METADATA_FIELDS: &[&str] = &[
@@ -78,10 +80,339 @@ impl OilsOutcome {
     pub fn passed(&self) -> bool {
         !self.bash.timed_out && !self.cherub.timed_out && self.differing_fields().is_empty()
     }
+
+    pub fn observed_fields(&self) -> Vec<&'static str> {
+        let mut fields = Vec::new();
+        if self.bash.timed_out {
+            fields.push("bash-timeout");
+        }
+        if self.cherub.timed_out {
+            fields.push("cherub-timeout");
+        }
+        fields.extend(self.differing_fields());
+        fields
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OilsKnownMismatch {
+    pub id: String,
+    pub fields: Vec<String>,
+    pub candidate_fingerprint: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OilsVerdict {
+    Pass,
+    Known,
+    NewFailure,
+    Drift,
+    UnexpectedPass,
+    Stale,
+}
+
+impl OilsVerdict {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Pass => "PASS",
+            Self::Known => "KNOWN",
+            Self::NewFailure => "FAIL",
+            Self::Drift => "DRIFT",
+            Self::UnexpectedPass => "XPASS",
+            Self::Stale => "STALE",
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct OilsAssessment {
+    pub id: String,
+    pub verdict: OilsVerdict,
+    pub outcome: Option<OilsOutcome>,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct OilsTally {
+    pub pass: usize,
+    pub known: usize,
+    pub fail: usize,
+    pub drift: usize,
+    pub xpass: usize,
+    pub stale: usize,
+}
+
+impl OilsTally {
+    pub fn has_regressions(self) -> bool {
+        self.fail + self.drift + self.xpass + self.stale != 0
+    }
+}
+
+pub fn candidate_fingerprint(output: &OilsRunOutput) -> String {
+    let mut digest = Sha256::new();
+    digest.update(b"cherubsh-oils-candidate-v1\0");
+    digest.update(output.status.to_be_bytes());
+    digest.update([u8::from(output.timed_out)]);
+    digest.update((output.stdout.len() as u64).to_be_bytes());
+    digest.update(&output.stdout);
+    digest.update((output.stderr.len() as u64).to_be_bytes());
+    digest.update(&output.stderr);
+    digest
+        .finalize()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
+pub fn classify_oils_outcome(
+    outcome: &OilsOutcome,
+    known: Option<&OilsKnownMismatch>,
+) -> OilsVerdict {
+    if outcome.passed() {
+        return if known.is_some() {
+            OilsVerdict::UnexpectedPass
+        } else {
+            OilsVerdict::Pass
+        };
+    }
+    let Some(known) = known else {
+        return OilsVerdict::NewFailure;
+    };
+    let fields = outcome
+        .observed_fields()
+        .into_iter()
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    if fields == known.fields
+        && candidate_fingerprint(&outcome.cherub) == known.candidate_fingerprint
+    {
+        OilsVerdict::Known
+    } else {
+        OilsVerdict::Drift
+    }
+}
+
+pub fn load_oils_ratchet(path: &Path) -> Result<BTreeMap<String, OilsKnownMismatch>, HarnessError> {
+    let text = fs::read_to_string(path).map_err(HarnessError::Io)?;
+    let mut lines = text.lines().enumerate().filter(|(_, line)| {
+        let line = line.trim();
+        !line.is_empty() && !line.starts_with('#')
+    });
+    let Some((_, header)) = lines.next() else {
+        return Err(invalid_data("Oils ratchet has no header".to_string()));
+    };
+    if header != "case\tfields\tcandidate_sha256" {
+        return Err(invalid_data("invalid Oils ratchet header".to_string()));
+    }
+
+    let allowed_fields = BTreeSet::from([
+        "bash-timeout",
+        "cherub-timeout",
+        "status",
+        "stdout",
+        "stderr",
+    ]);
+    let mut entries = BTreeMap::new();
+    for (line_index, line) in lines {
+        let columns = line.split('\t').collect::<Vec<_>>();
+        if columns.len() != 3 {
+            return Err(invalid_data(format!(
+                "invalid Oils ratchet row on line {}",
+                line_index + 1
+            )));
+        }
+        let fields = columns[1].split(',').map(str::to_owned).collect::<Vec<_>>();
+        if fields.is_empty()
+            || fields
+                .iter()
+                .any(|field| !allowed_fields.contains(field.as_str()))
+        {
+            return Err(invalid_data(format!(
+                "invalid Oils ratchet fields on line {}",
+                line_index + 1
+            )));
+        }
+        let fingerprint = columns[2];
+        if fingerprint.len() != 64 || !fingerprint.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            return Err(invalid_data(format!(
+                "invalid Oils candidate fingerprint on line {}",
+                line_index + 1
+            )));
+        }
+        let entry = OilsKnownMismatch {
+            id: unescape_tsv_field(columns[0], line_index + 1)?,
+            fields,
+            candidate_fingerprint: fingerprint.to_ascii_lowercase(),
+        };
+        if entries.insert(entry.id.clone(), entry).is_some() {
+            return Err(invalid_data(format!(
+                "duplicate Oils ratchet case on line {}: {}",
+                line_index + 1,
+                columns[0]
+            )));
+        }
+    }
+    Ok(entries)
+}
+
+pub fn assess_oils_outcomes(
+    outcomes: Vec<OilsOutcome>,
+    known: &BTreeMap<String, OilsKnownMismatch>,
+) -> Vec<OilsAssessment> {
+    let mut seen = BTreeSet::new();
+    let mut assessments = outcomes
+        .into_iter()
+        .map(|outcome| {
+            seen.insert(outcome.id.clone());
+            OilsAssessment {
+                id: outcome.id.clone(),
+                verdict: classify_oils_outcome(&outcome, known.get(&outcome.id)),
+                outcome: Some(outcome),
+            }
+        })
+        .collect::<Vec<_>>();
+    assessments.extend(
+        known
+            .keys()
+            .filter(|id| !seen.contains(*id))
+            .map(|id| OilsAssessment {
+                id: id.clone(),
+                verdict: OilsVerdict::Stale,
+                outcome: None,
+            }),
+    );
+    assessments.sort_by(|left, right| left.id.cmp(&right.id));
+    assessments
+}
+
+pub fn write_oils_report(
+    report_dir: &Path,
+    assessments: &[OilsAssessment],
+) -> Result<OilsTally, HarnessError> {
+    fs::create_dir_all(report_dir).map_err(HarnessError::Io)?;
+    let failures_dir = report_dir.join("failures");
+    if failures_dir.exists() {
+        fs::remove_dir_all(&failures_dir).map_err(HarnessError::Io)?;
+    }
+    fs::create_dir_all(&failures_dir).map_err(HarnessError::Io)?;
+
+    let mut report = String::from("verdict\tcase\tfields\tcandidate_sha256\n");
+    let mut suggested = String::from("case\tfields\tcandidate_sha256\n");
+    let mut tally = OilsTally::default();
+    let mut artifact_index = 0usize;
+    for assessment in assessments {
+        match assessment.verdict {
+            OilsVerdict::Pass => tally.pass += 1,
+            OilsVerdict::Known => tally.known += 1,
+            OilsVerdict::NewFailure => tally.fail += 1,
+            OilsVerdict::Drift => tally.drift += 1,
+            OilsVerdict::UnexpectedPass => tally.xpass += 1,
+            OilsVerdict::Stale => tally.stale += 1,
+        }
+        let (fields, fingerprint) = assessment
+            .outcome
+            .as_ref()
+            .map(|outcome| {
+                (
+                    outcome.observed_fields().join(","),
+                    candidate_fingerprint(&outcome.cherub),
+                )
+            })
+            .unwrap_or_default();
+        report.push_str(&format!(
+            "{}\t{}\t{}\t{}\n",
+            assessment.verdict.as_str(),
+            tsv_field(&assessment.id),
+            fields,
+            fingerprint
+        ));
+
+        let Some(outcome) = assessment.outcome.as_ref() else {
+            continue;
+        };
+        if !outcome.passed() {
+            suggested.push_str(&format!(
+                "{}\t{}\t{}\n",
+                tsv_field(&assessment.id),
+                fields,
+                fingerprint
+            ));
+            let artifact_dir = failures_dir.join(format!("{artifact_index:04}"));
+            artifact_index += 1;
+            fs::create_dir(&artifact_dir).map_err(HarnessError::Io)?;
+            fs::write(artifact_dir.join("case.txt"), &assessment.id).map_err(HarnessError::Io)?;
+            write_oils_output(&artifact_dir, "bash", &outcome.bash)?;
+            write_oils_output(&artifact_dir, "cherub", &outcome.cherub)?;
+        }
+    }
+    fs::write(report_dir.join("report.tsv"), report).map_err(HarnessError::Io)?;
+    fs::write(report_dir.join("suggested-ratchet.tsv"), suggested).map_err(HarnessError::Io)?;
+    Ok(tally)
+}
+
+fn write_oils_output(
+    artifact_dir: &Path,
+    name: &str,
+    output: &OilsRunOutput,
+) -> Result<(), HarnessError> {
+    fs::write(artifact_dir.join(format!("{name}.stdout")), &output.stdout)
+        .map_err(HarnessError::Io)?;
+    fs::write(artifact_dir.join(format!("{name}.stderr")), &output.stderr)
+        .map_err(HarnessError::Io)?;
+    fs::write(
+        artifact_dir.join(format!("{name}.status")),
+        format!("status={}\ntimed_out={}\n", output.status, output.timed_out),
+    )
+    .map_err(HarnessError::Io)
+}
+
+fn tsv_field(value: &str) -> String {
+    value
+        .replace('\\', "\\\\")
+        .replace('\t', "\\t")
+        .replace('\r', "\\r")
+        .replace('\n', "\\n")
+}
+
+fn unescape_tsv_field(value: &str, line_number: usize) -> Result<String, HarnessError> {
+    let mut decoded = String::with_capacity(value.len());
+    let mut chars = value.chars();
+    while let Some(character) = chars.next() {
+        if character != '\\' {
+            decoded.push(character);
+            continue;
+        }
+        match chars.next() {
+            Some('\\') => decoded.push('\\'),
+            Some('t') => decoded.push('\t'),
+            Some('r') => decoded.push('\r'),
+            Some('n') => decoded.push('\n'),
+            _ => {
+                return Err(invalid_data(format!(
+                    "invalid Oils ratchet escape on line {line_number}"
+                )));
+            }
+        }
+    }
+    Ok(decoded)
 }
 
 pub fn default_oils_spec_dir() -> PathBuf {
     workspace_root().join("vendor/oils/spec")
+}
+
+pub fn default_oils_ratchet_path() -> PathBuf {
+    workspace_root().join("crates/test-harness/oils-known-mismatches.tsv")
+}
+
+pub fn oils_nondeterministic_case_ids() -> Result<BTreeSet<String>, HarnessError> {
+    let path = workspace_root().join("crates/test-harness/oils-nondeterministic-cases.txt");
+    let text = fs::read_to_string(path).map_err(HarnessError::Io)?;
+    Ok(text
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && !line.starts_with('#'))
+        .map(str::to_owned)
+        .collect())
 }
 
 pub fn run_oils_case_with_shells(

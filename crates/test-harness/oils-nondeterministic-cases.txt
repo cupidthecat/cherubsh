@@ -1,0 +1,7 @@
+builtin-misc.test.sh::003::time pipeline
+here-doc.test.sh::032::Multiple here docs in pipeline
+here-doc.test.sh::033::Multiple here docs in pipeline on multiple lines
+process-sub.test.sh::001::Process sub from external process to stdin
+prompt.test.sh::027::\j for number of jobs
+shell-grammar.test.sh::003::a & b
+shell-grammar.test.sh::004::a & b &

@@ -97,9 +97,7 @@ fn oils_vendor_refresh_is_pinned_and_audited() {
     let root = workspace_root();
     let lock = std::fs::read_to_string(root.join("upstream.lock")).expect("read upstream lock");
     assert!(lock.contains("OILS_REPOSITORY=https://github.com/oils-for-unix/oils.git"));
-    assert!(lock.contains(
-        "OILS_COMMIT=15de8fd779569e6e3a9f5fcbfc00e7df0ebe0380"
-    ));
+    assert!(lock.contains("OILS_COMMIT=15de8fd779569e6e3a9f5fcbfc00e7df0ebe0380"));
 
     let script = std::fs::read_to_string(root.join("tools/vendor-oils.sh"))
         .expect("read Oils vendor refresh script");
@@ -111,7 +109,10 @@ fn oils_vendor_refresh_is_pinned_and_audited() {
         "EXPECTED_FILES=135",
         "EXPECTED_CASES=2804",
     ] {
-        assert!(script.contains(required), "missing refresh guard: {required}");
+        assert!(
+            script.contains(required),
+            "missing refresh guard: {required}"
+        );
     }
     assert!(root.join("tools/oils-python3.patch").is_file());
 }
