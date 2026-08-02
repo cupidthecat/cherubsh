@@ -144,40 +144,43 @@ pub unsafe extern "C" fn rl_complete_internal(what_to_do: c_int) -> c_int {
     };
     let start = clamp_boundary(&line, completion.replace_start);
     let point = clamp_boundary(&line, rl_point.max(0) as usize);
-    let unchanged = chosen.is_empty() || chosen == line[start..point];
-    if unchanged {
-        if completion.matches.len() > 1
-            && (what_to_do == b'!' as c_int || what_to_do == b'@' as c_int)
-        {
-            display_completion_matches(&completion);
-        }
-        readline_store()
-            .lock()
-            .expect("readline lock")
-            .completion_changed_buffer = false;
-        return 0;
+    let multiple = completion.matches.len() > 1;
+    let extends_common_prefix = !chosen.is_empty() && chosen != line[start..point];
+    let mut updated = line.clone();
+    let mut new_point = point;
+    if extends_common_prefix {
+        updated.replace_range(start..point, &chosen);
+        new_point = start + chosen.len();
     }
-    save_undo();
-    let mut updated = line;
-    updated.replace_range(start..point, &chosen);
-    let mut new_point = start + chosen.len();
-    if completion.matches.len() == 1 && !completion.suppress_append {
+    if !multiple && !chosen.is_empty() && !completion.suppress_append {
         if let Some(ch) = completion.append_character {
             updated.insert(new_point, ch);
             new_point += ch.len_utf8();
         }
     }
-    set_line_buffer(&updated, new_point);
-    if completion.matches.len() > 1 && what_to_do == b'!' as c_int {
+    if updated != line {
+        save_undo();
+        set_line_buffer(&updated, new_point);
+    }
+
+    let should_display = multiple
+        && (what_to_do == b'!' as c_int
+            || what_to_do == b'@' as c_int && !extends_common_prefix);
+    if should_display {
         display_completion_matches(&completion);
-    } else if completion.matches.len() > 1 && what_to_do == b'\t' as c_int {
+    } else if completion_rings_bell(what_to_do, multiple) {
         rl_ding();
     }
+    let changed = current_line() != line;
     readline_store()
         .lock()
         .expect("readline lock")
-        .completion_changed_buffer = true;
+        .completion_changed_buffer = changed;
     0
+}
+
+fn completion_rings_bell(what_to_do: c_int, multiple: bool) -> bool {
+    multiple && what_to_do == b'\t' as c_int
 }
 
 unsafe fn display_completion_matches(completion: &Completion) {

@@ -78,7 +78,9 @@ for side in oracle implementation; do
     "${REPORT_ROOT}/${side}/abi-layout" > "${REPORT_ROOT}/${side}/abi-layout.out"
     "${REPORT_ROOT}/${side}/allocator-ownership" > "${REPORT_ROOT}/${side}/allocator-ownership.out"
     "${REPORT_ROOT}/${side}/callback-lifecycle" > "${REPORT_ROOT}/${side}/callback-lifecycle.out"
-    "${REPORT_ROOT}/${side}/completion-inputrc" > "${REPORT_ROOT}/${side}/completion-inputrc.out"
+    "${REPORT_ROOT}/${side}/completion-inputrc" \
+        > "${REPORT_ROOT}/${side}/completion-inputrc.out" \
+        2> "${REPORT_ROOT}/${side}/completion-inputrc.err"
     "${REPORT_ROOT}/${side}/history-state" > "${REPORT_ROOT}/${side}/history-state.out"
     "${REPORT_ROOT}/${side}/redisplay-streams" > "${REPORT_ROOT}/${side}/redisplay-streams.out"
     for fixture in allocator-ownership callback-lifecycle completion-inputrc history-state; do
@@ -109,6 +111,7 @@ diff -u "${REPORT_ROOT}/oracle/abi-layout.out" "${REPORT_ROOT}/implementation/ab
 diff -u "${REPORT_ROOT}/oracle/allocator-ownership.out" "${REPORT_ROOT}/implementation/allocator-ownership.out"
 diff -u "${REPORT_ROOT}/oracle/callback-lifecycle.out" "${REPORT_ROOT}/implementation/callback-lifecycle.out"
 diff -u "${REPORT_ROOT}/oracle/completion-inputrc.out" "${REPORT_ROOT}/implementation/completion-inputrc.out"
+diff -u "${REPORT_ROOT}/oracle/completion-inputrc.err" "${REPORT_ROOT}/implementation/completion-inputrc.err"
 diff -u "${REPORT_ROOT}/oracle/history-state.out" "${REPORT_ROOT}/implementation/history-state.out"
 diff -u "${REPORT_ROOT}/oracle/redisplay-streams.out" "${REPORT_ROOT}/implementation/redisplay-streams.out"
 

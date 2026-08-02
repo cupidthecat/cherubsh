@@ -9,11 +9,12 @@
 static char *generator(const char *text, int state)
 {
     static const char *values[] = {"source", "sort", NULL};
+    static const char *exact[] = {"source", NULL};
+    const char **selected = strcmp(text, "source") == 0 ? exact : values;
 
-    (void)text;
-    if (state < 0 || values[state] == NULL)
+    if (state < 0 || selected[state] == NULL)
         return NULL;
-    return strdup(values[state]);
+    return strdup(selected[state]);
 }
 
 static char **attempted_completion(const char *text, int start, int end)
@@ -152,6 +153,27 @@ int main(void)
     rl_complete_internal('!');
     printf("show-all=%s,%d,%d,%c\n", rl_line_buffer, display_count,
            display_length, rl_completion_type);
+
+    display_count = 0;
+    display_length = 0;
+    rl_variable_bind("editing-mode", "emacs");
+    rl_variable_bind("show-all-if-ambiguous", "off");
+    rl_variable_bind("bell-style", "audible");
+    rl_tty_set_echoing(1);
+    rl_last_func = NULL;
+    rl_replace_line("so", 0);
+    rl_point = rl_end;
+    rl_complete(1, '\t');
+    rl_last_func = rl_complete;
+    rl_complete(1, '\t');
+    printf("repeated=%s,%d,%d,%c\n", rl_line_buffer, display_count,
+           display_length, rl_completion_type);
+
+    rl_last_func = NULL;
+    rl_replace_line("source", 0);
+    rl_point = rl_end;
+    rl_complete_internal('\t');
+    printf("exact=<%s>,%c\n", rl_line_buffer, rl_completion_type);
 
     unlink(parent);
     unlink(child);

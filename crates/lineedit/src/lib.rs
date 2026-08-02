@@ -419,13 +419,13 @@ impl LineEditor {
                 return Ok(LoopOutcome::Interrupted);
             }
             EditAction::Complete => {
-                let line = buf.as_str();
-                let result = completion.complete(&line, buf.point());
                 let mode = completion_mode(
                     previous_action,
                     self.last_completion_changed,
                     completion.completion_display_policy(),
                 );
+                let line = buf.as_str();
+                let result = completion.complete(&line, buf.point());
                 self.last_completion_changed = if mode == CompletionDisplayMode::List {
                     if display_completions(&result, renderer.columns())? {
                         renderer.invalidate();
@@ -1233,10 +1233,80 @@ fn expand_tilde_at_point(buf: &mut EditBuffer) {
 
 #[cfg(test)]
 mod tests {
+    use std::cell::RefCell;
+
     use super::{
-        completion_mode, format_completion_rows, shell_words, vi_motion_range,
-        CompletionDisplayMode, CompletionDisplayPolicy, EditAction, EditBuffer,
+        completion_mode, format_completion_rows, render, shell_words, vi_motion_range, Completion,
+        CompletionDisplayMode, CompletionDisplayPolicy, CompletionProvider, EditAction, EditBuffer,
+        HistoryProvider, KeyEvent, Keymap, LineEditor,
     };
+
+    struct EmptyHistory;
+
+    impl HistoryProvider for EmptyHistory {
+        fn len(&self) -> usize {
+            0
+        }
+
+        fn get(&self, _idx: usize) -> Option<String> {
+            None
+        }
+    }
+
+    struct MutatingPolicyProvider {
+        calls: RefCell<Vec<&'static str>>,
+        show_all: bool,
+    }
+
+    impl CompletionProvider for MutatingPolicyProvider {
+        fn complete(&mut self, _line: &str, _point: usize) -> Completion {
+            self.calls.borrow_mut().push("complete");
+            self.show_all = true;
+            Completion {
+                matches: vec!["source".to_string(), "sort".to_string()],
+                ..Completion::default()
+            }
+        }
+
+        fn completion_display_policy(&self) -> CompletionDisplayPolicy {
+            self.calls.borrow_mut().push("policy");
+            CompletionDisplayPolicy {
+                show_all_if_ambiguous: self.show_all,
+                show_all_if_unmodified: false,
+            }
+        }
+    }
+
+    #[test]
+    fn completion_policy_is_sampled_before_candidates_are_generated() {
+        let mut keymap = Keymap::new("emacs");
+        keymap.install_emacs_defaults();
+        let mut editor = LineEditor::new(keymap);
+        let mut buffer = EditBuffer::new();
+        buffer.insert_str("so");
+        let mut history = EmptyHistory;
+        let mut history_index = None;
+        let mut saved_current = None;
+        let mut provider = MutatingPolicyProvider {
+            calls: RefCell::new(Vec::new()),
+            show_all: false,
+        };
+        let mut renderer = render::Renderer::silent("");
+
+        editor
+            .dispatch(
+                KeyEvent::Tab,
+                &mut buffer,
+                &mut history,
+                &mut history_index,
+                &mut saved_current,
+                &mut provider,
+                &mut renderer,
+            )
+            .unwrap();
+
+        assert_eq!(*provider.calls.borrow(), ["policy", "complete"]);
+    }
 
     #[test]
     fn completion_grid_lists_candidates_down_columns() {
