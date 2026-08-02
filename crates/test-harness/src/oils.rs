@@ -1,6 +1,13 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
+use std::io::{Read, Write};
+use std::os::unix::fs::symlink;
+use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::thread;
+use std::time::{Duration, Instant};
 
 use crate::{workspace_root, HarnessError};
 
@@ -13,6 +20,9 @@ const FILE_METADATA_FIELDS: &[&str] = &[
     "oils_cpp_failures_allowed",
     "legacy_tmp_dir",
 ];
+const SIGKILL: i32 = 9;
+
+static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OilsCase {
@@ -36,8 +46,256 @@ impl OilsCase {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OilsRunOutput {
+    pub status: i32,
+    pub stdout: Vec<u8>,
+    pub stderr: Vec<u8>,
+    pub timed_out: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct OilsOutcome {
+    pub id: String,
+    pub bash: OilsRunOutput,
+    pub cherub: OilsRunOutput,
+}
+
+impl OilsOutcome {
+    pub fn differing_fields(&self) -> Vec<&'static str> {
+        let mut fields = Vec::new();
+        if self.bash.status != self.cherub.status {
+            fields.push("status");
+        }
+        if self.bash.stdout != self.cherub.stdout {
+            fields.push("stdout");
+        }
+        if self.bash.stderr != self.cherub.stderr {
+            fields.push("stderr");
+        }
+        fields
+    }
+
+    pub fn passed(&self) -> bool {
+        !self.bash.timed_out && !self.cherub.timed_out && self.differing_fields().is_empty()
+    }
+}
+
 pub fn default_oils_spec_dir() -> PathBuf {
     workspace_root().join("vendor/oils/spec")
+}
+
+pub fn run_oils_case_with_shells(
+    case: &OilsCase,
+    bash_path: &Path,
+    cherub_path: &Path,
+    spec_dir: &Path,
+    timeout: Duration,
+) -> Result<OilsOutcome, HarnessError> {
+    if timeout.is_zero() {
+        return Err(invalid_data("Oils timeout must be positive".to_string()));
+    }
+    let bash = run_shell_for_case(case, bash_path, spec_dir, timeout, "bash")?;
+    let cherub = run_shell_for_case(case, cherub_path, spec_dir, timeout, "cherub")?;
+    Ok(OilsOutcome {
+        id: case.id(),
+        bash,
+        cherub,
+    })
+}
+
+fn run_shell_for_case(
+    case: &OilsCase,
+    shell_path: &Path,
+    spec_dir: &Path,
+    timeout: Duration,
+    label: &str,
+) -> Result<OilsRunOutput, HarnessError> {
+    let shell_path = fs::canonicalize(shell_path).map_err(HarnessError::Io)?;
+    let spec_dir = fs::canonicalize(spec_dir).map_err(HarnessError::Io)?;
+    let oils_root = spec_dir.parent().ok_or_else(|| {
+        invalid_data(format!(
+            "Oils spec directory has no parent: {}",
+            spec_dir.display()
+        ))
+    })?;
+    let root = temporary_sandbox(label)?;
+    let cleanup = SandboxCleanup(root.clone());
+    let work = root.join("work");
+    let home = root.join("home");
+    let bin = root.join(".cherub-bin");
+    fs::create_dir_all(&work).map_err(HarnessError::Io)?;
+    fs::create_dir_all(&home).map_err(HarnessError::Io)?;
+    fs::create_dir_all(&bin).map_err(HarnessError::Io)?;
+    if case.legacy_tmp_dir {
+        fs::create_dir(work.join("_tmp")).map_err(HarnessError::Io)?;
+    }
+    symlink("/opt/spec", work.join("spec")).map_err(HarnessError::Io)?;
+    symlink(&shell_path, bin.join("bash")).map_err(HarnessError::Io)?;
+
+    let bwrap = std::env::var_os("BWRAP").unwrap_or_else(|| "bwrap".into());
+    let mut command = Command::new(bwrap);
+    command
+        .args([
+            "--die-with-parent",
+            "--unshare-pid",
+            "--unshare-net",
+            "--unshare-ipc",
+            "--unshare-uts",
+            "--ro-bind",
+            "/",
+            "/",
+            "--proc",
+            "/proc",
+            "--bind",
+        ])
+        .arg(&root)
+        .arg("/tmp")
+        .arg("--ro-bind")
+        .arg(oils_root)
+        .arg("/opt")
+        .args([
+            "--chdir",
+            "/tmp/work",
+            "--clearenv",
+            "--setenv",
+            "PATH",
+            "/tmp/.cherub-bin:/opt/spec/bin:/usr/bin:/bin",
+            "--setenv",
+            "HOME",
+            "/tmp/home",
+            "--setenv",
+            "TMP",
+            "/tmp/work",
+            "--setenv",
+            "TMPDIR",
+            "/tmp",
+            "--setenv",
+            "SH",
+            "bash",
+            "--setenv",
+            "LC_ALL",
+            "C.UTF-8",
+            "--setenv",
+            "LANG",
+            "C.UTF-8",
+            "--setenv",
+            "TZ",
+            "UTC",
+            "--setenv",
+            "TERM",
+            "xterm",
+            "--setenv",
+            "USER",
+            "test",
+            "--setenv",
+            "LOGNAME",
+            "test",
+            "--setenv",
+            "REPO_ROOT",
+            "/opt",
+            "/tmp/.cherub-bin/bash",
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    unsafe {
+        command.pre_exec(|| {
+            if libc::setsid() < 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
+
+    let mut child = command.spawn().map_err(HarnessError::Io)?;
+    if let Some(mut stdin) = child.stdin.take() {
+        stdin
+            .write_all(case.code.as_bytes())
+            .map_err(HarnessError::Io)?;
+    }
+    let stdout = child.stdout.take().map(spawn_byte_reader);
+    let stderr = child.stderr.take().map(spawn_byte_reader);
+    let started = Instant::now();
+    let mut timed_out = false;
+    let status = loop {
+        if let Some(status) = child.try_wait().map_err(HarnessError::Io)? {
+            break status;
+        }
+        if started.elapsed() >= timeout {
+            unsafe {
+                libc::kill(-(child.id() as i32), SIGKILL);
+            }
+            let _ = child.kill();
+            let _ = child.wait();
+            timed_out = true;
+            break std::process::ExitStatus::from_raw(124 << 8);
+        }
+        thread::sleep(Duration::from_millis(10));
+    };
+    let stdout = join_byte_reader(stdout)?;
+    let stderr = join_byte_reader(stderr)?;
+    drop(cleanup);
+
+    Ok(OilsRunOutput {
+        status: if timed_out { 124 } else { status_code(status)? },
+        stdout,
+        stderr,
+        timed_out,
+    })
+}
+
+fn temporary_sandbox(label: &str) -> Result<PathBuf, HarnessError> {
+    let counter = TEMP_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let root = workspace_root()
+        .join("target/parity/oils/sandboxes")
+        .join(format!("{}-{}-{counter}", std::process::id(), label));
+    if root.exists() {
+        fs::remove_dir_all(&root).map_err(HarnessError::Io)?;
+    }
+    fs::create_dir_all(&root).map_err(HarnessError::Io)?;
+    Ok(root)
+}
+
+struct SandboxCleanup(PathBuf);
+
+impl Drop for SandboxCleanup {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
+}
+
+fn spawn_byte_reader<R>(mut reader: R) -> thread::JoinHandle<std::io::Result<Vec<u8>>>
+where
+    R: Read + Send + 'static,
+{
+    thread::spawn(move || {
+        let mut bytes = Vec::new();
+        reader.read_to_end(&mut bytes)?;
+        Ok(bytes)
+    })
+}
+
+fn join_byte_reader(
+    reader: Option<thread::JoinHandle<std::io::Result<Vec<u8>>>>,
+) -> Result<Vec<u8>, HarnessError> {
+    let Some(reader) = reader else {
+        return Ok(Vec::new());
+    };
+    reader
+        .join()
+        .map_err(|_| invalid_data("Oils output reader panicked".to_string()))?
+        .map_err(HarnessError::Io)
+}
+
+fn status_code(status: std::process::ExitStatus) -> Result<i32, HarnessError> {
+    if let Some(code) = status.code() {
+        return Ok(code);
+    }
+    status
+        .signal()
+        .map(|signal| 128 + signal)
+        .ok_or(HarnessError::MissingStatus)
 }
 
 pub fn discover_oils_cases(spec_dir: &Path) -> Result<Vec<OilsCase>, HarnessError> {
@@ -56,10 +314,7 @@ pub fn discover_oils_cases(spec_dir: &Path) -> Result<Vec<OilsCase>, HarnessErro
     let mut cases = Vec::new();
     for path in files {
         let text = fs::read_to_string(&path).map_err(HarnessError::Io)?;
-        let source_file = path
-            .strip_prefix(spec_dir)
-            .unwrap_or(&path)
-            .to_path_buf();
+        let source_file = path.strip_prefix(spec_dir).unwrap_or(&path).to_path_buf();
         cases.extend(parse_oils_spec_source(&source_file, &text)?);
     }
     Ok(cases)
@@ -70,9 +325,11 @@ pub fn parse_oils_spec_source(
     text: &str,
 ) -> Result<Vec<OilsCase>, HarnessError> {
     let (metadata, parsed) = parse_spec_file(source_file, text)?;
-    let selected = metadata
-        .get("compare_shells")
-        .is_some_and(|shells| shells.split_whitespace().any(|shell| shell.starts_with("bash")));
+    let selected = metadata.get("compare_shells").is_some_and(|shells| {
+        shells
+            .split_whitespace()
+            .any(|shell| shell.starts_with("bash"))
+    });
     if !selected {
         return Ok(Vec::new());
     }
@@ -138,8 +395,7 @@ fn parse_spec_file(
     let mut cases = Vec::new();
     let mut cursor = first_case;
     while cursor < lines.len() {
-        while cursor < lines.len()
-            && (lines[cursor].trim().is_empty() || is_comment(lines[cursor]))
+        while cursor < lines.len() && (lines[cursor].trim().is_empty() || is_comment(lines[cursor]))
         {
             cursor += 1;
         }
@@ -172,7 +428,11 @@ fn parse_spec_file(
     Ok((metadata, cases))
 }
 
-fn parse_case_code(path: &Path, line_number: usize, lines: &[&str]) -> Result<String, HarnessError> {
+fn parse_case_code(
+    path: &Path,
+    line_number: usize,
+    lines: &[&str],
+) -> Result<String, HarnessError> {
     validate_case_metadata(path, line_number, lines)?;
     let mut cursor = 0;
     while cursor < lines.len() {
@@ -269,7 +529,11 @@ fn metadata_line(line: &str) -> Option<MetadataLine> {
                 || qualifier.starts_with("BUG")
                 || *qualifier == "N-I" =>
         {
-            (Some((*qualifier).to_string()), Some((*shells).to_string()), *key)
+            (
+                Some((*qualifier).to_string()),
+                Some((*shells).to_string()),
+                *key,
+            )
         }
         _ => return None,
     };
@@ -339,5 +603,8 @@ fn is_comment(line: &str) -> bool {
 }
 
 fn invalid_data(message: String) -> HarnessError {
-    HarnessError::Io(std::io::Error::new(std::io::ErrorKind::InvalidData, message))
+    HarnessError::Io(std::io::Error::new(
+        std::io::ErrorKind::InvalidData,
+        message,
+    ))
 }
