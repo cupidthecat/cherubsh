@@ -60,7 +60,7 @@ cargo test -p cherubsh --test oils_parity -- --nocapture
 
 Set `OILS_PARITY_JOBS` to cap worker threads or `OILS_PARITY_REPORT_DIR` to move the report. The default report directory is `target/parity/oils`. `report.tsv` records every verdict, and `failures/` keeps raw Bash and CherubSH streams for each mismatch. `suggested-ratchet.tsv` contains a complete replacement candidate for review.
 
-The checked-in ratchet accepts 472 known observations. It still fails on a new mismatch (`FAIL`), a changed known mismatch (`DRIFT`), a fixed known mismatch (`XPASS`), or an entry with no matching case (`STALE`). Remove an `XPASS` entry instead of leaving a resolved behavior in the baseline.
+The checked-in ratchet accepts 472 known observations. It stores Bash and CherubSH fingerprints, except for the named cases in `crates/test-harness/oils-nondeterministic-cases.txt` whose Bash output contains timing, process, or random data. Those entries still pin the mismatch fields and CherubSH fingerprint. The gate fails on a new mismatch (`FAIL`), a changed known mismatch (`DRIFT`), a fixed known mismatch (`XPASS`), or an entry with no matching case (`STALE`). Remove an `XPASS` entry instead of leaving a resolved behavior in the baseline.
 
 Run the C-library compatibility checks only:
 

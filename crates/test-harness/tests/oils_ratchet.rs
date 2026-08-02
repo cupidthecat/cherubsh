@@ -40,6 +40,7 @@ fn ratchet_classifies_known_drift_new_and_unexpected_pass() {
     let known = OilsKnownMismatch {
         id: outcome.id.clone(),
         fields: vec!["status".to_string(), "stdout".to_string()],
+        oracle_fingerprint: candidate_fingerprint(&outcome.bash),
         candidate_fingerprint: candidate_fingerprint(&outcome.cherub),
     };
 
@@ -57,6 +58,20 @@ fn ratchet_classifies_known_drift_new_and_unexpected_pass() {
     assert_eq!(
         classify_oils_outcome(&changed, Some(&known)),
         OilsVerdict::Drift
+    );
+
+    let mut changed_oracle = outcome.clone();
+    changed_oracle.bash.stdout.push(b'!');
+    assert_eq!(
+        classify_oils_outcome(&changed_oracle, Some(&known)),
+        OilsVerdict::Drift
+    );
+
+    let mut variable_oracle = known.clone();
+    variable_oracle.oracle_fingerprint = "variable".to_string();
+    assert_eq!(
+        classify_oils_outcome(&changed_oracle, Some(&variable_oracle)),
+        OilsVerdict::Known
     );
 
     let passing = OilsOutcome {
@@ -86,9 +101,13 @@ fn timeout_fields_are_part_of_the_ratchet_contract() {
 #[test]
 fn ratchet_loader_rejects_duplicate_case_ids() {
     let path = ratchet_fixture_path();
-    let row = "sample.test.sh::000::sample\tstatus,stdout\t0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\n";
-    std::fs::write(&path, format!("case\tfields\tcandidate_sha256\n{row}{row}"))
-        .expect("write ratchet fixture");
+    let fingerprint = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    let row = format!("sample.test.sh::000::sample\tstatus,stdout\t{fingerprint}\t{fingerprint}\n");
+    std::fs::write(
+        &path,
+        format!("case\tfields\toracle_sha256\tcandidate_sha256\n{row}{row}"),
+    )
+    .expect("write ratchet fixture");
 
     let error = load_oils_ratchet(&path).expect_err("duplicate IDs must fail");
     std::fs::remove_file(&path).expect("remove ratchet fixture");
@@ -109,6 +128,7 @@ fn assessment_is_sorted_and_reports_stale_entries() {
     let stale = OilsKnownMismatch {
         id: "z.test.sh::000::stale".to_string(),
         fields: vec!["status".to_string()],
+        oracle_fingerprint: "0".repeat(64),
         candidate_fingerprint: "0".repeat(64),
     };
     let mut known = std::collections::BTreeMap::new();
@@ -136,9 +156,11 @@ fn report_contains_tally_artifacts_and_replacement_ratchet() {
 
     assert_eq!(tally.fail, 1);
     let report = std::fs::read_to_string(report_dir.join("report.tsv")).expect("read report");
+    assert!(report.contains("verdict\tcase\tfields\toracle_sha256\tcandidate_sha256"));
     assert!(report.contains("FAIL\tsample.test.sh::000::sample\tstatus,stdout"));
     let suggested = std::fs::read_to_string(report_dir.join("suggested-ratchet.tsv"))
         .expect("read suggested ratchet");
+    assert!(suggested.contains(&candidate_fingerprint(&outcome.bash)));
     assert!(suggested.contains(&candidate_fingerprint(&outcome.cherub)));
     assert_eq!(
         std::fs::read(report_dir.join("failures/0000/bash.stdout")).expect("read Bash stdout"),

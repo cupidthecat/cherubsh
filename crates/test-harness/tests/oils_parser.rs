@@ -1,7 +1,8 @@
 use std::path::Path;
 
 use cherubsh_test_harness::oils::{
-    default_oils_spec_dir, discover_oils_cases, parse_oils_spec_source,
+    default_oils_spec_dir, discover_oils_cases, oils_nondeterministic_case_ids,
+    parse_oils_spec_source,
 };
 use cherubsh_test_harness::workspace_root;
 
@@ -15,6 +16,25 @@ fn pinned_bash_corpus_has_expected_inventory() {
 
     assert_eq!(files.len(), 135);
     assert_eq!(cases.len(), 2_804);
+}
+
+#[test]
+fn nondeterministic_case_manifest_only_names_vendored_cases() {
+    let cases = discover_oils_cases(&default_oils_spec_dir()).expect("discover Oils cases");
+    let case_ids = cases
+        .iter()
+        .map(|case| case.id())
+        .collect::<std::collections::BTreeSet<_>>();
+    let nondeterministic =
+        oils_nondeterministic_case_ids().expect("load Oils nondeterministic case manifest");
+
+    assert_eq!(nondeterministic.len(), 10);
+    for id in nondeterministic {
+        assert!(
+            case_ids.contains(&id),
+            "unknown nondeterministic case: {id}"
+        );
+    }
 }
 
 #[test]

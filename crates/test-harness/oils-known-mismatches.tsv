@@ -1,473 +1,473 @@
-case	fields	candidate_sha256
-alias.test.sh::020::Alias name with punctuation	status,stdout,stderr	ff9cc29ef11abb5a61986e2515b253dec50467752a5a6e73e15cfebc91683d36
-alias.test.sh::021::Syntax error after expansion	stderr	bcb072e3cc615688536e6af7b50dc80477906f34144535bfb8190a9d80beb242
-alias.test.sh::025::Alias with a quote in the middle is a syntax error	status,stdout,stderr	a27e3f429bb4351f7ba95a589a5843b19d41a5c226e632e97dc63c00e7dbbffc
-alias.test.sh::031::Alias is respected inside eval	stdout,stderr	b96c337e433f9e2d32a187ed57bb3b4b7331894b1b6fa4346497bd54e529f676
-alias.test.sh::034::alias with line continuation in the middle	stdout	899298df00f2352ebba83f533ec2f9a9a5cd4b80e562010516e84f416e072d8d
-alias.test.sh::045::Alias and PS4	cherub-timeout,status,stdout,stderr	7146632a83a79577849798905145b6a8e35565ad36ad7fd1fd09118d49af093a
-arg-parse.test.sh::002::continue 1 extra, break, etc.	stdout	544cd1b525f08d1008a2dc41dc4ed31faace6b29428f91b1ff8593cd0ae5fd60
-arith-context.test.sh::015::Empty expression a[]	stdout,stderr	8a52767933bb140d5272b461a14b36da7c5d567ed27ef8d2635656fae4af1acc
-arith.test.sh::013::Integer constant validation	stdout,stderr	f1c2665ebe5b6c27d3fc8e48b172ba026776ffb6ec6c917828428b2207136b4c
-arith.test.sh::020::Increment undefined variables with nounset	stderr	c2c42e2127823a4e82ae80ba48513660e2a8e0ba008d0cf4c6c6e099e3db5782
-arith.test.sh::028::No floating point	stderr	a95421bd078595586428ed2dadb56f782e8deaef75e0c9573588f3ace2a6a8a7
-arith.test.sh::049::Negative exponent	stderr	8ebf3c20a7dc7ccb8a1aeaf087736488b0b221582b98669ef0656004afd930b3
-arith.test.sh::050::Comment not allowed in the middle of multiline arithmetic	status,stdout,stderr	120325d3e517c3f087bbc0375db40933b8ab56f1f299fae59e74031bc5178fa6
-arith.test.sh::065::Invalid constant	stderr	6c0ef432e17d70c1ce3c3f0d92224387c3a448d07dfd22bfa752b7031808ae86
-arith.test.sh::073::s[0] with string '12 34'	stdout,stderr	7e29053f0fe4679e9886216519306eae70f044b038a45efe2d885e6d4931431e
-array-assign.test.sh::003::Multiple LHS array words	stdout	862a5e168700b83b4a4b672718faccbce458bddf81fd61d7ff940a6e2c1a2cf8
-array-assign.test.sh::004::LHS array is protected with shopt -s eval_unsafe_arith, e.g. 'a[$(echo 2)]'	stdout,stderr	c3d62976851606860fe3526e285ace14cdd5c9092015310c10f347586e535b86
-array-assign.test.sh::005::file named a[ is  not executed	stderr	ff4909f4dbdfbf0f059afa268a970db9a2980d6ab9ee19487d3abe909fe5a6dd
-array-assign.test.sh::006::More fragments like a[  a[5  a[5 +  a[5 + 3]	stdout,stderr	7e1537ca82f20eb6740c38090929585f2200084d8b2690dc8dfef4bbb54c7d08
-array-assign.test.sh::007::Are quotes allowed?	stdout,stderr	aec375ebaaf2fe1956fb8680d2d6457b8b31e0887051a6e610ebe88b9648c3a8
-array-assign.test.sh::009::argv.py a[1 + 2]=	stdout	44f56a8bb673043a47fa1aaf9ad2f03c09f9e6fbc7336a9b59425d1b44b6f26a
-array-assign.test.sh::010::declare builtin doesn't allow spaces	stdout,stderr	4d4636b7f9d1bb7d65e482cfc1dcb94e7e32855fe1b87f2bda0391f3390007c4
-array-assoc.test.sh::019::Indexed array as key of associative array coerces to string (without shopt -s strict_array)	stdout	29accdf0aac3bc70da31b8b7a24af34c00b80f0a6b73f31058c85122220ca961
-array-assoc.test.sh::021::Slice of associative array doesn't make sense in bash	stdout	dd7dea847037add9bd90741472aa1057d7dd46b078f2bba1560ba37d0b51eb7f
-array-assoc.test.sh::028::associative array and brace expansion	stdout	99e748c9553c92fcb55ac0b55af9b7b6c5b7f4261c63fab54f648c5e69660c9d
-array-assoc.test.sh::030::unset -v and assoc array	stdout	8a583aebef8be6002b8394007b24eabba3634e6b4a078becc0b83ec5526ba11e
-array-assoc.test.sh::033::printf -v and assoc array	stdout	414143690d22d1690eb8a6558239cb9ef7ab1aa859b6c6b84da409e9fb8dc728
-array-assoc.test.sh::037::test -v with dynamic parsing	stdout	c4fd5da9b8582e8ba22875d1a35f336277d14ff761174b9cb5dc8f4e1bdd6d63
-array-literal.test.sh::006::append to element (BashAssoc)	stdout	d073762a4c52d9e69c1083f6e205b781a105679bfc12152d63013a91e25bc73e
-array-literal.test.sh::007::non-index forms of element (BashAssoc)	stdout,stderr	6c5a89f855049412e213c11a780d8248d7abf9f3d4ec321c5eecac9d52b3fadd
-array-literal.test.sh::008::Evaluation order (1)	stdout	6eb4f0e6def1883bfdeaff44ffda2d7aa6cb6957149e14de2495dc0bf4ae3c63
-array-literal.test.sh::009::Evaluation order (2)	stdout	9673a68c72d87457e68ab603292ce2f1401108c8171df12f7e621f36c866409a
-array-literal.test.sh::010::Evaluation order (3)	stdout	d3c33d90b9596ac9d1c905c85de32fc4a56e8035ea550391b078e81aca254896
-array-literal.test.sh::013::[k1]=v1 looking like brace expansions (BashAssoc)	stdout	f5e98e420e28b4bdd18f1a418aa465ac26472b55ad197096d8f1c82c45f1e371
-array-literal.test.sh::014::[k1]=v1 looking like brace expansions (BashArray)	stdout	f5e98e420e28b4bdd18f1a418aa465ac26472b55ad197096d8f1c82c45f1e371
-array-literal.test.sh::015::BashArray cannot be changed to BashAssoc and vice versa	stderr	08c1e9cc79c8c1ba5c1d6ef344c6b8dadcb5545fa4b424f9f75f070d63f1f97c
-array-literal.test.sh::017::(strict_array) declare -A s+=()	stdout	494675f4dec7b2d99c8d0c0147690f0358b92666bd6b78ff3e61bc3355ecce1c
-array-sparse.test.sh::009::xtrace a+=()	stderr	4252bd5241b5e48215967990eacdb51ad37154b1735b084861353525c3dc3cf6
-array-sparse.test.sh::013::[[ -v a[i] ]]	stdout	d01729468c0e61f566a22d9a0b735a6294e56f2561776cbf6941a149e6bc8594
-array-sparse.test.sh::014::[[ -v a[i] ]] with invalid negative index	stderr	e972a8aa11e309c81bfa6d6192eb2b59ff52a325ad6aed7399f4f7f4f7ea40b3
-array-sparse.test.sh::016::((sp[i])) and ((sp[i]++)) with invalid negative index	stderr	5910cd8e0e2c240604ce4559c441982d32c6e8893ab76021ce59f57bac7a0b5b
-array-sparse.test.sh::019::${a[@]:offset:length}	stdout	b0f495b1ceff7c850adc4395abbd9d0abeb96709904eff7b74c68eb7859a03d2
-array-sparse.test.sh::025::${a[@]@P}, ${a[@]@Q}, and ${a[@]@a}	stdout	3efc7621776c1ee3f12f05c80c12ae67d24baf033f271f170780dbaa179477d4
-array-sparse.test.sh::028::${!a[0]}	status,stdout,stderr	1f16210682d3840223cb721c477f321397a209d88dc59b8cabd6d67e80fdfe4c
-array.test.sh::003::space before ( in array initialization	stderr	a3090c7fc69dbc5fa83618a2c874a96a4100458656455f8221f8f4783c5de6f2
-array.test.sh::005::array with invalid token	status,stdout,stderr	ae70e13ae76a56a6ce0c5981aa9e68ed6264e6fd21ccfbacdd2bb6e2d2dc9e4b
-array.test.sh::010::Negative index and sparse array	stdout	99efaf8b0e6643c39cf676ddb0a5348eb09e0055b867cf8efc59e16ca3af7f0a
-array.test.sh::018::${!a[1]} is named ref in bash	status,stdout,stderr	df4240db5b064bfc6d70d513d9d3b288769c04d2ab88e8910a76122876767f5a
-array.test.sh::027::Arrays can't be used as env bindings	stdout	27f2a16ac29d0bb6caca8bc0e1d845b20f53c07bdda93f7b25f9593a2bcb9b4f
-array.test.sh::028::Associative arrays can't be used as env bindings either	stdout	27f2a16ac29d0bb6caca8bc0e1d845b20f53c07bdda93f7b25f9593a2bcb9b4f
-array.test.sh::042::Array syntax in wrong place	stderr	493b4e0361a94f25152491f1c260eda1f935acaec41c4dbea91c562960ff6fce
-array.test.sh::067::test -v a[i] with arith expressions	stdout	d2b1c46505863f896d6ae594e9c9106dd65a0c8b8545a0fa2eef0e16b445a626
-array.test.sh::070::Regression: Negative index in [[ -v a[index] ]]	status,stdout	8986992f2bf0a4419273fa1b2d866c69e397d9b9e2ebedd08c2cc21075fbece9
-array.test.sh::071::Regression: Negative out-of-range index in [[ -v a[index] ]]	stderr	8986992f2bf0a4419273fa1b2d866c69e397d9b9e2ebedd08c2cc21075fbece9
-array.test.sh::074::Regression: Out-of-bound negative offset for ${a[@]:offset}	stdout	3c2b896ac8bc0b0a43515d1a6e2b0ae50f62e22bd4a9c8be2c2389a7bc58ae4d
-array.test.sh::077::Regression: silent out-of-bound negative index in ${a[-2]} and $((a[-2]))	stderr	b01d61f935162776d89ec66bb3eb85f7e2ce2ef23f96b32f801ff28a8df35bec
-assign-deferred.test.sh::003::readonly a[7]=8	stderr	d2ab858eb330141d2ae32cfe22c2e2d5e663485ab06251a1c6d13fa07e9dc40c
-assign-deferred.test.sh::004::export a[7]=8	stderr	4c456d1d49dc025edccffca38f09b679b144bdce422fb862d058648b98560711
-assign-deferred.test.sh::007::is 'builtin' prefix and array allowed?  OSH is smarter	stderr	17b4936e235ae0d34014464d81ae83c20e563f1917408b313cffb62947a23d48
-assign-deferred.test.sh::008::is 'command' prefix and array allowed?  OSH is smarter	stderr	6d34a416b27d08efb71446e5bd59fd2152c39da5516241d22bdd3b66d7bf9450
-assign-dialects.test.sh::002::test -v with arrays	stdout	e856fc16ccbd25329d4e9016050dfde25b808e93b31f4ddc6356363008609044
-assign-dialects.test.sh::003::test -v with assoc arrays	stdout	59e1abaf778eee878eccb3dba1f17acd05a4d0889bf5ed44282945aa3b1e4a1a
-assign-extended.test.sh::010::declare -p var	stdout	1addb15cdf7d30e8fea330f1155084c69fb21226e9b35ad6ada1d5366114c9e2
-assign-extended.test.sh::015::declare -pnrx var	stdout,stderr	2661c90fda4a2140e8bba916dbc69e2c259e24552318d58ff19661783a3c2cd1
-assign-extended.test.sh::031::myvar=typeset (another form of dynamic assignment)	stdout	3ecf570f3b070af95d6ea6aa0aa829e23bd7cb11b7e0d8d627a55775228d7afc
-assign.test.sh::009::Env binding not allowed before compound command	stderr	13da92cccdeb713876f719df1814727d6e62a26669fea14a9598fe72596d87e5
-assign.test.sh::014::Env binding in readonly/declare is NOT exported!  (pitfall)	stdout,stderr	4270c724e6230ce5219eb355fd518a0c57d5b831b15d7b5daa6745b2436e25ac
-assign.test.sh::025::Test above without 'local' (which is not POSIX)	stdout	c38d07a7356b5ef9bf1f51e3a2afe639834087b5125c73f738cec9a9b3a13aaf
-assign.test.sh::030::assignment using dynamic keyword (splits in most shells, not in zsh/osh)	stdout	9db17a992fad837dcd6b54f82a858eebe438de76c3297072e3e667114dfe0546
-assign.test.sh::045::"declare -a arr" and "readonly -a a" creates an empty array (OSH)	stdout	f1a487772b5e40c8f3e3f214d2e831a226188e92a9c19c2729dc8bfca2f0f1b8
-assign.test.sh::047::readonly array should not be modified by a+=(1)	stderr	35346a3ce3c449ce3aebcba7203798d523b37041bd9c5cc04e7c43085f890bab
-background.test.sh::001::wait -n with arguments - arguments are respected	stdout	79ef6841623c73e617b1d7507e0e1cb0aecef187f1fc85346dd45cd244e22b3f
-background.test.sh::005::wait with invalid arg	status	c5fdcf4fd0f39fe075654dcb3b1240df83669e85bb713427eab7c455e84d11d8
-background.test.sh::026::Signal message for killed background job	status,stdout	576da6645bcc08658ca9c5819f72898e1e96ec596e6a04514c721e1a452c55e4
-ble-features.test.sh::001::[bash_unset] local-unset / dynamic-unset for localvar (mutated from tempenv)	stdout	ccd061c90b3648a4f2a3b429d100c9bb5a3a26500a0e4547c45198e5e8ac7403
-ble-features.test.sh::002::[bash_unset] local-unset / dynamic-unset for tempenv	stdout	ae29f16039130748d546153e10a63ebc44466b980020a50332d39da7c62f071e
-ble-features.test.sh::003::[bash_unset] function call with tempenv vs tempenv-eval	stdout	b5e0cab48ea0fac5324ab8072f79814def50eac302897999869ba8986d9e01a0
-ble-features.test.sh::004::[bash_unset] localvar-inherit from tempenv	stdout	b00b2f0ab95caf2578f15d6ba05a84a9b8d2d42f23e0bcb8ba09d274873523fe
-ble-idioms.test.sh::005::recursive arith: recursion	status,stdout,stderr	1ff1ac302dbd061a4b41e349972086f03fd88fe91e22706bdb85911ddc96886c
-ble-idioms.test.sh::010::is-array with ${var@a}	status,stdout,stderr	7123ba1135ce0452196cb04ec61e584b6c8b79b292e31d949e657b34d579bb57
-ble-unset.test.sh::001::[bash_unset] local-unset / dynamic-unset for localvar on nested-context	stdout	ecbe2fd9c3df23993051ec457855c9584d527fe69208bb62a202bb126ad19088
-ble-unset.test.sh::002::[bash_unset] dynamic-unset for nested localvars	stdout	b58e93a28434ccb2a71773e98f48244b12d00faa1f7a0f7bfa3805f2466c0622
-ble-unset.test.sh::003::[bash_unset] dynamic-unset for nested tempenvs	stdout	0a0d97e5decfe5b14ac59b639c97b5eaa89417f7a286dad4be71da87e7a3feeb
-ble-unset.test.sh::004::[bash_unset] local-unset for nested tempenvs	stdout	3b341b43b4d7df13832ded4a3c69d6063dd3c0b6fb0618eb7b0b910fa265eedc
-blog-other1.test.sh::001::Blog Post Example Fix	stdout	d0d9d9160289b250a84f637d1e37323d81888eb11ff1ab2d2e75fa8143ba5551
-blog-other1.test.sh::002::Rewrite of Blog Post Example	stdout	d0d9d9160289b250a84f637d1e37323d81888eb11ff1ab2d2e75fa8143ba5551
-blog1.test.sh::001::${###}	status,stdout,stderr	29bac2262ec955689e10102a757f68f30fedcfb304b613eee6bbc26c1fa49268
-blog1.test.sh::002::${####}	status,stdout,stderr	48cf100c5f523cfb592b66abb1a9e14ca3220e8c48e7e65073a3b483a91a0d05
-blog1.test.sh::003::${##2}	status,stdout,stderr	59971b6823e76dda4feff7b821b026abcb0014ee04c1ece07bfd8a220e47ce5f
-blog1.test.sh::004::${###2}	status,stdout,stderr	2603137854945369eda1ee8a030cedc0cce7d868a5649d9981424570249b99b7
-bool-parse.test.sh::000::test builtin - Unexpected trailing word '--' (#2409)	stdout,stderr	5549db0f2beacc7861d80582164991a945450f96347628afec9d23618b363ad2
-bool-parse.test.sh::004::Not allowed: [[ ) ]] and [[ ( ]]	stdout,stderr	e191dac250b8dd6ca700fbf856d3b0e6faf0f33f639379cf90455ebb580908b5
-brace-expansion.test.sh::020::Empty alternative	stdout	740db871d6ea4ed7f17c545dbd602988d287b51fe46e398cd9d03413cb3350f9
-brace-expansion.test.sh::025::expansion on RHS of assignment	stdout	3513eaa85bfa5881ae546c3bb8d7f42020e689012dfb3ca2748dfe2bb22be50a
-brace-expansion.test.sh::026::no expansion with RHS assignment	status,stderr	be13019b175f3611d5d3dc1969d15139558d25a7fd01fbae0e223e4381b6f1de
-brace-expansion.test.sh::042::Mixed case char expansion is invalid	stderr	5c85cb9489efc7afe797b95c7068f572e177728ddbc71f65514846fef0dcb9af
-bugs.test.sh::008::First word like foo$x() and foo$[1+2] (regression)	stderr	6038f56e81041d026d6865f625e026314721f5490bcbddb2dff84712ab88cbaa
-bugs.test.sh::009::Function names	stderr	40639ba13b08004d1ab5eda7646767ca2246ea88d0ec03c5b34b844d7e74d91c
-bugs.test.sh::012::'echo' and printf fail on writing to full disk	stdout,stderr	9dad070015b9e0928fc4998157473468d38705c0661fcf146274f20601bd468b
-bugs.test.sh::013::other builtins fail on writing to full disk	status,stdout,stderr	350cf141a91bfb4352806ae5b17ecb27d5f4d0639e442850efc74b3e6e07b43a
-bugs.test.sh::021::unset doesn't allow command execution	stdout,stderr	324b218685adba85dea8a0cdac040d8c8c2816b6519709defc88bb64fbff1edd
-bugs.test.sh::026::Crash in {1..10} - issue #2296	status,stderr	adf3bb8485f33431976f08a2ee9d600a210627eddbcabe815258ecce09f6aad5
-builtin-bash.test.sh::000::help	stdout	ca8522771bb7f7c6ca25ad6bd42f5dc2ff7b4bba673549979a824d8954545c0a
-builtin-bind.test.sh::000::bind -l should report readline functions	stderr	03e52694105f34d40b350640325bfbabe68618ed261603a7a1c1bedef07d7700
-builtin-bind.test.sh::001::bind -p -P to print function names and key bindings	status,stdout,stderr	34174bcbe6521000a52ade6e5f88749add51fa1dcfbda36e4ee5b9e020e1b7d2
-builtin-bind.test.sh::002::bind -s -S accepted	stderr	f74d9274770c8122d4daa8fb16031d2a648a4b30f233f21659d68e0356f59f68
-builtin-bind.test.sh::003::bind -v -V accepted	stdout,stderr	3c84ac097d4a66b05fa260c6da017ed5df13c636ce293d976c5c2a100987c8d9
-builtin-bind.test.sh::004::bind -q	stdout,stderr	61d55a113366536b8f27caa28c364f2e3b59b5fd3d0ce5a67c7cd06668c6b8bc
-builtin-bind.test.sh::005::bind -X	stderr	ccb6dea014f73fdb8a4bfb5284efc5632b7299e67b1d960fb3438dd74ab802b9
-builtin-bind.test.sh::006::bind -m with bind -x/-X	stderr	e6fd7ff3e33cbd447bf43290bd82ac07e2f143b77e844085b99cb9c65d07f292
-builtin-bind.test.sh::007::bind -r	stderr	4e86244bc58bbd3aa742ad80192c8373f78a8cbf47ece532397a59ae3ed2440c
-builtin-bind.test.sh::008::bind -r of bind -x commands	stderr	4e86244bc58bbd3aa742ad80192c8373f78a8cbf47ece532397a59ae3ed2440c
-builtin-bracket.test.sh::042::Overflow error	stdout,stderr	bb57b2872d68dba30560749224c6dcc30023a5c8e9a29d8c55fe6266e673f01c
-builtin-bracket.test.sh::050::Looks like octal, but digit is too big	stderr	117388e92c4240ae2b648a8952016d14a9425011a723e3656cfa3762068fbe6d
-builtin-cd.test.sh::001::cd BAD/..	stdout,stderr	0fa8968c66a324c48811aaa05df1df5ed8f9c363c369f3f71a60ea3a4fa6df78
-builtin-cd.test.sh::003::cd with 2 or more args is allowed (strict_arg_parse disabled)	status	880dda24b2b8f52ac9c5e45cea669c45be56aceabe692e6549b58b85d84f56ae
-builtin-cd.test.sh::014::pwd in symlinked dir on shell initialization	stdout	030881de9db4de3fdaf1a2d98fc93cc2073fcc1f962a275ab9d36cd091a190ee
-builtin-completion.test.sh::004::-A function prints functions	stdout	a61b8759afdfcbd7337a6df98982735cca14119229cd65737cc20894acacbe3d
-builtin-completion.test.sh::027::compgen -A command completes functions and aliases	stdout	7442896901c5f10cb35f5738653232040c36becc87eef03d5c62441e8365b4c3
-builtin-completion.test.sh::035::compgen doesn't respect -X for user-defined functions	stderr	90051503523490c1dd1c787726da7a9cb2996074a5a01aad971f18a92224881c
-builtin-completion.test.sh::036::compgen -W words -X filter	stderr	757ffd96326ddf05d21647a813d3604b129660f7996d80d36541ee5520de6173
-builtin-completion.test.sh::037::compgen -f -X filter -- $cur	stdout,stderr	df687e447e0915290c23dbda89a8a397372e249c9d760be45e13f58bcf9491c2
-builtin-completion.test.sh::041::compgen -W uses IFS, and delimiters are escaped with \\	stdout	1e8cc2bd1b1b7d7ad475cbc3f509da2177a00c2cde6cb03ed3738c753bfb4c38
-builtin-completion.test.sh::042::Parse errors for compgen -W and complete -W	stdout,stderr	cf59235865918d5d05c69b7aa595a3b616886d705dbdb9e6d881c3b8dfcbe82c
-builtin-completion.test.sh::043::Runtime errors for compgen -W	stdout,stderr	ef56b9e56dffa9ecad5c70190ff570acd661a61b46bd5ea7168722bdb354adb3
-builtin-completion.test.sh::044::Runtime errors for compgen -F func	stdout	a42d5b250139ecc15a7f369ee1f6834d37e4ec8196edf419d6930b1875792a60
-builtin-completion.test.sh::050::compgen -F with scalar COMPREPLY	status,stdout	4934c8e42c09770bef91681d25dd723ca4a0354581b114e72dc000ec07ac5e17
-builtin-dirs.test.sh::000::pushd/popd	stdout	37d6c130119a69f3ab7f87e5a0c09db6b55a066faa409d49f6afc482a9aaa9d2
-builtin-dirs.test.sh::011::dirs test converting true home directory to tilde	stdout	08319dd4ab5abf0884b20bb89b0c662a902e92fd0ab39ae93bc48d714dc06fd4
-builtin-dirs.test.sh::014::dirs test of path alias `..`	stdout	dee5f7443cd369b35dfa9c4ac0abff1a0cde7f2eae3d0042e92c928e7b540dee
-builtin-dirs.test.sh::015::dirs test of path alias `.`	stdout	26b2dde59a9b40bcf082f5fd40e6d6b21e7be73842144409934cbcd7f16e980f
-builtin-dirs.test.sh::016::pushd does not take more than one argument	stdout,stderr	f74d9274770c8122d4daa8fb16031d2a648a4b30f233f21659d68e0356f59f68
-builtin-echo.test.sh::003::echo builtin should disallow typed args - literal	stderr	58d2a306eae53b42afc7dea0e23d1476d443358a69b2b4950b883c96b0f8b68c
-builtin-echo.test.sh::004::echo builtin should disallow typed args - variable	stderr	4953fe85d67c109fa5ff452eb85c44760a3ec60ea6f65174af9916cbbd37c0f4
-builtin-eval-source.test.sh::008::source accepts/ignores --	status,stdout,stderr	deb6df1c0f1a4c63fe2fce640de99d0a1e3febe77761fe3957e60e79e1de1780
-builtin-eval-source.test.sh::012::Source from a function, mutating argv and defining a local var	stdout	ee527077d3924e96484ad94b0e4a680b3fde25a898d695ac9c1dada82478d4ef
-builtin-eval-source.test.sh::013::Source with syntax error	stderr	a6484b2ccacd6d0ec4d5a1b59dd40fd01103311627b2aa482ad02f9f48894712
-builtin-eval-source.test.sh::014::Eval with syntax error	stderr	280025d5024897bcacba4b12d93034a8b4f70d58b07293ecb7a23a9a0921e1d4
-builtin-fc.test.sh::000::fc -l lists history commands	stderr	12e5fc94282a76e470d8f3e269b3eeb87c7e22c6333f70d4b0d9c415d94b8b34
-builtin-fc.test.sh::001::fc -ln lists history commands without numbers	stderr	9d8c2d50fbdcd6197eac53dbe496594101f0ffbbfa734f9a4b4db3aa3512006d
-builtin-fc.test.sh::002::fc -lr lists history commands in reverse order	stderr	ed628149199316c376362c04ad4cc2adfd69415daceaa23389fbe8c1e8125942
-builtin-fc.test.sh::003::fc -lnr lists history commands without numbers in reverse order	stderr	bb52b64807b5c960513fde7a68dc0f7fce2dc13cca5627ef5091990455cf7c2b
-builtin-fc.test.sh::004::fc -l lists history commands with default page size	stderr	9520c571d07a514b4872cfb15525cc51e7a7ef8fbab24e0d07c81e90e01bbae1
-builtin-fc.test.sh::005::fc -l [first] where first is an index	stderr	6dbcecc0a8473e50b1748b77fdee4c2fd5827905b2a12a20560556610dffb7c9
-builtin-fc.test.sh::006::fc -l [first] where first is an offset from current command	stderr	bb67417b7371a600c6be52c43ea53e0ac271388062de9be0b3fd4606b69fa45e
-builtin-fc.test.sh::007::fc -l [first] [last] where first and last are indexes	stderr	cf695a67f3efb97081dc6f8f320618ff4c9134182f9abc4d276a8616f071788e
-builtin-fc.test.sh::008::fc -l [first] [last] where first and last are offsets from current command	stderr	8e74113857757872d4573c9d7346936427fce14524753c719a27db0aeb881e1c
-builtin-fc.test.sh::009::fc -l [first] [last] where first and last are reversed indexes	stdout,stderr	6911ae47797a1db468229c00de9965c8630582526724d55eb94d9f191c7607f4
-builtin-fc.test.sh::010::fc -lr [first] [last] where first and last are reversed indexes does not undo reverse	stderr	963337b79d2c8459d6787a4fc0022eab32fc214574f8e9ece82508eb509f33a5
-builtin-getopts.test.sh::006::getopts with invalid variable name	stdout	15f1d5900e0bc268572b779a27e564e84c05ac9fc3c5ed3422746ab41fef42dd
-builtin-history.test.sh::000::history -a	stderr	7483df500bed0bf12245e3de86792771857df8a6fc06bb91af73c2c3e9f002d7
-builtin-history.test.sh::003::history -n reads *new* commands from the history file, and appends them to the current history	stdout	1457bd57baa40488c044727607d71299d178d144c266ae1728bfb236ae3096ba
-builtin-history.test.sh::004::history -c clears in-memory history	stderr	cb0463ba0f663cc365fce2489f4de9478edc9137f3ce7710c7019103d1dcffec
-builtin-history.test.sh::006::history -d to delete history from end	stderr	d3368f398e999e0eceaad59cd98cf327bc64c4bd5ba907295fb764bd0daa5589
-builtin-history.test.sh::007::HISTFILE is defined initially	stderr	8a54f6187d5fa7fa7bfa64bb284b957dff1714db35dc7861d9dae6112019069c
-builtin-history.test.sh::008::HISTFILE must point to a file	stdout,stderr	1d2c86ddd834bee9ccc033cd3695548e2a9c9b35d64a1ffe6c5fc19ed37af8c3
-builtin-history.test.sh::009::HISTFILE set to array	stderr	e6961975ba223df6d1d5aa762025e9f959c0319742c2eb0197a70602442219a8
-builtin-history.test.sh::010::HISTFILE unset	stderr	1d4c455dbd140876d0c1b90748e43c06b4f6a0b7017fb1c0b2d3e46236c53277
-builtin-history.test.sh::013::HISTFILESIZE shrinks the history file when changed	stdout	b45d75f17c0b24925f591be207c4a7276077165baa0b137346f98b009a2d7954
-builtin-history.test.sh::014::recording history can be toggled with set -o/+o history	stdout,stderr	6ba8c05533157c5adeeb65662a9e55e1e2d38d5c148580fac935b02e056d6ec3
-builtin-history.test.sh::016::shopt histappend - osh ignores shopt and appends, bash sometimes overwrites	stderr	f5f15504212c5c2f5eace727aca831e24297f0cc0cda731919f6a82d00ebc8ff
-builtin-kill.test.sh::001::kill -KILL kills the process with SIGKILL	stderr	0d69599fab3f19652b8e9e14565b6ae7acaed3df6a54da4384ec990a83ac75c4
-builtin-kill.test.sh::002::kill -n 9 specifies the signal number	stderr	0d69599fab3f19652b8e9e14565b6ae7acaed3df6a54da4384ec990a83ac75c4
-builtin-kill.test.sh::009::kill -L checks for invalid input	stdout	6c46dc0a405a11edc898c01a7d9119430752d0097f09d66b6cb5ec0fb3bdcc47
-builtin-kill.test.sh::012::kill -l 0 returns EXIT	status,stdout,stderr	2d70d72794498e7dc01b285e3347a2c486c3030a36c2644eed6b2fd26ecb80aa
-builtin-kill.test.sh::013::kill -l 0 INT lists both signals	status,stdout,stderr	2d70d72794498e7dc01b285e3347a2c486c3030a36c2644eed6b2fd26ecb80aa
-builtin-kill.test.sh::014::kill -9999 is an invalid signal	stderr	2b55cff688d4de84be0ef4ed8af9b8f27ad293e034e6df84e4b96563ecd9ee27
-builtin-kill.test.sh::019::Numeric signal out of range - OSH may send it anyway	stderr	2b55cff688d4de84be0ef4ed8af9b8f27ad293e034e6df84e4b96563ecd9ee27
-builtin-meta.test.sh::002::command -v with multiple names	stdout	af3edde63b8e0c8fdcb57125998ac8cecc3f30b5032abf8eefc4ff957b89f76b
-builtin-misc.test.sh::000::history builtin usage	stdout,stderr	19fae3a90e8d4879cc35917b38ec2d1b9619bae8c9d7142f108137260ab47a37
-builtin-misc.test.sh::003::time pipeline	stderr	9297a32d693875a23adcef29fd46a31237e7a1256f09e1c02fe7dbbcacfece23
-builtin-printf.test.sh::004::printf -v syntax error	stdout	7276a1505878fd54cedd09031fd366cee63e6d0f47e9160fe3974cebdb0bbebb
-builtin-printf.test.sh::026::Invalid UTF-8	stdout	d5669fa22c9f76d282e11e18c23ad6ec73d350d4315634d89199a823d759bfa1
-builtin-printf.test.sh::027::Too large	stdout	9a77d5a814b82e7a3f14be6d63f38eb7b53848fe78408f2e6ead4dd3c32e4617
-builtin-printf.test.sh::038::printf %c unicode - prints the first BYTE of a string - it does not respect UTF-8	stdout	cea175578ec581cf4a0505d940b7afd1713a30d8685d3eec8354aad3cf54e75d
-builtin-printf.test.sh::042::printf negative numbers	stdout,stderr	9091c70307412c6e218d76c3aee181dc7d2528e27e8c421f7f9cbc16cb26e994
-builtin-printf.test.sh::045::Runtime error for invalid integer	stdout	da2d99acd0ef294bfc7f49b0ffe34e1bf47aa4b94482700924a7bcbecec9e0bd
-builtin-printf.test.sh::051::bash truncates long strftime string at 128	stdout	5b1446af320fc56540fa42f885a65f349756e4127859473d74c93b237d51a79c
-builtin-printf.test.sh::052::printf positive integer overflow	stdout,stderr	bb2574b1281f9060896fcf49dafa3ae02d72f506c9caa5be663c7f59efe6e476
-builtin-printf.test.sh::053::printf negative integer overflow	stdout,stderr	f3686e43c9aea2e939892d1ea0bd4e0f49dc0f9d40a86fcd2c674e97aa0ef0d8
-builtin-printf.test.sh::060::printf %d with + prefix (positive sign)	status,stdout,stderr	c2a9c1a3ded97d8715e9335f101ebcfa2e390a4674dd29b7d0c013170847b714
-builtin-printf.test.sh::061::leading spaces are accepted in value given to %d %X, but not trailing spaces	stdout,stderr	e5e1b08be6cb129f873a358d10cbcda2d81530cd2acfe942711e52cfcd02646e
-builtin-printf.test.sh::062::Arbitrary base 64#a is rejected (unlike in shell arithmetic)	stdout	c1e6082ecc5000b6a07bc9170e030e1c1da40c96a44a1fb1b3efabddc96beccc
-builtin-process.test.sh::004::exec -- 2>&1	status,stdout,stderr	f64043ff682e4e531495231aacd6e90c7dd3c4af62aa5f1bc3ceb0913d90ff93
-builtin-process.test.sh::022::write big file with ulimit	stderr	c33ccd78ba9936fa9684233e34ed071fc9494f067969cd431eaf88399582aa08
-builtin-read.test.sh::014::read -n vs. -N	stdout	d17f16526ef287dab50b542b26afd17f4f97e61e0dd062f30279a3a604a86c25
-builtin-read.test.sh::046::read from redirected directory is non-fatal error	stderr	ca9d749a6c8360a299e466d73086f897d2887975059cdafaf37d5a208224f136
-builtin-read.test.sh::047::read -n from directory	stderr	ca9d749a6c8360a299e466d73086f897d2887975059cdafaf37d5a208224f136
-builtin-read.test.sh::048::mapfile from directory (bash doesn't handle errors)	stdout,stderr	7445003794195d693e02edc396db7831ee5f813094e5752fd497637481b196fe
-builtin-read.test.sh::053::"backslash + newline" should be swallowed regardless of "-d <delim>"	stdout	defb8c595f69250ff3a10ba8d688c0dee91e6c651cdc36b2af16eadd7b22a95c
-builtin-read.test.sh::054::empty input and splitting	stdout	82eaf5894d4052fb21ace34235202a17cb2daab1a4bdf907430545dfd6be675a
-builtin-read.test.sh::063::read bash bug	stdout	98a4a34cb00d6461dc24415ae3e0777641ddc4b1091863d5d0d0ddab03c7d4c8
-builtin-set.test.sh::005::set -u with undefined variable exits the interpreter	stderr	bd5bd9e8b8698e9f4a1b8e1aaaa5dfe9aa85e5e32c76e9b2c06fee3a0bd15909
-builtin-set.test.sh::006::set -u with undefined var in interactive shell does NOT exit the interpreter	stderr	7739a238b4b312ccca93a79fdc1e50978222404708852b230f30e96d16603896
-builtin-set.test.sh::014::set - leading single dash is ignored, turns off xtrace verbose (#2364)	stdout,stderr	a8a559101d72f02fb052dea0705e9079cf578dbe5e2c171693c21f8d8cd8fae8
-builtin-set.test.sh::015::set - stops option processing like set --	stdout,stderr	d4b1b5b7d540957e0df73801aa70de365db5f9082cfcba7f4cd58f38188a108a
-builtin-set.test.sh::016::A single + is an ignored flag; not an argument	stderr	d3f2bf83b592e6ffe6402bee80c54db694ee530514a34cf38ecbcaeaf0274649
-builtin-special.test.sh::003::Prefix binding for exec is a special case (versus e.g. readonly)	stdout	2485293e2f62ed17c97ea7e376dd25f83a70636939addb56d52d537ce9376cca
-builtin-special.test.sh::006::Special builtins can't be redefined as shell functions (set -o posix)	stderr	c1e5cbee695393f75f7d86993436971658343ec56c5ecd07511166db52721894
-builtin-special.test.sh::011::command, builtin - both can be redefined, not special (regression)	stdout	4aee92ac0619d046170ebe4d4f408e120ede3c55188c027a7a4473ca03aebc5a
-builtin-trap-bash.test.sh::010::trap DEBUG not run in forked interpreter for first pipeline part	stdout	d9a0b2921d1b05ddd7891b23faa06bbdc9d8ed0f1b4924139dfa262a39c67a14
-builtin-trap-bash.test.sh::011::One 'echo' in first pipeline part - why does bash behave differently from case above?	stdout	7c1cbf5d956da2dbcb29bf471fcef3c29f308b128436e0f72e4acc3f36a03748
-builtin-trap-bash.test.sh::012::trap DEBUG and pipeline (lastpipe difference)	stdout	7381dbd3e02315dbcc9d78375563d659cff97b8d3697a1e6fc07051c52a90522
-builtin-trap-bash.test.sh::018::trap RETURN	stdout	a0b14e73db8cbeef639e530377e3dcffe9f0ccfd8a2c4acceb9f9d9760bce1d0
-builtin-trap-bash.test.sh::020::Combine DEBUG trap and USR1 trap	stdout	992defff472150c5949cb6b4eb9fab9825c24e6b388ad6bc79399581219d11be
-builtin-trap-bash.test.sh::021::Combine ERR trap and USR1 trap	stdout	f2c270932ecf47b2f65986c8bc0b48657563a259e8010c7aac4dc3d315d2558b
-builtin-trap-bash.test.sh::022::Combine DEBUG trap and ERR trap	stdout	e071bc12a8a57b3df820358c0c59faa2522961fac223c2caec1dede7d1e6266f
-builtin-trap-err.test.sh::006::trap ERR pipelines without simple commands	stdout	1796062d50c5e59d8a364cad711167fe6284b84ef4540813ba445f63bac9f22d
-builtin-trap-err.test.sh::007::Pipeline group quirk	stdout	ed6a06684dbd53610110e958a008631e951a09ca4d687ba1985d932b785476bb
-builtin-trap-err.test.sh::009::trap ERR doesn't run in subprograms - subshell, command sub, async	stdout	1e8d1c1a498abd8b9e6c6352d8286ce5487263e2c36532ad3b2f8b7c2303424c
-builtin-trap-err.test.sh::011::trap ERR doesn't run with &	stdout	a2cf4af00b58cbef26e81cbf064d11c0f7d4ce687637a07d0ed0b955ec4a1e01
-builtin-trap-err.test.sh::017::trap ERR with for,  case, { }	stdout	2c5e24c5b2c9113511dc2f458d7500d3060c7b77a16c68c9455c7cd5935d03f8
-builtin-trap-err.test.sh::021::trap ERR and pipelines - PIPESTATUS difference	stdout	a7f3b162e4b14249d06ce5d26b0339a860d4f773f391ceebedc315e0323f4a7e
-builtin-trap-err.test.sh::022::error in trap ERR (recursive)	stdout	51930b27e9dba3638ecfae1e10376412d6bf1dcfaaa8494acae8974a529d91a2
-builtin-trap.test.sh::014::trap '' EXIT - printing state	stderr	6304121360896f90e82b37ef7fab2a12c427c89681ce072f07e89cff77426b78
-builtin-trap.test.sh::016::exit 1 when trap code string is invalid	stderr	2f80b5d80cb372c2395c87064fdddfb9955e5c85155d455e567a13beb35df23e
-builtin-trap.test.sh::019::trap EXIT with PARSE error	stderr	5fd137c65b607fa77a4ab15699f34daaccac76a9c35ce3432cad65424b706801
-builtin-trap.test.sh::020::trap EXIT with PARSE error and explicit exit	stderr	f3079b0e4a71bbc6c3c05385538ea6fe5ab301aafdac36b7376a340198ff4973
-builtin-trap.test.sh::025::traps are cleared in subshell (started with &)	stdout,stderr	c6f12dffd5c26a4229f6737ec11918f03ba34909c4264473bfd55809b351fe7b
-builtin-trap.test.sh::027::trap INT, sleep, SIGINT: non-interactively	stdout	84af78024d77429ddc2dbe1a4444f75eb77a2d6ae4ddce5ccdccc68bbd892ab7
-builtin-trap.test.sh::028::trap EXIT, sleep, SIGINT: non-interactively	stdout	42a52f1dd4512d3cb64032f78116d3884f5232e044463069bee7b26c070888e0
-builtin-type-bash.test.sh::006::type -t doesn't find non-executable (like command -v)	status,stdout	8986992f2bf0a4419273fa1b2d866c69e397d9b9e2ebedd08c2cc21075fbece9
-builtin-type-bash.test.sh::028::type -ap -> builtin and file; doesn't print builtin or function	stdout	f29d9e7e6a3298d5f32d1a61347b88fdacd7ccf0735704581e4a7637e98ab8d8
-builtin-umask.test.sh::001::usage: empty input, space input	stderr	2d8f852ce0fecbab8474c44f238f6dddd54c15e714a650123eb39e11b9de8f6e
-builtin-umask.test.sh::004::symbolic syntax error: empty clause u-r,,u-r	stderr	bc95f58112313af6afa6c68174483f2396a3f789dc6032870f67af5823abc590
-builtin-umask.test.sh::010::'umask 0002' sets the umask	stdout	7189cdb96bda045484ee259ae63b029a6075df3652131b6c19f2c6a6f2233729
-builtin-umask.test.sh::011::set umask with symbolic mode: g-w,o-w	stdout	7189cdb96bda045484ee259ae63b029a6075df3652131b6c19f2c6a6f2233729
-builtin-umask.test.sh::013::umask with too many arguments (i.e. extra spaces)	stderr	a7737c37350cb3a71fd4a20a7e2ea929920c928163348a5d6ce26cae50116c11
-builtin-umask.test.sh::017::umask s perm	stdout,stderr	7c05c52584ea2abe11fa196ebf5aab11a444a882ab9bb5ba91e4e6c4ec9fab7d
-builtin-umask.test.sh::018::umask t perm	stdout,stderr	f60558f15c1665e6f12cb868a4dd588447407e6b890e329d9326338c4864544f
-builtin-umask.test.sh::022::umask permcopy running value	stdout	0e3117451803cb9b93ddbf20b070c08d537c02189473a25d87f41849a6480f7b
-builtin-vars.test.sh::013::can't export array (strict_array)	stdout	38f704a723d03a198b723924ab7394cfc8a04d6ec3c6b1fd908d4eb01898bf47
-builtin-vars.test.sh::017::assign to readonly variable - errexit	status,stdout	dd7c93fccae653c1b42cf94875df9d2385247584181e518ea3a6c0b9849c4656
-builtin-vars.test.sh::039::unset a[-1] (bf.bash regression)	stdout	3dec6e514cb2522fe5c90d126a952f02f16a4ea01fd813ec2fa83f0dc192eb81
-case_.test.sh::008::Pattern ? matches 1 code point (many bytes), but not multiple code points	stdout	21191203c2853ce030009b8ce9914fd0786988670dacd684f480d93c70ba5d8b
-case_.test.sh::012::case \\n bug regression	status,stderr	f74d9274770c8122d4daa8fb16031d2a648a4b30f233f21659d68e0356f59f68
-command-sub.test.sh::007::Making keyword out of command sub should NOT work	stderr	42c24671a48e1020d3bad5a8e0a1d115a77c341c59a86608e743b858f9e68d52
-command-sub.test.sh::016::Escaped quote in [[ ]]	stdout	2e1b618b5a866a56c8a1587affacffcaea9679ed967f5e6441c88071ae89df99
-command-sub.test.sh::028::Syntax errors with double quotes within backticks	stdout,stderr	3923dd5e4100f84cdcba194a151178aabc664faf71db7fe69ec74fc231e865fc
-command_.test.sh::001::Permission denied	status,stderr	c07381cc7cdcefda9be88ac35d39d62e58ecb8ae0021dd7e80e04005160ed6ce
-command_.test.sh::003::Name too long	status,stderr	4a824a64613dbf67935c0ac04a759abc7a1acfb3bb243ec9d83c3b5b0157a26a
-command_.test.sh::012::hash without args prints the cache	stdout	c4234910f2c33cfb3bde745f39448df17e9a1216176d3db657950636d94a10b7
-dbracket.test.sh::020::[[ with op variable (compare with test-builtin.test.sh)	stderr	70631280ea8d3c6275f61fc06a021693b02fd76c42ca2748c4d498ba00e14ad0
-dbracket.test.sh::022::[[ at runtime doesn't work	status,stderr	2b62de755785057ffedf9418fd58f2e39aff816fd905b79b7a4cc4135b5c739b
-dbracket.test.sh::023::[[ with env prefix doesn't work	status,stderr	7dabe3bfdf52c5f3fb41c15f405a478587c14d89cd4b0c9e8d640867b00c6b4a
-dbracket.test.sh::025::Argument that looks like a real operator	stderr	54e43f065b9a9714726d67309187e95d81a7307967c9609b1a5c92ae56ad4c3d
-dbracket.test.sh::028::(( array1 == array2 )) doesn't work	stdout,stderr	114accc436ccc495d8c0aa6354a3a40142bbc22f71533cf75b4ea159d25049d9
-dbracket.test.sh::033::[[ '(' foo ]] is syntax error	stderr	bb6ad6563caf34bf5a7fc2e5599c6b9bcf1b7f9a0e825a9d8ccdc325b586f9ce
-dbracket.test.sh::035::[[ -z ]] is syntax error	stderr	fb71f9673640a6e4b02f3f25ed848f111f452dcf1d0d438b29f8b4d3c9b70f34
-dbracket.test.sh::037::[[ -z '>' a ]] is syntax error	stderr	23493927c918c8f19dba961a06fb62d58284910cd6a4b3825ef143d5611d2412
-dbracket.test.sh::039::[[ ]] is syntax error	stderr	789b958d5b51852cfce4b0bd948d19998c7a38882769228675d1c8b82475b758
-dbracket.test.sh::040::[[ && ]] is syntax error	status,stdout,stderr	0fa8968c66a324c48811aaa05df1df5ed8f9c363c369f3f71a60ea3a4fa6df78
-dbracket.test.sh::041::[[ a 3< b ]] doesn't work (bug regression)	stderr	55d0097446039c0a8cf422290696b5a05e39a8c7e17c21d85e69c88e57591728
-dbracket.test.sh::044::tilde expansion with =~ (confusing)	stdout	a77a03642d176f8c0793d825702e0d871ee08e41de4d2dfae97120217fa886af
-divergence.test.sh::002::Changing PATH will invalidate PATH cache	stdout	d2be844c75c05d4da8c1d07742f995c41c0995ed51346e839571ccce6c3d1348
-divergence.test.sh::003::builtin cat crashes a subshell (#2530)	status,stdout,stderr	5adc9456cf66122eb3987419d35ed391e4a99ae647c16d1e3f1ac172f3fcf860
-dparen.test.sh::010::literal strings inside (( ))	stderr	8e11b6afd7f63e1fc91d4f432a7b4f2468d67496993226d8748b59e510be1d7a
-empty-bodies.test.sh::000::Empty do/done	stderr	8c9facbfe10a379604ebc1e7fada5f609adc12fc233f6659ceb8b7a9afda9c8d
-empty-bodies.test.sh::002::Empty then/fi	stderr	777efa08481bdb6129a9c19c6ae1e5c73be3d3eee9a62ae4d50cea53230fd39f
-errexit-osh.test.sh::030::command_sub_errexit and command sub in array	status,stdout,stderr	f802d1d71729803c8f9a364673c809023cc62ebac189d456cd7c105b14c7c8a5
-errexit-osh.test.sh::031::OLD: command sub in conditional, with inherit_errexit	stdout	cbac2a0c9e6311db03afcda1be34f7129217c55536ee930bfa13025745d8216d
-errexit.test.sh::011::errexit and brace group { }	status,stdout	8986992f2bf0a4419273fa1b2d866c69e397d9b9e2ebedd08c2cc21075fbece9
-errexit.test.sh::031::while loop - redirect failure checked	status,stdout,stderr	7c42393c31896301958bb0a38846e89575f09e8144b2ae0aa36adf1050d4914a
-exit-status.test.sh::007::If subshell true WITH ARGUMENT	stdout,stderr	25242e2dcb1a1414d7fa13a1e77e93d6edbed14f672b850908a1dfc47b75c449
-exit-status.test.sh::010::More test cases with empty argv	stdout	202515b6f1e798319d4a60cc4464be3b9b2bd2f9e370bd72be3172db3698eda0
-explore-parsing.test.sh::002::Is \\r considered whitespace?	status,stdout,stderr	ac5cdaab336e5c91ce74719b6ddf06f94f47a066fb4546edbe748b97b7c7f7bf
-extglob-files.test.sh::014::Extended glob in assignment builtin	stderr	5176b37e7112f449b3c6a1d6c4f1e7d0b7adf267991f90337bef10c51fd3bd02
-extglob-files.test.sh::017::In Array Literal and for loop	stdout,stderr	ff8fff73d7ab05b55707b7054f4416fec5e0ab37f900a5a47a0a4f1f7e49b36f
-extglob-match.test.sh::025::regular glob of single unicode char	stdout	3549b435694d3f3a2f9d0c307210bc6a20bafe0ed0aa4bb900fd33c88afcb4f3
-extglob-match.test.sh::026::extended glob of single unicode char	stdout	3549b435694d3f3a2f9d0c307210bc6a20bafe0ed0aa4bb900fd33c88afcb4f3
-fatal-errors.test.sh::001::Unrecoverable: divide by zero in conditional word	stdout	7588e1d34cadcdd528089eb7c5f79abacbc3eaff1117ebd50203b31db270176c
-fatal-errors.test.sh::002::Unrecoverable: divide by zero in case	stdout,stderr	fa99eb497d774f408f1afe214a15706b936de76dd573b999fdee15a7749bbfbd
-fatal-errors.test.sh::003::Unrecoverable: ${undef?message}	stdout	2fd65c258a63854f28a4dd6157eef20900ba3c8d954fa8cc98f3478ac42ac4a9
-fatal-errors.test.sh::004::${undef} with nounset	stdout	1da29f6ce77b0d2b400f9cfb28cf7867ce90dc8162b14fa736daeeb77fb81251
-for-expr.test.sh::006::Arith lexer mode	stdout,stderr	3a2bf8bba0ac9fba05c7e80a47eea60ce19d198f1f223e76aa70a69b4c28a036
-func-parsing.test.sh::000::Incomplete Function	stderr	3e76d5bb50c303c39b03cc7bfae93200890f9482eb5416ec9ecfc0f193c67d13
-func-parsing.test.sh::001::Incomplete Function 2	stderr	53ec5c5c444b2ced26c9e3321129bab0134d10e5b139208989163927d5abddd1
-func-parsing.test.sh::002::Bad function	stderr	91f6e161c493407e45179d7eab9842b438905cce28730ec43bc548016cf33ee8
-func-parsing.test.sh::003::Unbraced function body.	stderr	a3fe822c3620617242d517efe21a7017ee6b69db24bd65cbdc18a39e027184f0
-func-parsing.test.sh::009::Function name with $	status,stderr	01e83d0a50f9f8232a6eff81d366b26a87dd046455ba837ee0661b31d25af5f2
-func-parsing.test.sh::010::Function name with command sub	status,stderr	4c395a117337385c62fe5d2f8958828eaf4838c7a92b91181653c73e44469881
-glob-bash.test.sh::002::shopt -s failglob in loop context	stderr	d980252a484d1308cafe5d743cc80c84415f82c7be92abdbbd07ff1055f021b8
-glob-bash.test.sh::004::shopt -s failglob exits properly in command context with set -e	status,stdout	13d09e1854f90bfa61123ef84a5048cd9fc285227d8a3dd3e04a00b8349d2638
-glob-bash.test.sh::005::shopt -s failglob exits properly in loop context with set -e	status,stdout,stderr	3bbbaeb85491de77ca7f2181371c251d6323e545bb4b476379c16292f4fdfd5c
-glob.test.sh::019::: escaped	stdout	ade40a2e6ea3f3577ab9e031903bd7e7d9bfcfa83b7ce74aa5ade32ae3fc4980
-glob.test.sh::027::Glob of negated unescaped [[] and []]	stdout	a398ec4c339edb2e0ef133c3bd6ba40383bc3063f3d4215e35286f9af5de60f4
-glob.test.sh::030::Glob unicode char	stdout	b2633e3e38cf372289eedd0f6ce1a9c33a3fa3afe24f5331b0f96ed25d3905fa
-glob.test.sh::031::Glob ordering respects LC_COLLATE (zsh respects this too)	stdout	f1d4227977fb7bdb01fd16e19f026fd15fa1d0b1d09a463f11a28a7e5fafe842
-globignore.test.sh::001::Ignore *.txt	stdout	a0cb7ff70cc33e84e78119fc5ea8e88ba64e945d61a511a669d3786f56b2956c
-globignore.test.sh::014::. and .. always filtered when GLOBIGNORE is set	stdout	0b4c7471750f7bb594bcefdc900d4504d1e6c96d0a5f7206324d9a74101fbcfd
-here-doc.test.sh::006::Here doc with bad comsub delimiter	stderr	33981a33790dc938e0da6bc7de1384d12cabda1e06422f3f55327876cdb2c928
-here-doc.test.sh::011::Here doc line continuation	stdout	ac3300d3e9472e4df6243c7e7e5f22e10e8f47e32ad35c1389c4de454457d629
-here-doc.test.sh::015::Here doc with line continuation, then pipe.  Syntax error.	stdout,stderr	4016cc189e7d66c62b3b8c150bffb0e686706ef4bb5924b89b756e4989499526
-here-doc.test.sh::020::Here doc in while condition and here doc in body	stdout	92f0bad0510a77b6fdd62655a7376973ea7b5628f47f34914c44a173276e4989
-here-doc.test.sh::021::Here doc in while condition and here doc in body on multiple lines	stdout	16ffd1d873451e59d7544a7cfebd6a3c440afa90716110035387b19b2f3f58fb
-here-doc.test.sh::023::Mixing << and <<-	stdout	9d1a91db27ccf45ffab0f62e9fb8ec3f53ba13a24ae53cb70276554ec779509c
-here-doc.test.sh::024::Two compound commands with two here docs	stdout	5b624b7608579a57719d457d8ff995a5d0895b5a8053d589d7429015eeba1f26
-interactive-parse.test.sh::000::parse if	stderr	18bdb37d45e5f21281148ed12178f1a449d55ea3ca3de3354e22382426bac11f
-interactive.test.sh::000::'exit' in oshrc (regression)	status,stdout,stderr	52ae88d72d69b46dd8cbb4bae360b4a89a8b4fac0b8bc44f03184feff485cf55
-interactive.test.sh::001::fatal errors continue	status,stdout,stderr	3fca993b0ec7955d354977199786eaaded809c39144844239bfcd5a607faca04
-interactive.test.sh::002::interactive shell loads rcfile (when combined with -c)	stderr	7a07dd7c837b97b05484c4183b4e969248fba0b9fb85bf9646b76c5adf7255e8
-interactive.test.sh::003::--rcfile with parse error - shell is executed anyway	stderr	adf0d7e567d740fee5881e1c0351db2df18170b6e8bc939433adef2efa575979
-interactive.test.sh::004::interactive shell loads files in rcdir (when combined with -c)	stderr	4e5b6e24f07dda5032971022cb7b278b39b64e30c17e176e7c0f92df219acf0b
-interactive.test.sh::007::interactive shell runs PROMPT_COMMAND after each command	stderr	be23c2a7342edb7fef461dba3dc2e385376a09838f2846f00de23b8535564411
-interactive.test.sh::008::parse error in PROMPT_COMMAND	stderr	e765082c16daea1aa73b665cbefd7214d1e221884cbc02dd2a18183282e931a1
-interactive.test.sh::009::runtime error in PROMPT_COMMAND	stderr	a91e4475791bfef1b705445c5d920c3e5734f2beb42f6f3eb9723b38f824beb3
-interactive.test.sh::011::PROMPT_COMMAND can see $?, like bash	stderr	f778d10547ee18f19629801458420febd285ad7abe16fd20d42385392d93a6d8
-interactive.test.sh::012::PROMPT_COMMAND that writes to BASH_REMATCH	stderr	20f15ff9df75fcad1538dfa73dc9b76da25f8429ae108d7c7d6630970412ee17
-interactive.test.sh::013::NO ASSERTIONS: Are startup files sourced before or after job control?	stdout,stderr	4126681a78570259ccd35d592e6c399974163bf665b784c7417b1fc124670a8b
-interactive.test.sh::014::HISTFILE is written in interactive shell	stderr	14dacb934b7fa958aa245ccbdb99c69fa84d329f362451f97410e077449c58e0
-interactive.test.sh::015::HISTFILE default value	stdout,stderr	ca9d749a6c8360a299e466d73086f897d2887975059cdafaf37d5a208224f136
-interactive.test.sh::016::HISTFILE=my-history loads history from that file, and writes back to it	stderr	7c757358d8a992f7d7e0b08d7f540149f595ae08dc683e8db68088c986d9539c
-interactive.test.sh::017::HISTFILE=my-history with history -a	stderr	2c31b67005cc8df35f378b89cd054a164ee892a11835b690049fc7ceb047de00
-introspect.test.sh::008::${BASH_SOURCE[@]} with line numbers	stdout	4c50c1c40c56d264649d099447c051ded9e952eb8c97ba8665a4862324298901
-introspect.test.sh::010::Locations with temp frame	stdout	987d35969056efa6ee2e3f15f27b3f8957b0a3394bd7983befd4524288862acc
-introspect.test.sh::012::Sourcing inside function grows the debug stack	stdout	f8c6a1891a89d5c744a8c9aa8d3c97c2565186cfc67fc735efb453666ecc0ec4
-known-differences.test.sh::001::nested function declaration - xcb-util-renderutil	status,stderr	f74d9274770c8122d4daa8fb16031d2a648a4b30f233f21659d68e0356f59f68
-loop.test.sh::001::empty for loop (has "in")	stdout	fe85e55f065b6f4c4a6202d1612b6a4b8ce25acf3da4612a908c25e55db5af9f
-loop.test.sh::014::continue in subshell	stdout,stderr	00356bd0c68b28b947c2998169b83a9fa4afdd9548d12343f749e00348e827fe
-loop.test.sh::015::continue in subshell aborts with errexit	stdout,stderr	59c6305960fe2cf7f81af902a3e1ebc0f1166a9cedf1e202d412a4fa4eb5e51c
-loop.test.sh::016::bad arg to break	status	95a038335420c3bbb18ffe4a1adfcb9d2cae1e2938c511825fdf615b2803bcf5
-loop.test.sh::017::too many args to continue	stdout,stderr	6b8f3b80cf2428f2c1194cbf58ff78ec767604b582a0f3e9ac207a89e8ea829c
-nameref.test.sh::015::-n attribute on array is hard error, not a warning	stderr	d8651f161c62e943a7f3adbfebb822f231bbf19fceef44c8d420a7a83ccb7435
-nameref.test.sh::017::readonly nameref doesn't prevent assigning through it	stdout,stderr	f3ad74e8097b7133b0f74731d801ccff34feeab8e568510fa2ccb27f15083875
-nameref.test.sh::018::readonly var can't be assigned through nameref	stdout,stderr	ba463a4c18253c760d9db0343b16fb35ba7a22af093ebc18bb3ce54bd067113a
-nix-idioms.test.sh::003::${!ref} to undefined string var is fatal, INCONSISTENT with array	stderr	6a86766e258303f0f37d0eefecb8ddc9388831e1c1fb929940b628c17c196d74
-nul-bytes.test.sh::005::NUL bytes and IFS splitting	stderr	f2cda50c7e73df838b136c180127336b2243234ca23fd1a624173d92f0c7378d
-nul-bytes.test.sh::009::Compare \\x00 byte versus \\x01 byte - command sub	stderr	497b0cd0baaa0cb44325915d37d5fe964d7cbe2c818d039fbf427ce2956f85d2
-nul-bytes.test.sh::010::Compare \\x00 byte versus \\x01 byte - read builtin	stdout	4e33031237bc99862f42703f02d4a65cf7d84c27fc5183a399300ece37eb0067
-nul-bytes.test.sh::011::Compare \\x00 byte versus \\x01 byte - read -n	stdout	4e33031237bc99862f42703f02d4a65cf7d84c27fc5183a399300ece37eb0067
-nul-bytes.test.sh::012::Compare \\x00 byte versus \\x01 byte - mapfile builtin	stdout	03cdb2a7f85401daa7ce2cb85120b7b5b61752fab16e6c7b9a0ecbfa51f3f1b7
-nul-bytes.test.sh::013::Strip ops # ## % %% with NUL bytes	stderr	e0d6acd70235fcb260ad915467cb90a0ea350250f2061ee682f868f8f4186928
-nul-bytes.test.sh::014::Issue 2269 Reduction	stderr	c813bf4df3ff85c18c99edde13ee36a1dd5622d8d7ca73299bd0696ab48a79ce
-nul-bytes.test.sh::015::Issue 2269 - Do NUL bytes match ? in ${a#?}	stderr	115ef7ed5efdd64571c08e5b4afcc598f1eae8941e4083f870cb37b9ccd18be2
-paren-ambiguity.test.sh::002::(( closed with )) after multiple lines is parse error - #2337	stderr	76537844d34e351b905825264abcc39d062971479af5677f2098b6bcb469c1a9
-paren-ambiguity.test.sh::004::(((grep example - 4+ instances in regtest/aports - #2337	status	568f1e8164cc81df0eb6900e4231cb9eead12227f6107d5cd1a94cab00762a2b
-paren-ambiguity.test.sh::005::((gzip example - zdiff package - #2337	status,stdout,stderr	0eb55ea35be61fcf37284d34b793883b2f8a6ff99d2a85bef153b344b6066598
-paren-ambiguity.test.sh::007::((test example - liblo package - #2337	status,stdout,stderr	73b5a30dd891576e356fd829edc02a8061f0fd7f3fd8f93a039eb1effe52bd7e
-paren-ambiguity.test.sh::008::$((which example - command sub versus arith sub - gnunet-gtk package	stderr	610db3b05a39fc863b4cc5b3681b840e1c712fca4410ffc8df3039249fe025e4
-parse-errors.test.sh::005::Incomplete while	stderr	a4720a5ae4bc17e0517ac8c8bf8c252dc3dac5cefa8a695b8bfa8f085e8e3bb8
-parse-errors.test.sh::006::Incomplete for	stderr	8c6b9adadbb7d2b7a76fc2e8d243d92080e74d4fbe69e72e5652a98cb9fabd4c
-parse-errors.test.sh::007::Incomplete if	stderr	2420ee109b95c4c0506aef37b636fe42ee9cb2ab565cadf3c9958a3330fe5611
-parse-errors.test.sh::008::do unexpected	stderr	df360fc321fbc707c83df410b5bd4f3489c57cc521f2426b726cd91560fa011a
-parse-errors.test.sh::009::} is a parse error	stderr	24c627a08ae2181b06f27da65557d05b544552895686d58d0bdd3c2ac3e95406
-parse-errors.test.sh::010::{ is its own word, needs a space	status,stdout,stderr	b49e12e4edd616fa623503edbc8470ae500de8d7614d31d32475dfe2dae81bcd
-parse-errors.test.sh::011::} on the second line	status,stdout,stderr	8a4a294901a794006b980839a810231e9e51f4e04b19e057b1bebc5533c77349
-parse-errors.test.sh::016::misplaced parentheses are not a subshell	stderr	7c4f006f1158ad4a8bd84c9a64667562267f8e2ec5925c9c68172acd24e6cdde
-parse-errors.test.sh::018::incomplete backticks	status,stderr	ad2e2ee59fca5e0a6ad99637977bce971b2593496503dc3307840ec6e1b18a9e
-parse-errors.test.sh::019::misplaced ;;	stderr	d6a36337506625c0c2ec16501df0c0762912521b0872c2d50c17ffa526141979
-parse-errors.test.sh::020::empty clause in [[	stderr	ee6d2cd3bd7623e5be4a446d5f31bae6f77418215d4c0f1cb480c76d7730330e
-parse-errors.test.sh::021::interactive parse error (regression)	stderr	e1cd2effb720b7e408c39210ecd1fc89ee7bb938659a8241d138672081f1bd37
-parse-errors.test.sh::022::array literal inside array is a parse error	stdout,stderr	849ece8c66d216096f925e2e309ba5b731d76d84a24afad233828d9dfa060cc8
-parse-errors.test.sh::023::array literal inside loop is a parse error	status,stdout,stderr	fb7c41caa9801851b6273d9493de72a1a3b9760048944aa633b5c86a66db49da
-parse-errors.test.sh::024::array literal in case	status,stderr	f74d9274770c8122d4daa8fb16031d2a648a4b30f233f21659d68e0356f59f68
-parse-errors.test.sh::025::%foo=() is parse error (regression)	stderr	5c2c064aabd6f3c61721d9fc464f64f4da0af617ae068aec35fa7e91824f8f3f
-pipeline.test.sh::006::Initial value of PIPESTATUS is empty string	stdout	30aeea5f814ff745ff63d443425cb05d07012740fa66262925ddf86f86e88c41
-posix.test.sh::000::Empty for loop is allowed	stdout	0ee70756adf2d0ba0212f8b769110292f755af965f53e7edfabe2bd2fece450b
-posix.test.sh::006::Empty action for case is syntax error	status,stderr	ea974348031bbebb8ce5830f0773e9c4a0057e5014c43351e0a0f1b57f6fb787
-posix.test.sh::009::Bare semi-colon not allowed	status,stderr	f74d9274770c8122d4daa8fb16031d2a648a4b30f233f21659d68e0356f59f68
-posix.test.sh::013::Multiple here docs on one line	stdout	4b7c19d372848418ef807bf0d8ed6d794f64e806d4569dd14565b74c0e454ecb
-posix.test.sh::014::cat here doc; echo; cat here doc	stdout	4df9f1c3d912082ea9a89313827c8dfb21b4260ceeb1fcadef62d50d6583ae2b
-prompt.test.sh::003::special case for $	stdout	6feb18ca5aed52bf92c93a40a56e75570e4b7abfb5f8d1283364ad83d50dc406
-prompt.test.sh::005::PS1 evaluation order 2	stdout	ca9d749a6c8360a299e466d73086f897d2887975059cdafaf37d5a208224f136
-prompt.test.sh::008::\\555 is beyond max octal byte of \\377 and wrapped to m	stdout	5b694432e5cf701be564572f96966bc1bf26ecf0967f37be81e1ee3f7c9b34c5
-prompt.test.sh::027::\\j for number of jobs	stdout,stderr	51496f6791efd3516d27a94866033ad1122fb5fefa955c1fc716ae6dfb43e803
-prompt.test.sh::028::\\l for TTY device basename	stdout	109d15aa17b07e06968b6df1fd0c96f8fcd9c8cdddf97c6684e132f6aac2ec28
-prompt.test.sh::032::default PS1	stderr	20c1d3eb6587c7844b2f4182b863de524166a76714200769cc22e3a40bec3511
-quote.test.sh::020::Unterminated single quote	stderr	853bacf01c9dcd12b0ed847c34bab2374f76f9521c9f4406320ca4649e3c4bc0
-quote.test.sh::021::Unterminated double quote	stderr	853bacf01c9dcd12b0ed847c34bab2374f76f9521c9f4406320ca4649e3c4bc0
-quote.test.sh::034::\\c' is an escape, unlike bash	status,stdout,stderr	be138da924de28fb96c6125c2479695bbe1d6e4422fac14efa50741c07efa47d
-redirect-command.test.sh::003::$(< file; end) is not a special case	stdout,stderr	b9754c45f44e5a9850fb3cb510b7833d5f7ca874ff660df9604bfa1ea3c28bd4
-redirect-command.test.sh::019::Prefix redirect for loop -- not allowed	stderr	144a03482e05d016cd3ab516131a217abecd28bb533266a80a3590bf3582bd57
-redirect.test.sh::003::2&>1 (is it a redirect or is it like a&>1)	stdout	0fa8968c66a324c48811aaa05df1df5ed8f9c363c369f3f71a60ea3a4fa6df78
-regex.test.sh::010::Regex with == and not =~ is parse error, different lexer mode required	stderr	f9f9ca611ba85db4d65b75f6189540c979dbf0cb098b124ce8696072b13771bb
-regex.test.sh::012::Malformed regex	stderr	27ae9a311707e0174695c7f2d6bdacf07af69edf1372a9679b164429de201110
-regex.test.sh::017::Fatal error inside [[ =~ ]]	stdout,stderr	f0027d5e6d5c53e705d5b38e63aa7f6ce725e5a4c43356097a4fbfa384419918
-regex.test.sh::026::Bug: Nix idiom with closing ) next to pattern	status,stdout,stderr	2505859f80c28ec44df40e3c12056d118376ad0c76dff7d6db44bcb111bc4792
-regex.test.sh::029::unquoted [a  b] as pattern, [a  b|c]	stdout,stderr	8d6a5282cc1a02e4c86cdba713d7432ab1d92a4d057dd032f44035d787d369e5
-regex.test.sh::031::Operator chars ; & but not |	stdout,stderr	341c7f7fad0d01597b485c1cbf2cfbe44d24f2be286ec1bc0ad98bc47113efc2
-regex.test.sh::034::Parse error with 2 words	status,stderr	f74d9274770c8122d4daa8fb16031d2a648a4b30f233f21659d68e0356f59f68
-serialize.test.sh::004::printf %q unicode	stdout	c55bf56984e6dcda770a80cc0bc3acb4567191263b7cbb78d7f36aeef331df57
-serialize.test.sh::005::printf %q invalid unicode	stdout	3580ca55ff845688199ad72df5f332b6f2271a38a3a8ba52933866b4da6c68a3
-serialize.test.sh::008::${var@Q}	stdout	cddd3e20e634f4b1f9aac9294c59f299f61d0a761efb7fe8e285c8b4ea7c37fd
-sh-options.test.sh::003::$- with interactive shell	stderr	24a18abd9a6fb7e690a2b6b86021547d0f4d683371ea7d94950fe722571433e4
-sh-options.test.sh::009::interactive shell starts with emacs mode on	stderr	8b0449abc5a0337e06d7ec65779680f715e156ad88841545ccf7ed89ec4e59a5
-sh-options.test.sh::022::noclobber on &> >	stdout,stderr	b23cf3afbf059965c68c1fc597115ffff83d74febabf92e3fa6256127129eccd
-sh-usage.test.sh::011::--rcfile in non-interactive shell prints warnings	stdout	f6629ab9211d1ebb72fdb24ebbb9939cb3ae53ab299d2379e351901fd3874bfb
-sh-usage.test.sh::015::Set LC_ALL LC_CTYPE LC_COLLATE LANG - affects glob ?	stdout	775dca158942a5f7399b8bf1263365e9e95051b1661750ad73c6ae0b3ba4e5ee
-sh-usage.test.sh::016::LC_CTYPE=invalid	stdout	e31783aee8f185a9d82055e398c05be01b820cff9fcef34d0969a6ed8db409c3
-sh-usage.test.sh::017::sh -c -- 'echo hi' does not run anything (#2637)	stderr	38ff6681e60e27fe99e45b98e1c1d00a94a1ef8ba38879502819018956149b51
-sh-usage.test.sh::018::sh -c with multiple -- args	stderr	72a1bb800b1f23eaefa02b2366e3f934189b0d831cba0a0e6c4ddff7a971e04a
-sh-usage.test.sh::021::weird flag parsing -oo errexit noglob	status,stdout,stderr	391b1674aac0a802de0ef84dabed5a08f5cc4d461c5411b1e80fad374e6cee0e
-sh-usage.test.sh::022::'sh -c -z' does not try to run -z	stderr	c09111358856751c4194b3695a147ab12dab8efbcfe873ad12cc77590ee2b378
-shell-grammar.test.sh::023::If with then on same line missing semicolon	stderr	765a8db00eed3ddeeb3afa6ff7e1d7da0f5647cbb993e2a72a8888e3f448c95e
-shell-grammar.test.sh::030::case item without ;; is not allowed	status,stderr	b592cb28979df1767b6cc6ef4e2de061cd520a855dd335cf97ec26baa6f591dc
-shell-grammar.test.sh::035::Case all on one line without trailing ;; or ;	stderr	f999cbef1cf11207cc551c6f5e75e2a6835467dbe6c67e30c587cb5550c22f92
-shell-grammar.test.sh::036::case: Using ; instead of ;;	status,stderr	0d7352a112154da0946c1ad557211e9ef6c854c3f7febc57006a2b16d6937d0e
-tilde.test.sh::011::x=${undef-~:~}	stdout	6305c683bb366d637d74aceacdb75c1a0d7f493f828c758922f033f8b5a02e83
-toysh-posix.test.sh::007::no shebang	status,stdout,stderr	677a4672e3b04b1e0396712d9fa9e98952aeee620b725ce18468f0e1ef697931
-toysh-posix.test.sh::021::Command Sub Syntax Error	stderr	494aee0315bb93668dfca2221491cc479df61fe6740d38cc2726170fd6fb98f2
-toysh.test.sh::001::extglob $IFS 1	stdout	3e5cd4927476c2b2e16e1acf64db923e0d4d77404d705125dd35216c78fc9e41
-toysh.test.sh::002::extglob $IFS 2	stdout	71c140f3365cc47fb12f6c9865b16dd3e6c8317fb363b1c3be2808b57f5a4e0b
-unicode.test.sh::000::OSH source code doesn't have to be valid Unicode (like other shells)	stdout	6c593b9f469d7370a4926013248539450280c66d2b9f5a18983f8358b546f238
-unicode.test.sh::005::printf / echo -e do NOT check max code point at runtime	stdout	6fa6ec4bcfa61195d8051113088c6d542f429e03baaca522b98ad1b201ca9ba2
-unicode.test.sh::006::printf / echo -e do NOT check surrogates at runtime	stdout	cfe72cc74056a226246c82358d26cced268a2a075f8b129a40f238ecef16f989
-var-num.test.sh::004::$0 with -i	stderr	0bc5efc83240d5a0864fd68d1f18c038214f5fe31cfd4d0cddc228b270248202
-var-op-bash.test.sh::002::Case folding - Unicode characters	stdout	54632562b51d98bdcd45e6b62a7e8650b9407879dddc4f37227641eb4bf956a3
-var-op-bash.test.sh::019::${!A@a} and ${!A[@]@a}	status,stdout,stderr	4c078fe56795ebc5eca505fd19b661f6f8e177c6c80b53c65ae8fa85603e38d8
-var-op-bash.test.sh::020::undef vs. empty string in var ops	stdout	6799079aade3b5e0d3781c6e8deb2a0df6b712b86efa07f9a553b490c01a3e70
-var-op-bash.test.sh::021::-o nounset with var ops	stdout,stderr	7a0de72369566b054fce916b32c95cac7d27561a6b4c0e7efeda0ee2f63534da
-var-op-bash.test.sh::022::${a[0]@a} and ${a@a}	stdout	3ed6a658853afaa611c8cf0acaae1ca0f4dca0caa2adce331bec11b3950cf2c6
-var-op-bash.test.sh::023::${!r@a} with r='a[0]' (attribute for indirect expansion of an array element)	stdout	b744d7c9052cdaa102aee20609d94782bfa04bc605634c8220805b22b4b95b06
-var-op-bash.test.sh::024::Array expansion with nullary var op @Q	stdout	cc8feb1f466d1c627ea05376728aa76a060c7e4d1cb347a71fb9c34ad78da78a
-var-op-bash.test.sh::025::Array expansion with nullary var op @P	stdout	2465ace024ac062c8c5955956db5f5e477ad4dcd3bcdaf5911d6af2be9b664f2
-var-op-bash.test.sh::026::Array expansion with nullary var op @a	stdout	a69cf0b2d27d8c75b96126b07a638180ad8587682ac2dca21e5b773533b510d0
-var-op-len.test.sh::003::String length with incomplete utf-8	stdout	b63e08e188383854381435458112c8814f69103eca23f71ef95092d4eb9f5670
-var-op-len.test.sh::004::String length with invalid utf-8 continuation bytes	stdout	f80b404e68cda838e8637e55d07c9e73a86cbba30b6d33e7f84b258ccb1a8e17
-var-op-patsub.test.sh::011::Confusing unquoted slash matches bash (and ash)	stdout	7ede6807d6e65db247076e18d82b1ef1052e288f487cb7ba89efc52f9699b9e7
-var-op-patsub.test.sh::012::Synthesized ${x///} bug (similar to above)	stdout	b8b40e94f0249a12254cf2851e0eefc54943dab633b76db1ad9c8b38e3688798
-var-op-patsub.test.sh::018::Substitute one unicode character (UTF-8)	stdout	abcdf4f89f23279ef1b390dbc0814e288a28ea7fed3cb416b1625f1e5f29172e
-var-op-patsub.test.sh::023::patsub with [^]]	stdout	79c4406024133422a3b47c62fb28f6e08fcf718ea7c9f8e14f91e0216ed8eff9
-var-op-patsub.test.sh::026::Chromium from http://www.oilshell.org/blog/2016/11/07.html	stdout	9b668edb18a83e7b19b09199b35e820b27d2def3226b6f6b752a2c228b7aede2
-var-op-strip.test.sh::010::Strip unicode prefix	stdout	c39c0a3f19044ff61ae6c5311df11b0c3c33a4ca071709c6533e018b091f2256
-var-op-strip.test.sh::024::strip all unicode	stdout	ecef6b065c84978ee8e1bb5f5f86503024180bda45f93d7d1c82acb3e783d7a0
-var-op-test.test.sh::003::Unquoted with array as default value	stdout	42d7ada02b85bc4384913cb88852af7ff591096e7d3b8081338c0c0394859305
-var-op-test.test.sh::005::Assign default with array	stdout	00d360a0e19c5523a2da00c3d51645d1a078efcc3344cd8a64f4da37fcfff86f
-var-op-test.test.sh::021::$* ("" "") and - and + (IFS=)	stdout	830cd2ed198bedce7ff4fd459b0172831a5a2f0aec2a9237f2f1a5dcd2fba5e8
-var-op-test.test.sh::035::op-test for ${!array} with array="a[@]" or array="a[*]"	stdout	4ea0fedc42b5ba57704caf12980f245030c32fecff77eaa02ad8852929820c76
-var-op-test.test.sh::036::op-test for unquoted ${a[*]:-empty} with IFS=	stdout	21e76c9fc1da4b1f716a4e011ee603b857c80f46637e3ff14f29bee196c4d0ba
-var-ref.test.sh::003::comparison to ${!array[@]} keys (similar SYNTAX)	stdout,stderr	bc66712be2c348418f3febbf7dd7b3e48b97ce52aa4f3e0789ad4a4e0e9e345d
-var-ref.test.sh::004::${!a[@]-'default'} is legal but fails with more than one element	stderr	7df930fdd5ef92f8d98f02694eecbe8cdf47c73527bc4b4cf71c96184f0f9931
-var-ref.test.sh::011::Var ref, then error with ${ ? }	stderr	b32e83dfbd94e57f73898e5070b9da4d88939a1cd1fe8c3da9cbe8884178809f
-var-ref.test.sh::012::Indirect expansion, THEN suffix operators	stdout,stderr	96cb9044b26b4c4d1b0ce6ff53e30ee114604a8a5ce7b3f622498d7445e2b882
-var-ref.test.sh::019::var ref TO array with arbitrary subscripts	stdout,stderr	50281c417a44a3be0a11180d5062b46d8f84637fa692d71c3deb1b4ab51faf6a
-var-ref.test.sh::021::Indirect expansion TO fancy expansion features bash disallows	stdout,stderr	3f747768d180e33dc204b5d1e084d1c9d0500daed93f9f6d9462425b6bea2184
-var-ref.test.sh::028::Array indirect expansion with suffix operators	stdout,stderr	a0535a6cc5f8b1df0f3f5ab56b999366c487161bc2b4583f10551cdf8453d1e9
-var-ref.test.sh::030::Array indirect expansion with @? conversion	stdout	2d9972197b21160f18ae50fdd74993e45c73c2c6a7e484f8c7fdc56805d82655
-var-sub-quote.test.sh::031::Syntax error for single quote in double quote	status,stderr	79316ea1876ea0dcfa981083d110518c62c541960785578e84b07bea667db78a
-var-sub.test.sh::005::Here doc with bad "$@" delimiter	stderr	8893e4df0eccbd719c13806cb3155f3900de075b8a75f36bcfea6f0440dfba24
-vars-bash.test.sh::000::$SHELL is set to what is in /etc/passwd	stderr	401915b8ef03c802da5d86cecf36caafacda3e13ff0e26c8365e093860338a6c
-vars-special.test.sh::003::$HOME is NOT set	stderr	bec17c2bea92f4154db83a089cc5b19c022058dd53cde56cd78e1cf1734c2fce
-vars-special.test.sh::004::Vars set interactively only: $HISTFILE	stdout,stderr	f2d47b27a535d8e3e765c509141e9c48d3e3bc4eb60cd1660db95d3cf2d4d4a4
-vars-special.test.sh::007::HOSTNAME OSTYPE can be changed	stdout	91e5e06f70346dea13d759f9110acd6436651f978d62f97619a78e180f97865a
-vars-special.test.sh::017::$RANDOM	stdout	6a8e3bd17b1f744ef1f7058305a4562cc317dbee7cfdb686352734063bfd4e83
-vars-special.test.sh::037::$_ with assignments, arrays, etc.	stdout	73d555148b3cc6415f86c6edf293abc8b17a7a0b627c616b19277fc178c918a1
-whitespace.test.sh::000::Parsing shell words \\r \\v	stdout	281ae4759bccfef317ad757d3019ec993139c0b85e5f99ff40d9708930412d17
-whitespace.test.sh::001::\\r in arith expression is allowed by some shells, but not most!	stdout,stderr	2ecc56b2ec1c895556bf3d324e7f40dea50eb169e83fe1ebbcd026be8b9ab18d
-whitespace.test.sh::002::whitespace in string to integer conversion	stdout,stderr	c122be0c79db6162046d1ea15254528046726bd9205447efd4cb31e4821009ae
-whitespace.test.sh::003::\\r at end of line is not special	stdout	11fce8265cac85b06cb45d8ebcc31a98c2cd0cdc3af50f4ccd1b19ab471b9014
-word-split.test.sh::039::IFS='' with ${!prefix@} and ${!prefix*} (bug #627)	stdout	7568c19d512da165fca788a49d2b782f6bc2497419e15308c4d9cc8248f8506d
-word-split.test.sh::040::IFS='' with ${!a[@]} and ${!a[*]} (bug #627)	stdout	ac83bb595e6c03486c32fcaa4a7bb1024f06c3019192dac4ab64bcf1cbf1d6e2
-word-split.test.sh::046::4 x 3 table: (default IFS, IFS='', IFS=zx) x ( $* "$*" $@ "$@" )	stdout	3c66f5b0a5f9afe96a64e82acd3b5b2b3c08dda13407882356faddd70fbca2d0
-word-split.test.sh::047::4 x 3 table - with for loop	stdout	0b3aee34edef56c8565006b22d85d37308a7dc40a0751831dcbf38f14c69d660
-word-split.test.sh::049::IFS=x and '' and $@ (#2)	stdout	be136182ec241d276abe65d56faa4fa76636dfb936f18e35c0e6cc6776f6710c
-xtrace.test.sh::000::unset PS4	stderr	3cd0168708331fd1aca2c5d4d6bc4ed08b1e0c5b78b454b67fed3cffc8d7e359
-xtrace.test.sh::006::xtrace with whitespace, quotes, and backslash	stderr	6e1625c34ffe5ac2729933177419d9bc9ba1a968384bbf2ee1a0919fa281a9b1
-xtrace.test.sh::009::Assignments and assign builtins	stderr	46c91c203e084cb01be84365c04d72c2ad972443d55c8a0a3d30e1fb88e32ea1
-xtrace.test.sh::012::xtrace with variables in PS4	stderr	3eb8927cc3fe559b1c3234777a89e67f8a5d2b7d25108612c58c998de8798556
-xtrace.test.sh::013::PS4 with unterminated ${	stderr	842912f650acae0713319294c85239d46effefedced89d41d36826c7ecfb798e
-xtrace.test.sh::014::PS4 with unterminated $(	stderr	ccfa4115ecd939be12a5c88c8a7be455fd0483b6ac8ccf1ababe238b46b311f1
-xtrace.test.sh::015::PS4 with runtime error	stderr	5428ec29b5861b04d908d0d7d18bb58f0c31b9bbd85c4f852c20ec695463966c
-xtrace.test.sh::017::Regression: xtrace for "declare -a a+=(v)"	stderr	1d7c5cb4868e0a95b2e453e231bc7bc9f753340b4737421896c61d155849e51a
-xtrace.test.sh::018::Regression: xtrace for "a+=(v)"	stderr	8d69d20ebe34a2adbf600c833841cc6a0ad8b1e42fc4bc61b0b785832b9d9999
-ysh-builtin-private.test.sh::009::builtin sleep behaves like external sleep	stdout,stderr	29174d2287489400ffa55556a2d819fe5eb46f4c91c86096fc8885ace352d1c8
-ysh-builtin-private.test.sh::012::builtin cat	stdout	183112b66d87471bfe893eb9ee5f8fa37362d61cdf9f2b04b08e81b249c7a417
-ysh-builtin-private.test.sh::013::builtin cat usage	stdout,stderr	0fa8968c66a324c48811aaa05df1df5ed8f9c363c369f3f71a60ea3a4fa6df78
-ysh-builtin-private.test.sh::014::builtin cat non nonexistent file	stdout,stderr	0fa8968c66a324c48811aaa05df1df5ed8f9c363c369f3f71a60ea3a4fa6df78
-ysh-builtin-private.test.sh::015::builtin cat accept - for stdin	stdout	183112b66d87471bfe893eb9ee5f8fa37362d61cdf9f2b04b08e81b249c7a417
-ysh-builtin-private.test.sh::016::builtin rm: usage, removing files	stdout,stderr	700441438d61bc3f2896abc5711113dc9f9134a4d4d6451a1fb347ea2a5083da
-ysh-builtin-private.test.sh::017::builtin rm -f - ignores arguments that don't exist	stdout,stderr	f2bea8419d03f729499d3533847e2a88fbd93f595e04dae758f5b843400f1267
-ysh-builtin-private.test.sh::018::builtin rm -f - still fails when file can't be removed	stdout,stderr	9f80cee5593faf327cc037e43ca50f0bd470d5f30c2c947744bdbc7d9c339d79
-ysh-builtin-private.test.sh::020::builtin rm always fails on directories (regardless of -f)	stdout,stderr	f2bea8419d03f729499d3533847e2a88fbd93f595e04dae758f5b843400f1267
+case	fields	oracle_sha256	candidate_sha256
+alias.test.sh::020::Alias name with punctuation	status,stdout,stderr	59c14df60d5d3f157c106189c8ad4a53cdd6e7d4f6be379a78be5d536614183b	ff9cc29ef11abb5a61986e2515b253dec50467752a5a6e73e15cfebc91683d36
+alias.test.sh::021::Syntax error after expansion	stderr	73a8cfb80730aad811574653785eb797eca4f6336546a343b356ce6bcf044b28	bcb072e3cc615688536e6af7b50dc80477906f34144535bfb8190a9d80beb242
+alias.test.sh::025::Alias with a quote in the middle is a syntax error	status,stdout,stderr	7d5af73f57d9cd08b3f9fd8993d1ea6e1f7db863f4c6d594ad751f52f767889e	a27e3f429bb4351f7ba95a589a5843b19d41a5c226e632e97dc63c00e7dbbffc
+alias.test.sh::031::Alias is respected inside eval	stdout,stderr	46f18d1126fcca1dc870ba03d212e55d4cdfb67d56dc950e3c646d7c54dae953	b96c337e433f9e2d32a187ed57bb3b4b7331894b1b6fa4346497bd54e529f676
+alias.test.sh::034::alias with line continuation in the middle	stdout	58f6e0426eb1099e93399771fcee0e201c378d2b9683b207fb2f6ebb8c3fbf6f	899298df00f2352ebba83f533ec2f9a9a5cd4b80e562010516e84f416e072d8d
+alias.test.sh::045::Alias and PS4	cherub-timeout,status,stdout,stderr	5c78585562e341131a92007321a76d1d75b02a1abc63646e39082ab68fc22ba3	7146632a83a79577849798905145b6a8e35565ad36ad7fd1fd09118d49af093a
+arg-parse.test.sh::002::continue 1 extra, break, etc.	stdout	515a9582d00078dbad679daf54bd2131bc517fb8fa24a58093f9252dfa63ab59	544cd1b525f08d1008a2dc41dc4ed31faace6b29428f91b1ff8593cd0ae5fd60
+arith-context.test.sh::015::Empty expression a[]	stdout,stderr	bd52f8a63cd4287c7e3bf704feda4516ab835801d999a6fd3af13222cb642167	8a52767933bb140d5272b461a14b36da7c5d567ed27ef8d2635656fae4af1acc
+arith.test.sh::013::Integer constant validation	stdout,stderr	75a2ced3f302b1dd267060b9920ee04a90bc85e68731d2b23636ed0f08b7eeb6	f1c2665ebe5b6c27d3fc8e48b172ba026776ffb6ec6c917828428b2207136b4c
+arith.test.sh::020::Increment undefined variables with nounset	stderr	69867c5db7c9965a9bc663813254eb1588845d844a9c58b3377894489561ae8d	c2c42e2127823a4e82ae80ba48513660e2a8e0ba008d0cf4c6c6e099e3db5782
+arith.test.sh::028::No floating point	stderr	5e35860057df2f55bb751e1f82ca42304e09fc12ed8cd1a9c1d6dd4f61e6a26a	a95421bd078595586428ed2dadb56f782e8deaef75e0c9573588f3ace2a6a8a7
+arith.test.sh::049::Negative exponent	stderr	569992db975c0cf538dc062a68d61a7d687e249cf3fe820c2824aa59e99cf52c	8ebf3c20a7dc7ccb8a1aeaf087736488b0b221582b98669ef0656004afd930b3
+arith.test.sh::050::Comment not allowed in the middle of multiline arithmetic	status,stdout,stderr	b1b46accecefe0d3f6841a2fe7875811dcdddbd97b1bcdf84ff61d8e6010f43d	120325d3e517c3f087bbc0375db40933b8ab56f1f299fae59e74031bc5178fa6
+arith.test.sh::065::Invalid constant	stderr	6d1ea5378b6a502d44bd6cb7e923eaf0110f3f5a4752e4835c53dbb773acfb76	6c0ef432e17d70c1ce3c3f0d92224387c3a448d07dfd22bfa752b7031808ae86
+arith.test.sh::073::s[0] with string '12 34'	stdout,stderr	0c706d316ff4a50dd92f1da9d7bd449832994529c72ea06ef8ca7476d30584e9	7e29053f0fe4679e9886216519306eae70f044b038a45efe2d885e6d4931431e
+array-assign.test.sh::003::Multiple LHS array words	stdout	46222fae8678233867b467f4e41e2575e11e5df55469d0cf7d57b55d2f5b8aa3	862a5e168700b83b4a4b672718faccbce458bddf81fd61d7ff940a6e2c1a2cf8
+array-assign.test.sh::004::LHS array is protected with shopt -s eval_unsafe_arith, e.g. 'a[$(echo 2)]'	stdout,stderr	f875cde5f695e23592058ee8879fd82d84f5965e2c07545dc62b388fba5193d4	c3d62976851606860fe3526e285ace14cdd5c9092015310c10f347586e535b86
+array-assign.test.sh::005::file named a[ is  not executed	stderr	c98330c3b06388776bf35a2299bdd81d4f70be474e0ced8c3beb038ece554b18	ff4909f4dbdfbf0f059afa268a970db9a2980d6ab9ee19487d3abe909fe5a6dd
+array-assign.test.sh::006::More fragments like a[  a[5  a[5 +  a[5 + 3]	stdout,stderr	f5229fdb23fed5174ea311a0d67c302a224b2f830a95bcc698a4537d2074732c	7e1537ca82f20eb6740c38090929585f2200084d8b2690dc8dfef4bbb54c7d08
+array-assign.test.sh::007::Are quotes allowed?	stdout,stderr	0303ae84db23d5a4339ae6450e587d6c63f4f8998f8ba1313025b7e905248f0a	aec375ebaaf2fe1956fb8680d2d6457b8b31e0887051a6e610ebe88b9648c3a8
+array-assign.test.sh::009::argv.py a[1 + 2]=	stdout	25e84122702d015499b52f7a70f351c1a81840a111152c475b834a75de10810d	44f56a8bb673043a47fa1aaf9ad2f03c09f9e6fbc7336a9b59425d1b44b6f26a
+array-assign.test.sh::010::declare builtin doesn't allow spaces	stdout,stderr	3a679bf01b6e8be567774ea5991ef54b0732a15d6a40b38408b310ebc3748585	4d4636b7f9d1bb7d65e482cfc1dcb94e7e32855fe1b87f2bda0391f3390007c4
+array-assoc.test.sh::019::Indexed array as key of associative array coerces to string (without shopt -s strict_array)	stdout	bdbcbeb9ecc954dc0a1f2cfdfe2f10de67f8a08683a0d6064d64358624abaed1	29accdf0aac3bc70da31b8b7a24af34c00b80f0a6b73f31058c85122220ca961
+array-assoc.test.sh::021::Slice of associative array doesn't make sense in bash	stdout	18733f36fb37a9b58be1a81fd51e4c29b3e07ff6e87d78c98b286a1d99959ad2	dd7dea847037add9bd90741472aa1057d7dd46b078f2bba1560ba37d0b51eb7f
+array-assoc.test.sh::028::associative array and brace expansion	stdout	6116ec03fa120296d2e0534b99691db47a30805dedc6a1805df6938cbc670cf3	99e748c9553c92fcb55ac0b55af9b7b6c5b7f4261c63fab54f648c5e69660c9d
+array-assoc.test.sh::030::unset -v and assoc array	stdout	d2b73adc13b6328764691ada33e9b2e7ea93562844361d7a4c95751448cb92d3	8a583aebef8be6002b8394007b24eabba3634e6b4a078becc0b83ec5526ba11e
+array-assoc.test.sh::033::printf -v and assoc array	stdout	e32bbd094665e3d22d72b1d960156969e0a24cd5e0f71429e5596c24e46abcef	414143690d22d1690eb8a6558239cb9ef7ab1aa859b6c6b84da409e9fb8dc728
+array-assoc.test.sh::037::test -v with dynamic parsing	stdout	7ca9b9e91f8018c6dc62dab2cc1c8a258a9afc88bebc5039cddef6b9bc114cb0	c4fd5da9b8582e8ba22875d1a35f336277d14ff761174b9cb5dc8f4e1bdd6d63
+array-literal.test.sh::006::append to element (BashAssoc)	stdout	f213152e682c66e94b3518aac34427be27b0b33a33e95574e96500e3c9b01906	d073762a4c52d9e69c1083f6e205b781a105679bfc12152d63013a91e25bc73e
+array-literal.test.sh::007::non-index forms of element (BashAssoc)	stdout,stderr	5a5308966ff5d64af8e02a4ffcc870181ab4c0d5227604b7335bece54d309002	6c5a89f855049412e213c11a780d8248d7abf9f3d4ec321c5eecac9d52b3fadd
+array-literal.test.sh::008::Evaluation order (1)	stdout	ebc1e5f22779ec7323cf201a4337ddc18a5320ca5084b52d74c2a7b69f4cefc7	6eb4f0e6def1883bfdeaff44ffda2d7aa6cb6957149e14de2495dc0bf4ae3c63
+array-literal.test.sh::009::Evaluation order (2)	stdout	6362f37381be7235865a6d693c457f01c534620ae9022c1a2beea22b55cc2a28	9673a68c72d87457e68ab603292ce2f1401108c8171df12f7e621f36c866409a
+array-literal.test.sh::010::Evaluation order (3)	stdout	58252311c2df3b62fcf63095b9f2ed411f97f02d0126e2fefd89566721d46b12	d3c33d90b9596ac9d1c905c85de32fc4a56e8035ea550391b078e81aca254896
+array-literal.test.sh::013::[k1]=v1 looking like brace expansions (BashAssoc)	stdout	b8a687eb2c9399ae4be316134ec7ba5d22d832e4b5d39d3611b9a87ca467f8df	f5e98e420e28b4bdd18f1a418aa465ac26472b55ad197096d8f1c82c45f1e371
+array-literal.test.sh::014::[k1]=v1 looking like brace expansions (BashArray)	stdout	b8a687eb2c9399ae4be316134ec7ba5d22d832e4b5d39d3611b9a87ca467f8df	f5e98e420e28b4bdd18f1a418aa465ac26472b55ad197096d8f1c82c45f1e371
+array-literal.test.sh::015::BashArray cannot be changed to BashAssoc and vice versa	stderr	dd474ccef9c6877156a45cd8cf8666345537fd4aaa205190fef6e0d2ea4f9c70	08c1e9cc79c8c1ba5c1d6ef344c6b8dadcb5545fa4b424f9f75f070d63f1f97c
+array-literal.test.sh::017::(strict_array) declare -A s+=()	stdout	d0a9578623bea4cf0662d2ef16700d85e317e886a364324d67e604c44abfa3b6	494675f4dec7b2d99c8d0c0147690f0358b92666bd6b78ff3e61bc3355ecce1c
+array-sparse.test.sh::009::xtrace a+=()	stderr	ff52388150cd8c4f0394c2d4bd6fc753c8e10f42ce62bb23d9bb9b891b718e68	4252bd5241b5e48215967990eacdb51ad37154b1735b084861353525c3dc3cf6
+array-sparse.test.sh::013::[[ -v a[i] ]]	stdout	2ecc11eed346004ede9be260edc9485b14ec31b0e0d8c337ff51fc093c1a4f81	d01729468c0e61f566a22d9a0b735a6294e56f2561776cbf6941a149e6bc8594
+array-sparse.test.sh::014::[[ -v a[i] ]] with invalid negative index	stderr	86a124851d9f3a75d5c434f5de775a867f4670278b3aaea9df4d0b40c73ba61f	e972a8aa11e309c81bfa6d6192eb2b59ff52a325ad6aed7399f4f7f4f7ea40b3
+array-sparse.test.sh::016::((sp[i])) and ((sp[i]++)) with invalid negative index	stderr	a218c5b4b8770e019330f2518ec6cea15511b6ff078268a00c1186ed30903445	5910cd8e0e2c240604ce4559c441982d32c6e8893ab76021ce59f57bac7a0b5b
+array-sparse.test.sh::019::${a[@]:offset:length}	stdout	4ad8dfa21a8499007ca0f2e0aa284126814ebfd026d06b63a5721b87d27d1202	b0f495b1ceff7c850adc4395abbd9d0abeb96709904eff7b74c68eb7859a03d2
+array-sparse.test.sh::025::${a[@]@P}, ${a[@]@Q}, and ${a[@]@a}	stdout	b9b32899e1f5ddb5db94650e562cddb4bdc1e198a28347e45ea322f6c010c4d2	3efc7621776c1ee3f12f05c80c12ae67d24baf033f271f170780dbaa179477d4
+array-sparse.test.sh::028::${!a[0]}	status,stdout,stderr	3d2593e618966573cf95944d602464b83508d3f8c1fd79ceee3d4e7084c41d83	1f16210682d3840223cb721c477f321397a209d88dc59b8cabd6d67e80fdfe4c
+array.test.sh::003::space before ( in array initialization	stderr	68ca1530be93cb0a7700c7227ec7db7ffab431748368d454e23e2edcac285e95	a3090c7fc69dbc5fa83618a2c874a96a4100458656455f8221f8f4783c5de6f2
+array.test.sh::005::array with invalid token	status,stdout,stderr	b0314e0f765a825e4fc19403307d21fe06d991ad81fba5a17c8b25e20627dd63	ae70e13ae76a56a6ce0c5981aa9e68ed6264e6fd21ccfbacdd2bb6e2d2dc9e4b
+array.test.sh::010::Negative index and sparse array	stdout	bd527cc4662f9890bdd2e0f44614380115db7a4c34a64075d2a82bd104bfa1b8	99efaf8b0e6643c39cf676ddb0a5348eb09e0055b867cf8efc59e16ca3af7f0a
+array.test.sh::018::${!a[1]} is named ref in bash	status,stdout,stderr	6b2d322a222d5aa107b36af1c304200714739cf5bcb9460bedb80ad82f39699f	df4240db5b064bfc6d70d513d9d3b288769c04d2ab88e8910a76122876767f5a
+array.test.sh::027::Arrays can't be used as env bindings	stdout	229569c9715cf6d5577c4a30a7df55c29128477a91a44d8d9f5ee932aa2f97e5	27f2a16ac29d0bb6caca8bc0e1d845b20f53c07bdda93f7b25f9593a2bcb9b4f
+array.test.sh::028::Associative arrays can't be used as env bindings either	stdout	e003b6ea2409b0e0b592e829c6919973d51218013ac8c02d22a4fde7903d26ec	27f2a16ac29d0bb6caca8bc0e1d845b20f53c07bdda93f7b25f9593a2bcb9b4f
+array.test.sh::042::Array syntax in wrong place	stderr	8487222ea79e10936d94eaa170d4eac1e84e72d0b5223c796d959792725116ad	493b4e0361a94f25152491f1c260eda1f935acaec41c4dbea91c562960ff6fce
+array.test.sh::067::test -v a[i] with arith expressions	stdout	edfb0693e481a532cc8402edb2922226f00805f1ed81d20c5320ca7c1c76e950	d2b1c46505863f896d6ae594e9c9106dd65a0c8b8545a0fa2eef0e16b445a626
+array.test.sh::070::Regression: Negative index in [[ -v a[index] ]]	status,stdout	cf99c8d73d37f8bb026ffddd3eb8f0be3f610e293d263a087ffd3002e13b8c01	8986992f2bf0a4419273fa1b2d866c69e397d9b9e2ebedd08c2cc21075fbece9
+array.test.sh::071::Regression: Negative out-of-range index in [[ -v a[index] ]]	stderr	79511e474b2571cc315d79606c36b86eb228763a5c9815f40bfda4ea65957f3f	8986992f2bf0a4419273fa1b2d866c69e397d9b9e2ebedd08c2cc21075fbece9
+array.test.sh::074::Regression: Out-of-bound negative offset for ${a[@]:offset}	stdout	7c5e00c0e7ea5e003843bf9399a0e911123faa2a223134ab625ca025f5ad6e61	3c2b896ac8bc0b0a43515d1a6e2b0ae50f62e22bd4a9c8be2c2389a7bc58ae4d
+array.test.sh::077::Regression: silent out-of-bound negative index in ${a[-2]} and $((a[-2]))	stderr	85197b50cecfc61ea5eb6f7b720e639ff893a02f9c630cdc6779708fca8f5785	b01d61f935162776d89ec66bb3eb85f7e2ce2ef23f96b32f801ff28a8df35bec
+assign-deferred.test.sh::003::readonly a[7]=8	stderr	a81c963c70f0ce2d53068a9d5ffd925899a26e7eff35f51a117a308d085ce764	d2ab858eb330141d2ae32cfe22c2e2d5e663485ab06251a1c6d13fa07e9dc40c
+assign-deferred.test.sh::004::export a[7]=8	stderr	c8d9af5be8cb29d29d10ec109df0ff4e089e6c888bebef507d46d92a0ee0eb31	4c456d1d49dc025edccffca38f09b679b144bdce422fb862d058648b98560711
+assign-deferred.test.sh::007::is 'builtin' prefix and array allowed?  OSH is smarter	stderr	9df3ddeb7094b59460b4575d0b4c4cb6ffba46c40babc7ee71ae11385c867030	17b4936e235ae0d34014464d81ae83c20e563f1917408b313cffb62947a23d48
+assign-deferred.test.sh::008::is 'command' prefix and array allowed?  OSH is smarter	stderr	c970852a49d6354d580f13af2b771da1e66261775e463790d123a117e9624ac4	6d34a416b27d08efb71446e5bd59fd2152c39da5516241d22bdd3b66d7bf9450
+assign-dialects.test.sh::002::test -v with arrays	stdout	13c1440be178c090aba1ba56316aa79caffc02c83da489ed444a681bf6128e39	e856fc16ccbd25329d4e9016050dfde25b808e93b31f4ddc6356363008609044
+assign-dialects.test.sh::003::test -v with assoc arrays	stdout	06c6b4e2b0dadf1d1cf2aa402b6a3022ed7bea049a6307c42616f2497f1a2887	59e1abaf778eee878eccb3dba1f17acd05a4d0889bf5ed44282945aa3b1e4a1a
+assign-extended.test.sh::010::declare -p var	stdout	d3ecbf45acc519c987bea970bb3e5a193e56c3cfea25e10056bffe54726d42fc	1addb15cdf7d30e8fea330f1155084c69fb21226e9b35ad6ada1d5366114c9e2
+assign-extended.test.sh::015::declare -pnrx var	stdout,stderr	6b3825b69229dacb7e1473c075da593bd2cb1918cc546b89545b330196748059	2661c90fda4a2140e8bba916dbc69e2c259e24552318d58ff19661783a3c2cd1
+assign-extended.test.sh::031::myvar=typeset (another form of dynamic assignment)	stdout	c33c9a1451a60a235e55dc01a68e5c7b1acd33f3f71ececac122b71a22aecfa4	3ecf570f3b070af95d6ea6aa0aa829e23bd7cb11b7e0d8d627a55775228d7afc
+assign.test.sh::009::Env binding not allowed before compound command	stderr	90ef5f19ca9c60774eb4d98878871336a8c5b9755b8be6db6d6221f76f626694	13da92cccdeb713876f719df1814727d6e62a26669fea14a9598fe72596d87e5
+assign.test.sh::014::Env binding in readonly/declare is NOT exported!  (pitfall)	stdout,stderr	605119c767441370a045ecb7eaf6fb9db80236c103cc4b731d5dee93d38fcc97	4270c724e6230ce5219eb355fd518a0c57d5b831b15d7b5daa6745b2436e25ac
+assign.test.sh::025::Test above without 'local' (which is not POSIX)	stdout	93f3b3267b1df05f539b72075ae8b78da1b88518c8b50509800c983ef1f56138	c38d07a7356b5ef9bf1f51e3a2afe639834087b5125c73f738cec9a9b3a13aaf
+assign.test.sh::030::assignment using dynamic keyword (splits in most shells, not in zsh/osh)	stdout	60f980ed347f862ca258796741d799cc80715ae22acbae84ec315441eb2a337e	9db17a992fad837dcd6b54f82a858eebe438de76c3297072e3e667114dfe0546
+assign.test.sh::045::"declare -a arr" and "readonly -a a" creates an empty array (OSH)	stdout	a275b085e526298281c84b7bbec2b4fba519be1acd7e39c9b238b84343456be6	f1a487772b5e40c8f3e3f214d2e831a226188e92a9c19c2729dc8bfca2f0f1b8
+assign.test.sh::047::readonly array should not be modified by a+=(1)	stderr	156d22a14233278e3314a0b729159b032af7e660e621b55e69ce832d85178848	35346a3ce3c449ce3aebcba7203798d523b37041bd9c5cc04e7c43085f890bab
+background.test.sh::001::wait -n with arguments - arguments are respected	stdout	7eb83f78768780fed90bff2b658f3311e491129a623a3d8a76726514ef7964ba	79ef6841623c73e617b1d7507e0e1cb0aecef187f1fc85346dd45cd244e22b3f
+background.test.sh::005::wait with invalid arg	status	6b0dcbf7902a692e3414f0dacda3c2371735993ff8ad60bc3e4158b55b88460c	c5fdcf4fd0f39fe075654dcb3b1240df83669e85bb713427eab7c455e84d11d8
+background.test.sh::026::Signal message for killed background job	status,stdout	f2c0faf7dff195f9617445e5275330fb97d1ef9cb06bd92f08087aa5efe2e350	576da6645bcc08658ca9c5819f72898e1e96ec596e6a04514c721e1a452c55e4
+ble-features.test.sh::001::[bash_unset] local-unset / dynamic-unset for localvar (mutated from tempenv)	stdout	bcf56ded964d9ea53b3de8d4f93d186fb76bbc30cbdd9ecd3c234d02219a2cf2	ccd061c90b3648a4f2a3b429d100c9bb5a3a26500a0e4547c45198e5e8ac7403
+ble-features.test.sh::002::[bash_unset] local-unset / dynamic-unset for tempenv	stdout	a0daa5d27e06617f96f33c83ade2286e7a54812eb81c7157111b353716ae65f3	ae29f16039130748d546153e10a63ebc44466b980020a50332d39da7c62f071e
+ble-features.test.sh::003::[bash_unset] function call with tempenv vs tempenv-eval	stdout	ebe5146461d6900b605cc812daa81809b3ec6c851ecf57ed89420c437bfaa2e4	b5e0cab48ea0fac5324ab8072f79814def50eac302897999869ba8986d9e01a0
+ble-features.test.sh::004::[bash_unset] localvar-inherit from tempenv	stdout	36900ed983628eb7f5a82b621fdee261dc0c047803d0c31e342472e47684bcb0	b00b2f0ab95caf2578f15d6ba05a84a9b8d2d42f23e0bcb8ba09d274873523fe
+ble-idioms.test.sh::005::recursive arith: recursion	status,stdout,stderr	4d85a57e37354578b89f851cc59100cbdfbec9b137c5a7be4d3f43084e5461ec	1ff1ac302dbd061a4b41e349972086f03fd88fe91e22706bdb85911ddc96886c
+ble-idioms.test.sh::010::is-array with ${var@a}	status,stdout,stderr	77a0186fda05450c46feae0a99e94417d638c5ff64d92238a564536426e1ce17	7123ba1135ce0452196cb04ec61e584b6c8b79b292e31d949e657b34d579bb57
+ble-unset.test.sh::001::[bash_unset] local-unset / dynamic-unset for localvar on nested-context	stdout	7897fc6c68473dfc961c236497264e5f89dc209c4e5e54f6bc28d3219f863a37	ecbe2fd9c3df23993051ec457855c9584d527fe69208bb62a202bb126ad19088
+ble-unset.test.sh::002::[bash_unset] dynamic-unset for nested localvars	stdout	d5f3def5c1b0a5c0b79717be5e44f2d51b0fc7fcdcedb023eaf6dc0da2ec0704	b58e93a28434ccb2a71773e98f48244b12d00faa1f7a0f7bfa3805f2466c0622
+ble-unset.test.sh::003::[bash_unset] dynamic-unset for nested tempenvs	stdout	34334d9f1567fb2f1a0fdbd428ead05d63c7c1242d8f50939a324ccb92bf3300	0a0d97e5decfe5b14ac59b639c97b5eaa89417f7a286dad4be71da87e7a3feeb
+ble-unset.test.sh::004::[bash_unset] local-unset for nested tempenvs	stdout	e91e7f6af140893a18cd51f606f9c663352a2a849f816ae55f2a8928fb495de6	3b341b43b4d7df13832ded4a3c69d6063dd3c0b6fb0618eb7b0b910fa265eedc
+blog-other1.test.sh::001::Blog Post Example Fix	stdout	f74d9274770c8122d4daa8fb16031d2a648a4b30f233f21659d68e0356f59f68	d0d9d9160289b250a84f637d1e37323d81888eb11ff1ab2d2e75fa8143ba5551
+blog-other1.test.sh::002::Rewrite of Blog Post Example	stdout	f74d9274770c8122d4daa8fb16031d2a648a4b30f233f21659d68e0356f59f68	d0d9d9160289b250a84f637d1e37323d81888eb11ff1ab2d2e75fa8143ba5551
+blog1.test.sh::001::${###}	status,stdout,stderr	ae967da2acc89ebab81f77ba9502e437e06c018363fd50db7606f5ed9f75a1bb	29bac2262ec955689e10102a757f68f30fedcfb304b613eee6bbc26c1fa49268
+blog1.test.sh::002::${####}	status,stdout,stderr	ae967da2acc89ebab81f77ba9502e437e06c018363fd50db7606f5ed9f75a1bb	48cf100c5f523cfb592b66abb1a9e14ca3220e8c48e7e65073a3b483a91a0d05
+blog1.test.sh::003::${##2}	status,stdout,stderr	1c2e7bbaa9c0cf545ab7efce90b4a8bf51a2568d5f4b66dde8f43e5a0d628cd4	59971b6823e76dda4feff7b821b026abcb0014ee04c1ece07bfd8a220e47ce5f
+blog1.test.sh::004::${###2}	status,stdout,stderr	1c2e7bbaa9c0cf545ab7efce90b4a8bf51a2568d5f4b66dde8f43e5a0d628cd4	2603137854945369eda1ee8a030cedc0cce7d868a5649d9981424570249b99b7
+bool-parse.test.sh::000::test builtin - Unexpected trailing word '--' (#2409)	stdout,stderr	a82e97f3c4d5e6e73e46c30b12dc64af6de3f54cf3078855594e2c2e8ed3fe99	5549db0f2beacc7861d80582164991a945450f96347628afec9d23618b363ad2
+bool-parse.test.sh::004::Not allowed: [[ ) ]] and [[ ( ]]	stdout,stderr	81e2abfebc5044507556ef62f13d7adc28ad9a3f043556a592174bcdb12a16d0	e191dac250b8dd6ca700fbf856d3b0e6faf0f33f639379cf90455ebb580908b5
+brace-expansion.test.sh::020::Empty alternative	stdout	0533a2acfaaba7c55f1335d75e2878a1ee5e94b3f326936c0df9cc6b0aa8a7ec	740db871d6ea4ed7f17c545dbd602988d287b51fe46e398cd9d03413cb3350f9
+brace-expansion.test.sh::025::expansion on RHS of assignment	stdout	7a4a5768a114dde8b1d381f594563fcc94e32a651b8bc742e483e5f294256778	3513eaa85bfa5881ae546c3bb8d7f42020e689012dfb3ca2748dfe2bb22be50a
+brace-expansion.test.sh::026::no expansion with RHS assignment	status,stderr	befc5242804162fcf687e5ea8c8bc2dcd19e14eefef6a2790346960e660e3df6	be13019b175f3611d5d3dc1969d15139558d25a7fd01fbae0e223e4381b6f1de
+brace-expansion.test.sh::042::Mixed case char expansion is invalid	stderr	ed292c529c08da586904c5cc3bdb27c3ecf4fa25f1454704a8a04acacbecd2e6	5c85cb9489efc7afe797b95c7068f572e177728ddbc71f65514846fef0dcb9af
+bugs.test.sh::008::First word like foo$x() and foo$[1+2] (regression)	stderr	7821526c151f5212d4335c827d283ab43547a38deee878f150b0994b2389cd62	6038f56e81041d026d6865f625e026314721f5490bcbddb2dff84712ab88cbaa
+bugs.test.sh::009::Function names	stderr	09964518c50d4af1ff90a59cbaf6264eb362cb3200f89f365bdbc36f2fa5e536	40639ba13b08004d1ab5eda7646767ca2246ea88d0ec03c5b34b844d7e74d91c
+bugs.test.sh::012::'echo' and printf fail on writing to full disk	stdout,stderr	d19f5e8e09dc726aaaada0a6744ee16567d68b9a79c5abb883be9ffe804754bf	9dad070015b9e0928fc4998157473468d38705c0661fcf146274f20601bd468b
+bugs.test.sh::013::other builtins fail on writing to full disk	status,stdout,stderr	29aacab24cdffea17d9529f7272ca6fd75ffbffebd49356be6fbe5ce9f237acd	350cf141a91bfb4352806ae5b17ecb27d5f4d0639e442850efc74b3e6e07b43a
+bugs.test.sh::021::unset doesn't allow command execution	stdout,stderr	f7d23678cfeef38b29bcd27a545095b24ef4325967f8cb53336d39f6dc304878	324b218685adba85dea8a0cdac040d8c8c2816b6519709defc88bb64fbff1edd
+bugs.test.sh::026::Crash in {1..10} - issue #2296	status,stderr	b4c73db70743ce199436005c0186f09c5e735871d00245dd80aea141266f27ac	adf3bb8485f33431976f08a2ee9d600a210627eddbcabe815258ecce09f6aad5
+builtin-bash.test.sh::000::help	stdout	f1943e61a9d92f607cf8343c7a90aaaf74f40a1dc4e0007ca0bd2eae75182359	ca8522771bb7f7c6ca25ad6bd42f5dc2ff7b4bba673549979a824d8954545c0a
+builtin-bind.test.sh::000::bind -l should report readline functions	stderr	abed01049c8189ed59c1f938b2262fd0fbbb401996aae8a9e991b8dcc6136723	03e52694105f34d40b350640325bfbabe68618ed261603a7a1c1bedef07d7700
+builtin-bind.test.sh::001::bind -p -P to print function names and key bindings	status,stdout,stderr	fab230e8472eb67bd6d5b9150428d33cb5cadb7a29cbcf87103830b3ccb4b04b	34174bcbe6521000a52ade6e5f88749add51fa1dcfbda36e4ee5b9e020e1b7d2
+builtin-bind.test.sh::002::bind -s -S accepted	stderr	105022642542149ae16f720a144d1ec8c04135f96d9f4ef6b650bf76dccd8e15	f74d9274770c8122d4daa8fb16031d2a648a4b30f233f21659d68e0356f59f68
+builtin-bind.test.sh::003::bind -v -V accepted	stdout,stderr	685abffa69c73cf812852bceb07a3499fcba1c2a4bf0f6ef6ae7375ad167fbc9	3c84ac097d4a66b05fa260c6da017ed5df13c636ce293d976c5c2a100987c8d9
+builtin-bind.test.sh::004::bind -q	stdout,stderr	782935cb8f38fc003004df2c352fad8d7f9d7446e1d7f2bb9aef27498e850383	61d55a113366536b8f27caa28c364f2e3b59b5fd3d0ce5a67c7cd06668c6b8bc
+builtin-bind.test.sh::005::bind -X	stderr	7a6094b007b6614e09cd2184a6f3b494b0f85071fa5138779dc2f0bf633837df	ccb6dea014f73fdb8a4bfb5284efc5632b7299e67b1d960fb3438dd74ab802b9
+builtin-bind.test.sh::006::bind -m with bind -x/-X	stderr	388aaf66dbe4c0f85c19dcc6844a9cd50cec0e3264961c9d6be4e10e27ade19a	e6fd7ff3e33cbd447bf43290bd82ac07e2f143b77e844085b99cb9c65d07f292
+builtin-bind.test.sh::007::bind -r	stderr	3bcc2d9ef6e1b5de8ae2aada30b9edd46069693315e088b1f266b1b155d4f3c2	4e86244bc58bbd3aa742ad80192c8373f78a8cbf47ece532397a59ae3ed2440c
+builtin-bind.test.sh::008::bind -r of bind -x commands	stderr	3bcc2d9ef6e1b5de8ae2aada30b9edd46069693315e088b1f266b1b155d4f3c2	4e86244bc58bbd3aa742ad80192c8373f78a8cbf47ece532397a59ae3ed2440c
+builtin-bracket.test.sh::042::Overflow error	stdout,stderr	ca9d749a6c8360a299e466d73086f897d2887975059cdafaf37d5a208224f136	bb57b2872d68dba30560749224c6dcc30023a5c8e9a29d8c55fe6266e673f01c
+builtin-bracket.test.sh::050::Looks like octal, but digit is too big	stderr	699095735e634b59ef10e6c70a0f6a8c5b690cba1eacccc61e1160a0cac85d09	117388e92c4240ae2b648a8952016d14a9425011a723e3656cfa3762068fbe6d
+builtin-cd.test.sh::001::cd BAD/..	stdout,stderr	69f8fea3dbf23c471424652fcaf119b0cdecef00392eadd50b8dfcfb71008198	0fa8968c66a324c48811aaa05df1df5ed8f9c363c369f3f71a60ea3a4fa6df78
+builtin-cd.test.sh::003::cd with 2 or more args is allowed (strict_arg_parse disabled)	status	977a760de143760dac25ac9af58e22fbc0535caafe2bf640b7e4a0a797ca7217	880dda24b2b8f52ac9c5e45cea669c45be56aceabe692e6549b58b85d84f56ae
+builtin-cd.test.sh::014::pwd in symlinked dir on shell initialization	stdout	4d840d436d8a71f24cd6af4d992e085cc5d59d7b551aa67265adb67b7c46faa5	030881de9db4de3fdaf1a2d98fc93cc2073fcc1f962a275ab9d36cd091a190ee
+builtin-completion.test.sh::004::-A function prints functions	stdout	2b158b94141c81f75c3eae590f508054ae8e7279f2dbc4d0066b326529daf517	a61b8759afdfcbd7337a6df98982735cca14119229cd65737cc20894acacbe3d
+builtin-completion.test.sh::027::compgen -A command completes functions and aliases	stdout	11788b02bde8706aeaa99fcd7317029b08a140e2c4b1746415d045d9d8178939	7442896901c5f10cb35f5738653232040c36becc87eef03d5c62441e8365b4c3
+builtin-completion.test.sh::035::compgen doesn't respect -X for user-defined functions	stderr	df527152adc05796fc7f91917ba1ed4fedfb386697fb8793be64b24731e351fb	90051503523490c1dd1c787726da7a9cb2996074a5a01aad971f18a92224881c
+builtin-completion.test.sh::036::compgen -W words -X filter	stderr	682cfc6575874bb2d6b2ac82de5290cb50b3360dcd53af46f4e57e07199bc807	757ffd96326ddf05d21647a813d3604b129660f7996d80d36541ee5520de6173
+builtin-completion.test.sh::037::compgen -f -X filter -- $cur	stdout,stderr	5038aca8bbb6b10eea037652fe75b7bcd8333159c1d2e3725439e57c1fe7b5ad	df687e447e0915290c23dbda89a8a397372e249c9d760be45e13f58bcf9491c2
+builtin-completion.test.sh::041::compgen -W uses IFS, and delimiters are escaped with \\	stdout	3b2aca151f4c31879a05b4ac5efc4a0215b87719d2790c5c7843a5823721eb58	1e8cc2bd1b1b7d7ad475cbc3f509da2177a00c2cde6cb03ed3738c753bfb4c38
+builtin-completion.test.sh::042::Parse errors for compgen -W and complete -W	stdout,stderr	eed54890ab36a5df1919aea1fc4f6464e81e373e658d515fc0434aff42e92184	cf59235865918d5d05c69b7aa595a3b616886d705dbdb9e6d881c3b8dfcbe82c
+builtin-completion.test.sh::043::Runtime errors for compgen -W	stdout,stderr	9a66e1a45758c72c5dec2037bdd2bff569ae458aee776eb91ae1e5b3dd94c140	ef56b9e56dffa9ecad5c70190ff570acd661a61b46bd5ea7168722bdb354adb3
+builtin-completion.test.sh::044::Runtime errors for compgen -F func	stdout	7e979548700ccf08f97ae37d50454c90fee71c6a729762878b972ce64f0b4f89	a42d5b250139ecc15a7f369ee1f6834d37e4ec8196edf419d6930b1875792a60
+builtin-completion.test.sh::050::compgen -F with scalar COMPREPLY	status,stdout	ab96526a424cd15b9be048dcaf966ebd8277a715b5036b6659c153269fe03328	4934c8e42c09770bef91681d25dd723ca4a0354581b114e72dc000ec07ac5e17
+builtin-dirs.test.sh::000::pushd/popd	stdout	333e24c6760b8ea7578c09564ee1e8db8649025052c7b5ba251479b4bf492e8e	37d6c130119a69f3ab7f87e5a0c09db6b55a066faa409d49f6afc482a9aaa9d2
+builtin-dirs.test.sh::011::dirs test converting true home directory to tilde	stdout	84688cc3e279b9df54ebe49752bfb56f9b09750ccd74ab71adf7f6788181026d	08319dd4ab5abf0884b20bb89b0c662a902e92fd0ab39ae93bc48d714dc06fd4
+builtin-dirs.test.sh::014::dirs test of path alias `..`	stdout	a1c8e6836cdd2c0bf53224817b073745e400235ffb2ce2eb691daa92aa23ef68	dee5f7443cd369b35dfa9c4ac0abff1a0cde7f2eae3d0042e92c928e7b540dee
+builtin-dirs.test.sh::015::dirs test of path alias `.`	stdout	80e3ecd5a5bedf800c6278e4d37a23224904136801ae745262cb69b43950e7f5	26b2dde59a9b40bcf082f5fd40e6d6b21e7be73842144409934cbcd7f16e980f
+builtin-dirs.test.sh::016::pushd does not take more than one argument	stdout,stderr	49e2ba7b554f3fd9ad703b32d4d771ae58d3a8a9125bbc2e161546502ec38e5f	f74d9274770c8122d4daa8fb16031d2a648a4b30f233f21659d68e0356f59f68
+builtin-echo.test.sh::003::echo builtin should disallow typed args - literal	stderr	9aa34038b4914b31850d0e43b56fab4294b7be4962b85f2c6ceae2e3aefcd4a1	58d2a306eae53b42afc7dea0e23d1476d443358a69b2b4950b883c96b0f8b68c
+builtin-echo.test.sh::004::echo builtin should disallow typed args - variable	stderr	68e62b6729d41143f3f4ca77165a5805aa78917639c0e2c3d4b54a82547cb2c5	4953fe85d67c109fa5ff452eb85c44760a3ec60ea6f65174af9916cbbd37c0f4
+builtin-eval-source.test.sh::008::source accepts/ignores --	status,stdout,stderr	95df688650320b885c0b4fc07ad17fc891d9ed8cbba4fedc919817d08c105ccf	deb6df1c0f1a4c63fe2fce640de99d0a1e3febe77761fe3957e60e79e1de1780
+builtin-eval-source.test.sh::012::Source from a function, mutating argv and defining a local var	stdout	d866e946d8cc21645a1c448fdbcc55c6b6d4245b9c919188203f5315fb1a4d94	ee527077d3924e96484ad94b0e4a680b3fde25a898d695ac9c1dada82478d4ef
+builtin-eval-source.test.sh::013::Source with syntax error	stderr	959d012c305b498a4b6d494c343d5d3d0183f3771dd9fa79d9f1c73d0d1dd2e7	a6484b2ccacd6d0ec4d5a1b59dd40fd01103311627b2aa482ad02f9f48894712
+builtin-eval-source.test.sh::014::Eval with syntax error	stderr	c9449dae723a127cd8117a388e8972c756865cc811441521f8be0a570e0ecbb6	280025d5024897bcacba4b12d93034a8b4f70d58b07293ecb7a23a9a0921e1d4
+builtin-fc.test.sh::000::fc -l lists history commands	stderr	8c31b3ee5a8b050476961d0f0443426fbba6a1238fe9d1f19938e52466d843a9	12e5fc94282a76e470d8f3e269b3eeb87c7e22c6333f70d4b0d9c415d94b8b34
+builtin-fc.test.sh::001::fc -ln lists history commands without numbers	stderr	4b0ea6e58283075af9975147041625f62ebafa6269d2ce9e65f8ca8e63563f41	9d8c2d50fbdcd6197eac53dbe496594101f0ffbbfa734f9a4b4db3aa3512006d
+builtin-fc.test.sh::002::fc -lr lists history commands in reverse order	stderr	8320e240d38f6172fc1cede9665a6b36dad70771f5135952d7dde2360cb4e4b8	ed628149199316c376362c04ad4cc2adfd69415daceaa23389fbe8c1e8125942
+builtin-fc.test.sh::003::fc -lnr lists history commands without numbers in reverse order	stderr	1d5563ed00460cc76a4e41007aaf56c532008b9072826e6f8bca794949e96683	bb52b64807b5c960513fde7a68dc0f7fce2dc13cca5627ef5091990455cf7c2b
+builtin-fc.test.sh::004::fc -l lists history commands with default page size	stderr	583d043f40f06b5961271b2097b159ed7d5f2762dd47eff9928d4eb40d3ad0c0	9520c571d07a514b4872cfb15525cc51e7a7ef8fbab24e0d07c81e90e01bbae1
+builtin-fc.test.sh::005::fc -l [first] where first is an index	stderr	0310ebf8e143105fd91699f5bd29b74b1fa332d417d24594c1635135905f4e38	6dbcecc0a8473e50b1748b77fdee4c2fd5827905b2a12a20560556610dffb7c9
+builtin-fc.test.sh::006::fc -l [first] where first is an offset from current command	stderr	a40f8fe79d23341e33cf3b83bd9e7a66ccb6a56f4c93a51b335770d0287ddbd0	bb67417b7371a600c6be52c43ea53e0ac271388062de9be0b3fd4606b69fa45e
+builtin-fc.test.sh::007::fc -l [first] [last] where first and last are indexes	stderr	e4ef53203561020f7c28cb30a2971a3317293b794cc08327733bf25063e84aea	cf695a67f3efb97081dc6f8f320618ff4c9134182f9abc4d276a8616f071788e
+builtin-fc.test.sh::008::fc -l [first] [last] where first and last are offsets from current command	stderr	bb93277c98b66e777d52aab011026e38c91e8462eb4ee85941b5e0e754ba81b9	8e74113857757872d4573c9d7346936427fce14524753c719a27db0aeb881e1c
+builtin-fc.test.sh::009::fc -l [first] [last] where first and last are reversed indexes	stdout,stderr	fb2c7a3611e60953b68b0c0413c7db5183f002d1d26673a47d3f7672a0b3b39f	6911ae47797a1db468229c00de9965c8630582526724d55eb94d9f191c7607f4
+builtin-fc.test.sh::010::fc -lr [first] [last] where first and last are reversed indexes does not undo reverse	stderr	abd440da54ac5fb5d3f5ac47aeb4d2435988fa2a4637b02e188ac46115d11ed5	963337b79d2c8459d6787a4fc0022eab32fc214574f8e9ece82508eb509f33a5
+builtin-getopts.test.sh::006::getopts with invalid variable name	stdout	85ec8fed70a0dff132ad5cfe6d6d0fb5f19d1c920159a6dece7921365f9bf3bf	15f1d5900e0bc268572b779a27e564e84c05ac9fc3c5ed3422746ab41fef42dd
+builtin-history.test.sh::000::history -a	stderr	19a8c6399c1b840fccc8af06133da5e622324c94a14885e61fc6361c152b3982	7483df500bed0bf12245e3de86792771857df8a6fc06bb91af73c2c3e9f002d7
+builtin-history.test.sh::003::history -n reads *new* commands from the history file, and appends them to the current history	stdout	6dbd4bed03c1837fa5612156ccf50cbcb34a62e0511dd1c4b9dd3f49749c6438	1457bd57baa40488c044727607d71299d178d144c266ae1728bfb236ae3096ba
+builtin-history.test.sh::004::history -c clears in-memory history	stderr	d72b659a2aa91316d144771a2703c1db928125f571eabf6a1c060a23a1e93ad4	cb0463ba0f663cc365fce2489f4de9478edc9137f3ce7710c7019103d1dcffec
+builtin-history.test.sh::006::history -d to delete history from end	stderr	0dd55c71d35522516f4544c2c9f2ca5882ae82fb7c51e4a733bdcce093ecc373	d3368f398e999e0eceaad59cd98cf327bc64c4bd5ba907295fb764bd0daa5589
+builtin-history.test.sh::007::HISTFILE is defined initially	stderr	d1adfc77939cc2bf576e4499ce0bae486113ff57e9d7fb34aeb29359fb7b4d81	8a54f6187d5fa7fa7bfa64bb284b957dff1714db35dc7861d9dae6112019069c
+builtin-history.test.sh::008::HISTFILE must point to a file	stdout,stderr	a2c5c118c1db8887f8aa4f42f38b7d9dd5eae261ba07f5fe792ac5ee00462f6e	1d2c86ddd834bee9ccc033cd3695548e2a9c9b35d64a1ffe6c5fc19ed37af8c3
+builtin-history.test.sh::009::HISTFILE set to array	stderr	1ee51127535427413ebeb29f11ce1a1f3c292628b82e51018043663f4a292000	e6961975ba223df6d1d5aa762025e9f959c0319742c2eb0197a70602442219a8
+builtin-history.test.sh::010::HISTFILE unset	stderr	43c72ec01721e956d875ed38a0fd15961788a50b26f3c318bc97d7a9b63dd8ab	1d4c455dbd140876d0c1b90748e43c06b4f6a0b7017fb1c0b2d3e46236c53277
+builtin-history.test.sh::013::HISTFILESIZE shrinks the history file when changed	stdout	1c2e7bbaa9c0cf545ab7efce90b4a8bf51a2568d5f4b66dde8f43e5a0d628cd4	b45d75f17c0b24925f591be207c4a7276077165baa0b137346f98b009a2d7954
+builtin-history.test.sh::014::recording history can be toggled with set -o/+o history	stdout,stderr	3b165acf14c1e628a8d45882a9336751473d389ca3290181155a2542bb0829a2	6ba8c05533157c5adeeb65662a9e55e1e2d38d5c148580fac935b02e056d6ec3
+builtin-history.test.sh::016::shopt histappend - osh ignores shopt and appends, bash sometimes overwrites	stderr	5049d68b990f24b3ab51b23d5449edf557980dba0898cf7258e5d7e032e908f6	f5f15504212c5c2f5eace727aca831e24297f0cc0cda731919f6a82d00ebc8ff
+builtin-kill.test.sh::001::kill -KILL kills the process with SIGKILL	stderr	2430fefdd4e4e2cfbc98a8a570eb94716257779e595abfe831377942109d7c9d	0d69599fab3f19652b8e9e14565b6ae7acaed3df6a54da4384ec990a83ac75c4
+builtin-kill.test.sh::002::kill -n 9 specifies the signal number	stderr	variable	0d69599fab3f19652b8e9e14565b6ae7acaed3df6a54da4384ec990a83ac75c4
+builtin-kill.test.sh::009::kill -L checks for invalid input	stdout	fa5d4510dfe45e1c7f5aa1e238639e812f6db96c4c9798768f1317d1e7d6a308	6c46dc0a405a11edc898c01a7d9119430752d0097f09d66b6cb5ec0fb3bdcc47
+builtin-kill.test.sh::012::kill -l 0 returns EXIT	status,stdout,stderr	d37d512f85101fb1b47c58919475bcd9b87a58d46b5f1ead94b10001af17f89c	2d70d72794498e7dc01b285e3347a2c486c3030a36c2644eed6b2fd26ecb80aa
+builtin-kill.test.sh::013::kill -l 0 INT lists both signals	status,stdout,stderr	5c9394b2fcc817db9ee3c2cdccfb75ebd0985b02479ffa60656e7ef6f1641ee7	2d70d72794498e7dc01b285e3347a2c486c3030a36c2644eed6b2fd26ecb80aa
+builtin-kill.test.sh::014::kill -9999 is an invalid signal	stderr	e6c74e357c1b588e521d1a75a32485134fe3e4942069e3428efd94932ad836fa	2b55cff688d4de84be0ef4ed8af9b8f27ad293e034e6df84e4b96563ecd9ee27
+builtin-kill.test.sh::019::Numeric signal out of range - OSH may send it anyway	stderr	e6c74e357c1b588e521d1a75a32485134fe3e4942069e3428efd94932ad836fa	2b55cff688d4de84be0ef4ed8af9b8f27ad293e034e6df84e4b96563ecd9ee27
+builtin-meta.test.sh::002::command -v with multiple names	stdout	28f9d85dcd34ad6d1a50f211497618ffd97ea82e7ebb77344a39ca68371d1444	af3edde63b8e0c8fdcb57125998ac8cecc3f30b5032abf8eefc4ff957b89f76b
+builtin-misc.test.sh::000::history builtin usage	stdout,stderr	3ba8655930e27aaedb8da81bb57636161c02e5c495f9bf42b8601040b0900967	19fae3a90e8d4879cc35917b38ec2d1b9619bae8c9d7142f108137260ab47a37
+builtin-misc.test.sh::003::time pipeline	stderr	variable	9297a32d693875a23adcef29fd46a31237e7a1256f09e1c02fe7dbbcacfece23
+builtin-printf.test.sh::004::printf -v syntax error	stdout	5c6b39a47c44b75eb40dbc493e328a3ade56879b3aea714d6186ad8f9efac464	7276a1505878fd54cedd09031fd366cee63e6d0f47e9160fe3974cebdb0bbebb
+builtin-printf.test.sh::026::Invalid UTF-8	stdout	bf36efeb9b31cdcd59cc3d6d8b153baef4bc2a8b66fd5d0c3b6cc90723b1e9e0	d5669fa22c9f76d282e11e18c23ad6ec73d350d4315634d89199a823d759bfa1
+builtin-printf.test.sh::027::Too large	stdout	f915845a7d81159b05962a755bea00c1459783080bdf8268f9836814969a670b	9a77d5a814b82e7a3f14be6d63f38eb7b53848fe78408f2e6ead4dd3c32e4617
+builtin-printf.test.sh::038::printf %c unicode - prints the first BYTE of a string - it does not respect UTF-8	stdout	b7b404fcce85b1ef600973cac1b381f7b573f7c1f1a2d9e40da94a8a5c256fc1	cea175578ec581cf4a0505d940b7afd1713a30d8685d3eec8354aad3cf54e75d
+builtin-printf.test.sh::042::printf negative numbers	stdout,stderr	98efee3f7e630438290ec81b9e1503faa318c8b488a13a8609b41e439e5e6152	9091c70307412c6e218d76c3aee181dc7d2528e27e8c421f7f9cbc16cb26e994
+builtin-printf.test.sh::045::Runtime error for invalid integer	stdout	3ddb43e08f188f9445fcacf41854625125b7f73d0d0a1f4d2ae3b426b4ab8123	da2d99acd0ef294bfc7f49b0ffe34e1bf47aa4b94482700924a7bcbecec9e0bd
+builtin-printf.test.sh::051::bash truncates long strftime string at 128	stdout	ba4673275f260805ff60e1255e205ca8e6591d6dd76ececa2694abafc14d13dd	5b1446af320fc56540fa42f885a65f349756e4127859473d74c93b237d51a79c
+builtin-printf.test.sh::052::printf positive integer overflow	stdout,stderr	540b0b7c593f277059c0a6026ee6945526b8ef6e013f637825dfa3ae776f1ded	bb2574b1281f9060896fcf49dafa3ae02d72f506c9caa5be663c7f59efe6e476
+builtin-printf.test.sh::053::printf negative integer overflow	stdout,stderr	59bad41485d48159d18b7275cfb958d02c41c387fcc3d627c1d311f39565d6a9	f3686e43c9aea2e939892d1ea0bd4e0f49dc0f9d40a86fcd2c674e97aa0ef0d8
+builtin-printf.test.sh::060::printf %d with + prefix (positive sign)	status,stdout,stderr	edd0bfe0a1eff3516dbd407cf76a79fd5c743f4491716b8cc6f2d4e9722139b4	c2a9c1a3ded97d8715e9335f101ebcfa2e390a4674dd29b7d0c013170847b714
+builtin-printf.test.sh::061::leading spaces are accepted in value given to %d %X, but not trailing spaces	stdout,stderr	0fe410257c135579c2808b5f992b3ca4d7d7ffcf886802575951bf5e6d4637e8	e5e1b08be6cb129f873a358d10cbcda2d81530cd2acfe942711e52cfcd02646e
+builtin-printf.test.sh::062::Arbitrary base 64#a is rejected (unlike in shell arithmetic)	stdout	1725f7cba74b62081a5b6f6b4ca7cc3686c4bc8ad75c84b9dae292aeada68d8d	c1e6082ecc5000b6a07bc9170e030e1c1da40c96a44a1fb1b3efabddc96beccc
+builtin-process.test.sh::004::exec -- 2>&1	status,stdout,stderr	9b1e3adf068a2d946415c8a9d05858bc8066c7b18e13e8d4ac341ee4406c2cf7	f64043ff682e4e531495231aacd6e90c7dd3c4af62aa5f1bc3ceb0913d90ff93
+builtin-process.test.sh::022::write big file with ulimit	stderr	4acd280c98bc920122c84dbe4af2e39f776f4f7694e65b2dca22c0c76e725ce5	c33ccd78ba9936fa9684233e34ed071fc9494f067969cd431eaf88399582aa08
+builtin-read.test.sh::014::read -n vs. -N	stdout	e29a4999c0967b7e870aac20183ad3d5c29f30058e442edf45cf54e28d45ba14	d17f16526ef287dab50b542b26afd17f4f97e61e0dd062f30279a3a604a86c25
+builtin-read.test.sh::046::read from redirected directory is non-fatal error	stderr	23387823e812c9e1e28184de794b7c7f7547b99a55fd30f105a7a56ae1af8aea	ca9d749a6c8360a299e466d73086f897d2887975059cdafaf37d5a208224f136
+builtin-read.test.sh::047::read -n from directory	stderr	825063e0d01533cc873c10241cda48b3f2212aacc0b040d269c907a33de0048a	ca9d749a6c8360a299e466d73086f897d2887975059cdafaf37d5a208224f136
+builtin-read.test.sh::048::mapfile from directory (bash doesn't handle errors)	stdout,stderr	0fa8968c66a324c48811aaa05df1df5ed8f9c363c369f3f71a60ea3a4fa6df78	7445003794195d693e02edc396db7831ee5f813094e5752fd497637481b196fe
+builtin-read.test.sh::053::"backslash + newline" should be swallowed regardless of "-d <delim>"	stdout	54ff5ffdc2cbfed6313b5e536f9195d9e69b46cc4435d11ebde9a72005e290a8	defb8c595f69250ff3a10ba8d688c0dee91e6c651cdc36b2af16eadd7b22a95c
+builtin-read.test.sh::054::empty input and splitting	stdout	67018ed2bdf1ffbbc2b7f0e2c4ba7a067b1321930186674c1ad5d341c5a02a78	82eaf5894d4052fb21ace34235202a17cb2daab1a4bdf907430545dfd6be675a
+builtin-read.test.sh::063::read bash bug	stdout	20418d6fecfcda3aefbff4895939b7f8a3fb183831e1ff3acb8baee0c355b2ec	98a4a34cb00d6461dc24415ae3e0777641ddc4b1091863d5d0d0ddab03c7d4c8
+builtin-set.test.sh::005::set -u with undefined variable exits the interpreter	stderr	700ac39532d02a4a6c1a0ba03d79fdedf9304a069664307f045ade252939a0e8	bd5bd9e8b8698e9f4a1b8e1aaaa5dfe9aa85e5e32c76e9b2c06fee3a0bd15909
+builtin-set.test.sh::006::set -u with undefined var in interactive shell does NOT exit the interpreter	stderr	ef02ab2360f17725b04f62c7f22b72323c1239d13c7e4540ac97aef30cf6b526	7739a238b4b312ccca93a79fdc1e50978222404708852b230f30e96d16603896
+builtin-set.test.sh::014::set - leading single dash is ignored, turns off xtrace verbose (#2364)	stdout,stderr	97fe8f7b09687aced8ad43c107305bcb5ff1d3c7862d7fce8ab7def790e16e7b	a8a559101d72f02fb052dea0705e9079cf578dbe5e2c171693c21f8d8cd8fae8
+builtin-set.test.sh::015::set - stops option processing like set --	stdout,stderr	67752d9712098f2bf3b61c579be50483d66b14a80e0aa4421aa6b603e7cead60	d4b1b5b7d540957e0df73801aa70de365db5f9082cfcba7f4cd58f38188a108a
+builtin-set.test.sh::016::A single + is an ignored flag; not an argument	stderr	05eaa09b526368768701b77c5c69ec64490004585206967a7fed8147744a8827	d3f2bf83b592e6ffe6402bee80c54db694ee530514a34cf38ecbcaeaf0274649
+builtin-special.test.sh::003::Prefix binding for exec is a special case (versus e.g. readonly)	stdout	5fbab9b85597f2b1b5b6ad159fa0af8e157edf94f99e645bb422a46205b9106b	2485293e2f62ed17c97ea7e376dd25f83a70636939addb56d52d537ce9376cca
+builtin-special.test.sh::006::Special builtins can't be redefined as shell functions (set -o posix)	stderr	99d82a1cfdcad914ae8d1b430f2f989a5d982d19c7b22eb2393853a49c2af8da	c1e5cbee695393f75f7d86993436971658343ec56c5ecd07511166db52721894
+builtin-special.test.sh::011::command, builtin - both can be redefined, not special (regression)	stdout	c148188288e2d75c6893c0a1b925265fc8f5f1447017a4211c371294534c972f	4aee92ac0619d046170ebe4d4f408e120ede3c55188c027a7a4473ca03aebc5a
+builtin-trap-bash.test.sh::010::trap DEBUG not run in forked interpreter for first pipeline part	stdout	ba10fa4293f3bb5d99ec9dd94e35aef03c27e3c388318931d08ef01eba5198dd	d9a0b2921d1b05ddd7891b23faa06bbdc9d8ed0f1b4924139dfa262a39c67a14
+builtin-trap-bash.test.sh::011::One 'echo' in first pipeline part - why does bash behave differently from case above?	stdout	d6a761a7a3accf2b31016fa23265890a617d46a44d7dad996f10fa862ddd1658	7c1cbf5d956da2dbcb29bf471fcef3c29f308b128436e0f72e4acc3f36a03748
+builtin-trap-bash.test.sh::012::trap DEBUG and pipeline (lastpipe difference)	stdout	d032566e1689b44f312f2386c4f75e747244eb72f21ebf25ceb768ebea2b7924	7381dbd3e02315dbcc9d78375563d659cff97b8d3697a1e6fc07051c52a90522
+builtin-trap-bash.test.sh::018::trap RETURN	stdout	e10f99d2dc2dd0db7d5256d88277ac72f8f2a29811911a864153af9d0c0fa23a	a0b14e73db8cbeef639e530377e3dcffe9f0ccfd8a2c4acceb9f9d9760bce1d0
+builtin-trap-bash.test.sh::020::Combine DEBUG trap and USR1 trap	stdout	678b82fdb19f120c359664648a73cb42c4bc86d188fdef15928de8ee64c5ca0c	992defff472150c5949cb6b4eb9fab9825c24e6b388ad6bc79399581219d11be
+builtin-trap-bash.test.sh::021::Combine ERR trap and USR1 trap	stdout	362079cd487a6d38b3a9ab6f043cd2cd4f6dcd15887032f8799d2c7cc18796b6	f2c270932ecf47b2f65986c8bc0b48657563a259e8010c7aac4dc3d315d2558b
+builtin-trap-bash.test.sh::022::Combine DEBUG trap and ERR trap	stdout	6cf554d53b2baf38294da083f0dffbf404ad567233c641f36c7e5a9487cb1e53	e071bc12a8a57b3df820358c0c59faa2522961fac223c2caec1dede7d1e6266f
+builtin-trap-err.test.sh::006::trap ERR pipelines without simple commands	stdout	6f968afa7788ba896dc45829423e5c01426bdd6d22d51e8a175ade1a1e345d32	1796062d50c5e59d8a364cad711167fe6284b84ef4540813ba445f63bac9f22d
+builtin-trap-err.test.sh::007::Pipeline group quirk	stdout	60a50bc3d7f49abf9b3a6fb7e20540bc1e6cac96ac950a1515e2b8572e3795d3	ed6a06684dbd53610110e958a008631e951a09ca4d687ba1985d932b785476bb
+builtin-trap-err.test.sh::009::trap ERR doesn't run in subprograms - subshell, command sub, async	stdout	21dd73eb465aee086ab2a11211cd54b7013b6a99912ded5546c093955283636c	1e8d1c1a498abd8b9e6c6352d8286ce5487263e2c36532ad3b2f8b7c2303424c
+builtin-trap-err.test.sh::011::trap ERR doesn't run with &	stdout	1dd4d70fd250f68fac9c8855470535c75ab57e35bb283fbf194dfa2843823878	a2cf4af00b58cbef26e81cbf064d11c0f7d4ce687637a07d0ed0b955ec4a1e01
+builtin-trap-err.test.sh::017::trap ERR with for,  case, { }	stdout	8998300098a9a77ec66a5b9c470fa7819225258f1033f43c11c4e6047e42247d	2c5e24c5b2c9113511dc2f458d7500d3060c7b77a16c68c9455c7cd5935d03f8
+builtin-trap-err.test.sh::021::trap ERR and pipelines - PIPESTATUS difference	stdout	c2c45f8289cceaef3fb567db81c52f0a7dd77b7fde05821ac34b6ee8d0fc2650	a7f3b162e4b14249d06ce5d26b0339a860d4f773f391ceebedc315e0323f4a7e
+builtin-trap-err.test.sh::022::error in trap ERR (recursive)	stdout	536e1207bc7b53ec5b839a72c7ff047fefefb0529a989c78578f3cd46852f49b	51930b27e9dba3638ecfae1e10376412d6bf1dcfaaa8494acae8974a529d91a2
+builtin-trap.test.sh::014::trap '' EXIT - printing state	stderr	4473d3e53b9e2f04a90f12f5d1103710206f392258bd16dec8d2696806133f2c	6304121360896f90e82b37ef7fab2a12c427c89681ce072f07e89cff77426b78
+builtin-trap.test.sh::016::exit 1 when trap code string is invalid	stderr	15af9b078a54adf94beea9a9ba9feb2bb7021183daf3cfcb936e8820b51e5ad2	2f80b5d80cb372c2395c87064fdddfb9955e5c85155d455e567a13beb35df23e
+builtin-trap.test.sh::019::trap EXIT with PARSE error	stderr	13245d0a3fc2a7cd94961707ffb08089d658c1268d8768217c6ef35c4fd8ec33	5fd137c65b607fa77a4ab15699f34daaccac76a9c35ce3432cad65424b706801
+builtin-trap.test.sh::020::trap EXIT with PARSE error and explicit exit	stderr	3882ca76bcf3165237cae3ab60d0d20c1ebbf481058c36632b9cbd0dd9522ee8	f3079b0e4a71bbc6c3c05385538ea6fe5ab301aafdac36b7376a340198ff4973
+builtin-trap.test.sh::025::traps are cleared in subshell (started with &)	stdout,stderr	e2c4433b2c3e1afd37f4d380fddf80feea2f66642b2a57f3ddd97ee2a5720222	c6f12dffd5c26a4229f6737ec11918f03ba34909c4264473bfd55809b351fe7b
+builtin-trap.test.sh::027::trap INT, sleep, SIGINT: non-interactively	stdout	0fa8968c66a324c48811aaa05df1df5ed8f9c363c369f3f71a60ea3a4fa6df78	84af78024d77429ddc2dbe1a4444f75eb77a2d6ae4ddce5ccdccc68bbd892ab7
+builtin-trap.test.sh::028::trap EXIT, sleep, SIGINT: non-interactively	stdout	f02fb705243d40cafc629ffa4e30a172b8ab881cefb9fdf659bf414976e0bfb5	42a52f1dd4512d3cb64032f78116d3884f5232e044463069bee7b26c070888e0
+builtin-type-bash.test.sh::006::type -t doesn't find non-executable (like command -v)	status,stdout	7cb4854383c9081d7fc8de98a25de98f17191ddab1db447b95490827c27c1baf	8986992f2bf0a4419273fa1b2d866c69e397d9b9e2ebedd08c2cc21075fbece9
+builtin-type-bash.test.sh::028::type -ap -> builtin and file; doesn't print builtin or function	stdout	33b192f54f87d1e345ca4e20c64534c257f45b9be7b8aa1e04cae9986274f0ec	f29d9e7e6a3298d5f32d1a61347b88fdacd7ccf0735704581e4a7637e98ab8d8
+builtin-umask.test.sh::001::usage: empty input, space input	stderr	efd1d93997f8b245ab13e3554dbf8f91ba275fe87586732d1a45536a5accc4ed	2d8f852ce0fecbab8474c44f238f6dddd54c15e714a650123eb39e11b9de8f6e
+builtin-umask.test.sh::004::symbolic syntax error: empty clause u-r,,u-r	stderr	0a7a051757d12fc20f60dae7f056eb139fc364d296369bcb59544c32f19315bb	bc95f58112313af6afa6c68174483f2396a3f789dc6032870f67af5823abc590
+builtin-umask.test.sh::010::'umask 0002' sets the umask	stdout	0c8ca48ce4d1dfbe25737c87eb6f179647f54451e46667ba2d1e191ac667a561	7189cdb96bda045484ee259ae63b029a6075df3652131b6c19f2c6a6f2233729
+builtin-umask.test.sh::011::set umask with symbolic mode: g-w,o-w	stdout	0c8ca48ce4d1dfbe25737c87eb6f179647f54451e46667ba2d1e191ac667a561	7189cdb96bda045484ee259ae63b029a6075df3652131b6c19f2c6a6f2233729
+builtin-umask.test.sh::013::umask with too many arguments (i.e. extra spaces)	stderr	ccaa36bb4e1231e62bb9c4932b4f363f7189cc4b6822b3eb45c8505bad5961db	a7737c37350cb3a71fd4a20a7e2ea929920c928163348a5d6ce26cae50116c11
+builtin-umask.test.sh::017::umask s perm	stdout,stderr	83b72a109c66fe9fa73b7ee62139aa1a084f5d70bb70295da64d378d15ae3ea9	7c05c52584ea2abe11fa196ebf5aab11a444a882ab9bb5ba91e4e6c4ec9fab7d
+builtin-umask.test.sh::018::umask t perm	stdout,stderr	83b72a109c66fe9fa73b7ee62139aa1a084f5d70bb70295da64d378d15ae3ea9	f60558f15c1665e6f12cb868a4dd588447407e6b890e329d9326338c4864544f
+builtin-umask.test.sh::022::umask permcopy running value	stdout	8b6aebeed528913354958adc81b2fe2c62c23dc75ac4ffcc56f535f0896d700f	0e3117451803cb9b93ddbf20b070c08d537c02189473a25d87f41849a6480f7b
+builtin-vars.test.sh::013::can't export array (strict_array)	stdout	be8f0d1e17b1b51b797fe6c93cfb85e9588e07b7ac390691ddb41e9ae3c97015	38f704a723d03a198b723924ab7394cfc8a04d6ec3c6b1fd908d4eb01898bf47
+builtin-vars.test.sh::017::assign to readonly variable - errexit	status,stdout	fab797c8f24d79c4d037bda8dd70f7d3791b0d50e800d72cdd4677e3baeea271	dd7c93fccae653c1b42cf94875df9d2385247584181e518ea3a6c0b9849c4656
+builtin-vars.test.sh::039::unset a[-1] (bf.bash regression)	stdout	f7edacdde3fedf8e148a8403ab5d657a4f04a0b0e5685efe35cd9d81a6ebffb8	3dec6e514cb2522fe5c90d126a952f02f16a4ea01fd813ec2fa83f0dc192eb81
+case_.test.sh::008::Pattern ? matches 1 code point (many bytes), but not multiple code points	stdout	e5839ac9014a5a9f22d7e4f738a01da9cd1fca95193e1f19cf23a3e38c28f03d	21191203c2853ce030009b8ce9914fd0786988670dacd684f480d93c70ba5d8b
+case_.test.sh::012::case \\n bug regression	status,stderr	aed7b46073deac72abf198c31edf93e46d3ff21e98d432bbc3fdc4644c0e8a70	f74d9274770c8122d4daa8fb16031d2a648a4b30f233f21659d68e0356f59f68
+command-sub.test.sh::007::Making keyword out of command sub should NOT work	stderr	e0ff22fffc322184166df8f37cb52a0d667ded87de3d6326553d2f6e11b62c9d	42c24671a48e1020d3bad5a8e0a1d115a77c341c59a86608e743b858f9e68d52
+command-sub.test.sh::016::Escaped quote in [[ ]]	stdout	a19b18cc2cefc4d215a2c3f2c0cdb94f12fd8bb08d6805a9aea9839c501fd795	2e1b618b5a866a56c8a1587affacffcaea9679ed967f5e6441c88071ae89df99
+command-sub.test.sh::028::Syntax errors with double quotes within backticks	stdout,stderr	f045aebf43017c50229ab75715cb0df2775a75a03709000c1098cdb6ee80dd3f	3923dd5e4100f84cdcba194a151178aabc664faf71db7fe69ec74fc231e865fc
+command_.test.sh::001::Permission denied	status,stderr	d73d632f63e52de5b8c69bb558354a01fb29f334f6afbdcbb1746e92fffbf0cb	c07381cc7cdcefda9be88ac35d39d62e58ecb8ae0021dd7e80e04005160ed6ce
+command_.test.sh::003::Name too long	status,stderr	75f4e65d383242d682868a0a563ee88ec3f64ab91e46a254c5efe5ba69364a1b	4a824a64613dbf67935c0ac04a759abc7a1acfb3bb243ec9d83c3b5b0157a26a
+command_.test.sh::012::hash without args prints the cache	stdout	4e2d704465d395da001bb1d3899d48cb92767469ae816df8862e4d1eb39125ac	c4234910f2c33cfb3bde745f39448df17e9a1216176d3db657950636d94a10b7
+dbracket.test.sh::020::[[ with op variable (compare with test-builtin.test.sh)	stderr	d9d85235c685b875202627d3a2d6ce2a3475971939c02836663475dd61b69aa1	70631280ea8d3c6275f61fc06a021693b02fd76c42ca2748c4d498ba00e14ad0
+dbracket.test.sh::022::[[ at runtime doesn't work	status,stderr	ec41c3831762edf9144849c19681720da564f5bbf34233530d67fb81505cb002	2b62de755785057ffedf9418fd58f2e39aff816fd905b79b7a4cc4135b5c739b
+dbracket.test.sh::023::[[ with env prefix doesn't work	status,stderr	b6fc3a3ea2090d033492549b7cfc695dec76cb96c7e19f0b46121b169e33b833	7dabe3bfdf52c5f3fb41c15f405a478587c14d89cd4b0c9e8d640867b00c6b4a
+dbracket.test.sh::025::Argument that looks like a real operator	stderr	75221e1633a66c5ec33e1ea74919f11cdc34ede042d81a684f8005538fd5c086	54e43f065b9a9714726d67309187e95d81a7307967c9609b1a5c92ae56ad4c3d
+dbracket.test.sh::028::(( array1 == array2 )) doesn't work	stdout,stderr	0853dea05a00ce9ebd42ed18ed93cef200080b88803949853d7ab4dba81c8ef2	114accc436ccc495d8c0aa6354a3a40142bbc22f71533cf75b4ea159d25049d9
+dbracket.test.sh::033::[[ '(' foo ]] is syntax error	stderr	ba6e88008785fcd6ffb5243778d8e485b6bcf6cf45bd9f72cc73732aeee6329e	bb6ad6563caf34bf5a7fc2e5599c6b9bcf1b7f9a0e825a9d8ccdc325b586f9ce
+dbracket.test.sh::035::[[ -z ]] is syntax error	stderr	f24de59632c5e65568cf2a4b72aff33fb9bba74f3a82346635cc502d57c66c16	fb71f9673640a6e4b02f3f25ed848f111f452dcf1d0d438b29f8b4d3c9b70f34
+dbracket.test.sh::037::[[ -z '>' a ]] is syntax error	stderr	18e8b8d8df16886235719950393073d58520c157b66707c4f2c78c589cd0a062	23493927c918c8f19dba961a06fb62d58284910cd6a4b3825ef143d5611d2412
+dbracket.test.sh::039::[[ ]] is syntax error	stderr	96029c4eda77c2de60466e57fcb7b07adf6441255a615d70dc93aef4c13de43f	789b958d5b51852cfce4b0bd948d19998c7a38882769228675d1c8b82475b758
+dbracket.test.sh::040::[[ && ]] is syntax error	status,stdout,stderr	a8c2183692f6d47f63eb662355b5809356363a07fba6cab4762bba3c10b7838b	0fa8968c66a324c48811aaa05df1df5ed8f9c363c369f3f71a60ea3a4fa6df78
+dbracket.test.sh::041::[[ a 3< b ]] doesn't work (bug regression)	stderr	fb11a3d39c7d1fdb6446d251756327cde7fe925ca982f7323457e7aa4dc3a108	55d0097446039c0a8cf422290696b5a05e39a8c7e17c21d85e69c88e57591728
+dbracket.test.sh::044::tilde expansion with =~ (confusing)	stdout	f7d627281163abb3ccc0a799c1c132aaf776a8795bd83f69df878b40dc06a294	a77a03642d176f8c0793d825702e0d871ee08e41de4d2dfae97120217fa886af
+divergence.test.sh::002::Changing PATH will invalidate PATH cache	stdout	a25d2b911f8e333b0dd850ccdc0ddc2c73d69ea719ff356ae49b98c2f7fa605a	d2be844c75c05d4da8c1d07742f995c41c0995ed51346e839571ccce6c3d1348
+divergence.test.sh::003::builtin cat crashes a subshell (#2530)	status,stdout,stderr	0d5108a9625ca1652fb52132080760ac8d4f364c17d8ac6253c550c9eecf042c	5adc9456cf66122eb3987419d35ed391e4a99ae647c16d1e3f1ac172f3fcf860
+dparen.test.sh::010::literal strings inside (( ))	stderr	4f42aefca98dc925e90e0d1b0fd8c2c554ce94f86f2c864fc0d106c42af8f9f1	8e11b6afd7f63e1fc91d4f432a7b4f2468d67496993226d8748b59e510be1d7a
+empty-bodies.test.sh::000::Empty do/done	stderr	fa541b0cc22312e299937b4b3fa9ec49af01650ae90dea4ee3ef4fd5238280ed	8c9facbfe10a379604ebc1e7fada5f609adc12fc233f6659ceb8b7a9afda9c8d
+empty-bodies.test.sh::002::Empty then/fi	stderr	c21191f8a99715ac15a6118f36a602b1bf24312b7739632cf4d0c9ce48bf80bb	777efa08481bdb6129a9c19c6ae1e5c73be3d3eee9a62ae4d50cea53230fd39f
+errexit-osh.test.sh::030::command_sub_errexit and command sub in array	status,stdout,stderr	c0103d609f8d9759c68530f0a7c3d3a1fa7809f5a321e6f452cda2145b9175ba	f802d1d71729803c8f9a364673c809023cc62ebac189d456cd7c105b14c7c8a5
+errexit-osh.test.sh::031::OLD: command sub in conditional, with inherit_errexit	stdout	9eeaf19599c56d63620d5b496bbcd8d48f3efaac29eab4352b044a2aba45d5c3	cbac2a0c9e6311db03afcda1be34f7129217c55536ee930bfa13025745d8216d
+errexit.test.sh::011::errexit and brace group { }	status,stdout	ca9d749a6c8360a299e466d73086f897d2887975059cdafaf37d5a208224f136	8986992f2bf0a4419273fa1b2d866c69e397d9b9e2ebedd08c2cc21075fbece9
+errexit.test.sh::031::while loop - redirect failure checked	status,stdout,stderr	40ce998fac1820a26e939711a9cb365715913a1629bc4a5fc5cceceb6fd7e057	7c42393c31896301958bb0a38846e89575f09e8144b2ae0aa36adf1050d4914a
+exit-status.test.sh::007::If subshell true WITH ARGUMENT	stdout,stderr	variable	25242e2dcb1a1414d7fa13a1e77e93d6edbed14f672b850908a1dfc47b75c449
+exit-status.test.sh::010::More test cases with empty argv	stdout	f962960bbef15a56f22c5d3f3fff9f5ba3d7f09031b5d20654e3fe1a7dcad76b	202515b6f1e798319d4a60cc4464be3b9b2bd2f9e370bd72be3172db3698eda0
+explore-parsing.test.sh::002::Is \\r considered whitespace?	status,stdout,stderr	555aeba0029dac56d67300d4812eadabbd78c5571f78b985e07b3140373061da	ac5cdaab336e5c91ce74719b6ddf06f94f47a066fb4546edbe748b97b7c7f7bf
+extglob-files.test.sh::014::Extended glob in assignment builtin	stderr	3863a8330e4eaf1ea7d684fc50f9bceee6d3612802d1292b6f84e5c9fbf59eb5	5176b37e7112f449b3c6a1d6c4f1e7d0b7adf267991f90337bef10c51fd3bd02
+extglob-files.test.sh::017::In Array Literal and for loop	stdout,stderr	4da0b2b878471272990f2770000f8dfcefcbe5c851df4fbb9f1202c1637e3a1a	ff8fff73d7ab05b55707b7054f4416fec5e0ab37f900a5a47a0a4f1f7e49b36f
+extglob-match.test.sh::025::regular glob of single unicode char	stdout	ec1a43a0a1cd4997f872037a483ae81269a0f513ae0b58c35f5a2ccc67c66fab	3549b435694d3f3a2f9d0c307210bc6a20bafe0ed0aa4bb900fd33c88afcb4f3
+extglob-match.test.sh::026::extended glob of single unicode char	stdout	ec1a43a0a1cd4997f872037a483ae81269a0f513ae0b58c35f5a2ccc67c66fab	3549b435694d3f3a2f9d0c307210bc6a20bafe0ed0aa4bb900fd33c88afcb4f3
+fatal-errors.test.sh::001::Unrecoverable: divide by zero in conditional word	stdout	499b1969910ad9a38e5e0ff83dcbe95219d1b0d3ef65eb5733c8db0ab543ae0f	7588e1d34cadcdd528089eb7c5f79abacbc3eaff1117ebd50203b31db270176c
+fatal-errors.test.sh::002::Unrecoverable: divide by zero in case	stdout,stderr	499b1969910ad9a38e5e0ff83dcbe95219d1b0d3ef65eb5733c8db0ab543ae0f	fa99eb497d774f408f1afe214a15706b936de76dd573b999fdee15a7749bbfbd
+fatal-errors.test.sh::003::Unrecoverable: ${undef?message}	stdout	f0323e5e2e1d7d7c8c4374fab911eab436dca0d668e95019d56799bef821fa68	2fd65c258a63854f28a4dd6157eef20900ba3c8d954fa8cc98f3478ac42ac4a9
+fatal-errors.test.sh::004::${undef} with nounset	stdout	e9c46d9f4acf70ce76a9e043b8d865a45fcbf21f1ba38f745f4a065f3b119f27	1da29f6ce77b0d2b400f9cfb28cf7867ce90dc8162b14fa736daeeb77fb81251
+for-expr.test.sh::006::Arith lexer mode	stdout,stderr	8c151a5e2c86528c1c8ea26b11f52fef124368e7f7c59ec121b563777b8c1c46	3a2bf8bba0ac9fba05c7e80a47eea60ce19d198f1f223e76aa70a69b4c28a036
+func-parsing.test.sh::000::Incomplete Function	stderr	40984aadaec392649436dad231bbaa9ae4cc412016b4fc48a748209d44545ef3	3e76d5bb50c303c39b03cc7bfae93200890f9482eb5416ec9ecfc0f193c67d13
+func-parsing.test.sh::001::Incomplete Function 2	stderr	ce68c073abbdc9d1feb94248924d2cf532c409791f5a50a1937f77c20905e188	53ec5c5c444b2ced26c9e3321129bab0134d10e5b139208989163927d5abddd1
+func-parsing.test.sh::002::Bad function	stderr	6c5b0e991029a6ee57988654517c6a01fda57c5adc0ec63e24325b92f3f7143f	91f6e161c493407e45179d7eab9842b438905cce28730ec43bc548016cf33ee8
+func-parsing.test.sh::003::Unbraced function body.	stderr	f6e069a9ce6154172d5f8ec179f7e165b13698c541a05bc19298056d0623068d	a3fe822c3620617242d517efe21a7017ee6b69db24bd65cbdc18a39e027184f0
+func-parsing.test.sh::009::Function name with $	status,stderr	9be6a0d6ace3cfe9a01034dbfb98d47964defa61220b77f274b90af0bd93f809	01e83d0a50f9f8232a6eff81d366b26a87dd046455ba837ee0661b31d25af5f2
+func-parsing.test.sh::010::Function name with command sub	status,stderr	72168d7f4132c5abd1a90572225506a694813e29d68f508afa7ee8f5c3a2423f	4c395a117337385c62fe5d2f8958828eaf4838c7a92b91181653c73e44469881
+glob-bash.test.sh::002::shopt -s failglob in loop context	stderr	4e1b22696eff57a07c6a741714210ad0992bd03cf204c3c009305b2197c8dc9b	d980252a484d1308cafe5d743cc80c84415f82c7be92abdbbd07ff1055f021b8
+glob-bash.test.sh::004::shopt -s failglob exits properly in command context with set -e	status,stdout	afa7a0dbd6cb0c713947ac204f592e4063fdb21ded610def070312fc26902b95	13d09e1854f90bfa61123ef84a5048cd9fc285227d8a3dd3e04a00b8349d2638
+glob-bash.test.sh::005::shopt -s failglob exits properly in loop context with set -e	status,stdout,stderr	3e7892202222941a3aa9f89b896fe0d8e1275ad93de4970d49cc3b2aebb30f9b	3bbbaeb85491de77ca7f2181371c251d6323e545bb4b476379c16292f4fdfd5c
+glob.test.sh::019::: escaped	stdout	7d70164db531dd8c24cecf79a6e02960e5e85b7c45add5e09b92060eff7bed16	ade40a2e6ea3f3577ab9e031903bd7e7d9bfcfa83b7ce74aa5ade32ae3fc4980
+glob.test.sh::027::Glob of negated unescaped [[] and []]	stdout	ab6a8a824e10ef2484df9be28992ffbeba83ca1adc7009325fdf2c959d3c091a	a398ec4c339edb2e0ef133c3bd6ba40383bc3063f3d4215e35286f9af5de60f4
+glob.test.sh::030::Glob unicode char	stdout	e9a79a6b49ea25a12a9ac1865a15ec549d66cdced9916898e690b602e4615d91	b2633e3e38cf372289eedd0f6ce1a9c33a3fa3afe24f5331b0f96ed25d3905fa
+glob.test.sh::031::Glob ordering respects LC_COLLATE (zsh respects this too)	stdout	446559ce12c01fcee203f3d7dd94e3e3c720b98c5f6c33ac47f8e5f87f76a2f5	f1d4227977fb7bdb01fd16e19f026fd15fa1d0b1d09a463f11a28a7e5fafe842
+globignore.test.sh::001::Ignore *.txt	stdout	3c64b8cb135e99e8f9c8c88ffa56ae20407f96c7ec232c2691662f50eaf015ec	a0cb7ff70cc33e84e78119fc5ea8e88ba64e945d61a511a669d3786f56b2956c
+globignore.test.sh::014::. and .. always filtered when GLOBIGNORE is set	stdout	b10b86a75e7e7da47db378c4e225dcc42c65c3f61565f874c80c0ada80a71d5f	0b4c7471750f7bb594bcefdc900d4504d1e6c96d0a5f7206324d9a74101fbcfd
+here-doc.test.sh::006::Here doc with bad comsub delimiter	stderr	d533c69af82dc3b0d4703861f4619e88c5d639077e2abf94c2a381696a076805	33981a33790dc938e0da6bc7de1384d12cabda1e06422f3f55327876cdb2c928
+here-doc.test.sh::011::Here doc line continuation	stdout	1e0c472b5fdb9a555e028e1e29b933b6a40068303e10ed4529959e8bf015252e	ac3300d3e9472e4df6243c7e7e5f22e10e8f47e32ad35c1389c4de454457d629
+here-doc.test.sh::015::Here doc with line continuation, then pipe.  Syntax error.	stdout,stderr	a2ab84a10e4f97c7d648cf015e98f975e9d864c0ec58e3f96b5a66a428ad713f	4016cc189e7d66c62b3b8c150bffb0e686706ef4bb5924b89b756e4989499526
+here-doc.test.sh::020::Here doc in while condition and here doc in body	stdout	fe85e55f065b6f4c4a6202d1612b6a4b8ce25acf3da4612a908c25e55db5af9f	92f0bad0510a77b6fdd62655a7376973ea7b5628f47f34914c44a173276e4989
+here-doc.test.sh::021::Here doc in while condition and here doc in body on multiple lines	stdout	fe85e55f065b6f4c4a6202d1612b6a4b8ce25acf3da4612a908c25e55db5af9f	16ffd1d873451e59d7544a7cfebd6a3c440afa90716110035387b19b2f3f58fb
+here-doc.test.sh::023::Mixing << and <<-	stdout	02a1b8455abb7cd07088eb7a19294a26c8ec2287779744ba6d42ea40bbad3a85	9d1a91db27ccf45ffab0f62e9fb8ec3f53ba13a24ae53cb70276554ec779509c
+here-doc.test.sh::024::Two compound commands with two here docs	stdout	e0ebddf4f8fd77eaada28fb45be2776c16a7d8a6419ff1ac3b68b937d9fd0d74	5b624b7608579a57719d457d8ff995a5d0895b5a8053d589d7429015eeba1f26
+interactive-parse.test.sh::000::parse if	stderr	95cbac1dd5c8d33f9ebf0b761c3201b7a86bbc9b07448683fdd2934b446a716a	18bdb37d45e5f21281148ed12178f1a449d55ea3ca3de3354e22382426bac11f
+interactive.test.sh::000::'exit' in oshrc (regression)	status,stdout,stderr	5a86d3fb3492f36740cb93f5f6e25fcdc5b4591bbb4ed8b280910cd7455692a3	52ae88d72d69b46dd8cbb4bae360b4a89a8b4fac0b8bc44f03184feff485cf55
+interactive.test.sh::001::fatal errors continue	status,stdout,stderr	f123f30c0ab1dd9edd5bb334ce95faf86d2830f14b84340838cf291b5b2033ec	3fca993b0ec7955d354977199786eaaded809c39144844239bfcd5a607faca04
+interactive.test.sh::002::interactive shell loads rcfile (when combined with -c)	stderr	caace9b2613c7a860c1cf9f97bc5227d92cadcfab0686b850945aa0245917857	7a07dd7c837b97b05484c4183b4e969248fba0b9fb85bf9646b76c5adf7255e8
+interactive.test.sh::003::--rcfile with parse error - shell is executed anyway	stderr	652ea4ca151cc08c83c87fd7378537df26b75f026243c3b6f12645bdf64c2821	adf0d7e567d740fee5881e1c0351db2df18170b6e8bc939433adef2efa575979
+interactive.test.sh::004::interactive shell loads files in rcdir (when combined with -c)	stderr	0a32249320b07b3e2832293f26c4ca9888868d55cb05d1629c249331cf89ec45	4e5b6e24f07dda5032971022cb7b278b39b64e30c17e176e7c0f92df219acf0b
+interactive.test.sh::007::interactive shell runs PROMPT_COMMAND after each command	stderr	91c990649ce8ca0a6a75caa1dcff436e7d0b8e15aee29f34a4892f212ffba3cb	be23c2a7342edb7fef461dba3dc2e385376a09838f2846f00de23b8535564411
+interactive.test.sh::008::parse error in PROMPT_COMMAND	stderr	75cae2aebc19d94fac95db08e5d2deb7d3e52ed4ce8b19bc0b997be8f9035707	e765082c16daea1aa73b665cbefd7214d1e221884cbc02dd2a18183282e931a1
+interactive.test.sh::009::runtime error in PROMPT_COMMAND	stderr	f8c350232d23a7cda06db18f7f25276d5cd29fa6f166f451bb75f2001e18da1c	a91e4475791bfef1b705445c5d920c3e5734f2beb42f6f3eb9723b38f824beb3
+interactive.test.sh::011::PROMPT_COMMAND can see $?, like bash	stderr	53074c1d786687850a4946acce57c6abb3239f6d23edfc6c7aaf1553e6ed47ea	f778d10547ee18f19629801458420febd285ad7abe16fd20d42385392d93a6d8
+interactive.test.sh::012::PROMPT_COMMAND that writes to BASH_REMATCH	stderr	062113c8ae71eda827fd1390139144e37064ea30c136215949e25fa537fd657e	20f15ff9df75fcad1538dfa73dc9b76da25f8429ae108d7c7d6630970412ee17
+interactive.test.sh::013::NO ASSERTIONS: Are startup files sourced before or after job control?	stdout,stderr	6788566c04a24c2691afa7b77648ec9824a600e28090c29152da09f32b5d6487	4126681a78570259ccd35d592e6c399974163bf665b784c7417b1fc124670a8b
+interactive.test.sh::014::HISTFILE is written in interactive shell	stderr	bc3d54dbe5a1ebc7e00373a622e091200c656f261bbd4de6bd630dbb72576708	14dacb934b7fa958aa245ccbdb99c69fa84d329f362451f97410e077449c58e0
+interactive.test.sh::015::HISTFILE default value	stdout,stderr	0a9604eacc9f146fcad87ea63a7ac08db67a50a276edb0b01c0d2e8b5a76c41d	ca9d749a6c8360a299e466d73086f897d2887975059cdafaf37d5a208224f136
+interactive.test.sh::016::HISTFILE=my-history loads history from that file, and writes back to it	stderr	aa21a7ec35db82723f76f0380d93187635faf65269d4bb8b160b6d803e061656	7c757358d8a992f7d7e0b08d7f540149f595ae08dc683e8db68088c986d9539c
+interactive.test.sh::017::HISTFILE=my-history with history -a	stderr	142c6d4897e5b71ed0029786b13acc13cf100d3fa618cbefa8b4ce01d9f1d914	2c31b67005cc8df35f378b89cd054a164ee892a11835b690049fc7ceb047de00
+introspect.test.sh::008::${BASH_SOURCE[@]} with line numbers	stdout	f2f8ff20e2d86ca90e845edc738d43ade4b41870eaebc7636df8f0f4ce1baea9	4c50c1c40c56d264649d099447c051ded9e952eb8c97ba8665a4862324298901
+introspect.test.sh::010::Locations with temp frame	stdout	1428f3f6263c9f31f9934a820120e906e231131b32d57d221b405e8596a237a3	987d35969056efa6ee2e3f15f27b3f8957b0a3394bd7983befd4524288862acc
+introspect.test.sh::012::Sourcing inside function grows the debug stack	stdout	491e64902553e532c295bd3159dc10c024a60d45c9416d6c4856ef66c93a93a6	f8c6a1891a89d5c744a8c9aa8d3c97c2565186cfc67fc735efb453666ecc0ec4
+known-differences.test.sh::001::nested function declaration - xcb-util-renderutil	status,stderr	ebfd5956212c03e51c63f12f1c08f2b0ed6726d70276651b50de19fd09c96585	f74d9274770c8122d4daa8fb16031d2a648a4b30f233f21659d68e0356f59f68
+loop.test.sh::001::empty for loop (has "in")	stdout	f74d9274770c8122d4daa8fb16031d2a648a4b30f233f21659d68e0356f59f68	fe85e55f065b6f4c4a6202d1612b6a4b8ce25acf3da4612a908c25e55db5af9f
+loop.test.sh::014::continue in subshell	stdout,stderr	0d527d9e4f1056c4f2c5a535e310f9742f711f751ead2f7ead2a484b6b2684c9	00356bd0c68b28b947c2998169b83a9fa4afdd9548d12343f749e00348e827fe
+loop.test.sh::015::continue in subshell aborts with errexit	stdout,stderr	bd6cde3407b979b836c8cccc219c449255e94a6090f0a2a77608d49c675dc909	59c6305960fe2cf7f81af902a3e1ebc0f1166a9cedf1e202d412a4fa4eb5e51c
+loop.test.sh::016::bad arg to break	status	ccf88aac15ed999b52c3e1e7740147ef46039536cf481c99baa8c3e8344efedf	95a038335420c3bbb18ffe4a1adfcb9d2cae1e2938c511825fdf615b2803bcf5
+loop.test.sh::017::too many args to continue	stdout,stderr	6d435c8b2c5e18f57e41f594fc2b146304b83e3326e07fc45c864764dcb93679	6b8f3b80cf2428f2c1194cbf58ff78ec767604b582a0f3e9ac207a89e8ea829c
+nameref.test.sh::015::-n attribute on array is hard error, not a warning	stderr	1356ab80f89bb99c486318371ea83086a1a907f0b63a0636f9082a263466c004	d8651f161c62e943a7f3adbfebb822f231bbf19fceef44c8d420a7a83ccb7435
+nameref.test.sh::017::readonly nameref doesn't prevent assigning through it	stdout,stderr	4d09591e06c3b6da841265f05046defdd5f776c2c954aa79554e2aa819d041db	f3ad74e8097b7133b0f74731d801ccff34feeab8e568510fa2ccb27f15083875
+nameref.test.sh::018::readonly var can't be assigned through nameref	stdout,stderr	f8876de8109e80f7426445d77e1d86606271a8bafa5c3f37f14d03f5024fc165	ba463a4c18253c760d9db0343b16fb35ba7a22af093ebc18bb3ce54bd067113a
+nix-idioms.test.sh::003::${!ref} to undefined string var is fatal, INCONSISTENT with array	stderr	f998d7284b3a02f4c4e0e817f239db54bc380c8687d3365c459b081e8868de09	6a86766e258303f0f37d0eefecb8ddc9388831e1c1fb929940b628c17c196d74
+nul-bytes.test.sh::005::NUL bytes and IFS splitting	stderr	2e811e65afd9fa19b3201d470ce675040aa545ae64d99d0069757913384bde87	f2cda50c7e73df838b136c180127336b2243234ca23fd1a624173d92f0c7378d
+nul-bytes.test.sh::009::Compare \\x00 byte versus \\x01 byte - command sub	stderr	2dead036772755b6205e3281f612a9a9b10cee0bf68459cb4b429cfa6a2b65ed	497b0cd0baaa0cb44325915d37d5fe964d7cbe2c818d039fbf427ce2956f85d2
+nul-bytes.test.sh::010::Compare \\x00 byte versus \\x01 byte - read builtin	stdout	497b0cd0baaa0cb44325915d37d5fe964d7cbe2c818d039fbf427ce2956f85d2	4e33031237bc99862f42703f02d4a65cf7d84c27fc5183a399300ece37eb0067
+nul-bytes.test.sh::011::Compare \\x00 byte versus \\x01 byte - read -n	stdout	497b0cd0baaa0cb44325915d37d5fe964d7cbe2c818d039fbf427ce2956f85d2	4e33031237bc99862f42703f02d4a65cf7d84c27fc5183a399300ece37eb0067
+nul-bytes.test.sh::012::Compare \\x00 byte versus \\x01 byte - mapfile builtin	stdout	15e244780b5755240e8b7fa62e603a7a0b6f0c6d6fd454d5441f1253bf0a59de	03cdb2a7f85401daa7ce2cb85120b7b5b61752fab16e6c7b9a0ecbfa51f3f1b7
+nul-bytes.test.sh::013::Strip ops # ## % %% with NUL bytes	stderr	b50e0a1cdd5efa00079dadf1a1f966eac8088c9748a2bce7c1c0b8945662a0b9	e0d6acd70235fcb260ad915467cb90a0ea350250f2061ee682f868f8f4186928
+nul-bytes.test.sh::014::Issue 2269 Reduction	stderr	1ea721d703e7634cc388c8947b5b2c42a5b5ff2d5e536a1d520d9856121ce98b	c813bf4df3ff85c18c99edde13ee36a1dd5622d8d7ca73299bd0696ab48a79ce
+nul-bytes.test.sh::015::Issue 2269 - Do NUL bytes match ? in ${a#?}	stderr	4e6cc160d3aa4ecf0eb2fa8d4337c2faa1b5fc3c5891bec461e451fde4e386f3	115ef7ed5efdd64571c08e5b4afcc598f1eae8941e4083f870cb37b9ccd18be2
+paren-ambiguity.test.sh::002::(( closed with )) after multiple lines is parse error - #2337	stderr	28ebf42962615b06ca991b225ec86da7660589990cdbf784430784163c3c9cf5	76537844d34e351b905825264abcc39d062971479af5677f2098b6bcb469c1a9
+paren-ambiguity.test.sh::004::(((grep example - 4+ instances in regtest/aports - #2337	status	f74d9274770c8122d4daa8fb16031d2a648a4b30f233f21659d68e0356f59f68	568f1e8164cc81df0eb6900e4231cb9eead12227f6107d5cd1a94cab00762a2b
+paren-ambiguity.test.sh::005::((gzip example - zdiff package - #2337	status,stdout,stderr	816e8a46cb8cf24e42ce6015803bf99ca3ca3b11d8ddf89e74039da654b19ce2	0eb55ea35be61fcf37284d34b793883b2f8a6ff99d2a85bef153b344b6066598
+paren-ambiguity.test.sh::007::((test example - liblo package - #2337	status,stdout,stderr	b91bc75d79b788a6637f48df129105c438b0f087cf2e573bd3167f57e1b78220	73b5a30dd891576e356fd829edc02a8061f0fd7f3fd8f93a039eb1effe52bd7e
+paren-ambiguity.test.sh::008::$((which example - command sub versus arith sub - gnunet-gtk package	stderr	b91bc75d79b788a6637f48df129105c438b0f087cf2e573bd3167f57e1b78220	610db3b05a39fc863b4cc5b3681b840e1c712fca4410ffc8df3039249fe025e4
+parse-errors.test.sh::005::Incomplete while	stderr	5649251657ef8d72a412191ce4c758ef2f00e79df1e5deff9a9fe8bf194555bc	a4720a5ae4bc17e0517ac8c8bf8c252dc3dac5cefa8a695b8bfa8f085e8e3bb8
+parse-errors.test.sh::006::Incomplete for	stderr	79f4caa5b338302cec3111c7a69093ead71707856089514628cf697907a5c036	8c6b9adadbb7d2b7a76fc2e8d243d92080e74d4fbe69e72e5652a98cb9fabd4c
+parse-errors.test.sh::007::Incomplete if	stderr	916ade2e513b7d7f584373ade34271f5fc4b72eee527ac9c086d5db5ad78a6a7	2420ee109b95c4c0506aef37b636fe42ee9cb2ab565cadf3c9958a3330fe5611
+parse-errors.test.sh::008::do unexpected	stderr	f7f7f693d190d43ded6a4a852143e44ec6a4792281bf8fdd62c5fa8b2e44b79f	df360fc321fbc707c83df410b5bd4f3489c57cc521f2426b726cd91560fa011a
+parse-errors.test.sh::009::} is a parse error	stderr	951853468a8f4135dd853d717c891ae86777ffa8473f6f0dbfac10658e2df397	24c627a08ae2181b06f27da65557d05b544552895686d58d0bdd3c2ac3e95406
+parse-errors.test.sh::010::{ is its own word, needs a space	status,stdout,stderr	ed27089f0a4ca806c939ec471f14afada9b28738ea6d56faf459e6e7b8385225	b49e12e4edd616fa623503edbc8470ae500de8d7614d31d32475dfe2dae81bcd
+parse-errors.test.sh::011::} on the second line	status,stdout,stderr	5fb550a33774ad41d09968d3e439092d58053f18b3db48ac73ccf6ddb4e25d42	8a4a294901a794006b980839a810231e9e51f4e04b19e057b1bebc5533c77349
+parse-errors.test.sh::016::misplaced parentheses are not a subshell	stderr	6ee37f2bcae6a8c118f7cd2ca31eb8a87d8f367cec06d5937589eafeec8350f7	7c4f006f1158ad4a8bd84c9a64667562267f8e2ec5925c9c68172acd24e6cdde
+parse-errors.test.sh::018::incomplete backticks	status,stderr	61bcefccc2ffe58b87198d44a48405485e33bcb4591fdef1e627aead5cbfa46a	ad2e2ee59fca5e0a6ad99637977bce971b2593496503dc3307840ec6e1b18a9e
+parse-errors.test.sh::019::misplaced ;;	stderr	851694270a2f676606b39326069266c7f65a3fd76e6b61d42698495b75682022	d6a36337506625c0c2ec16501df0c0762912521b0872c2d50c17ffa526141979
+parse-errors.test.sh::020::empty clause in [[	stderr	08995846f0f5ca9b640112a484e557c205813bb5cbaddfa33a5a86a0d349f37c	ee6d2cd3bd7623e5be4a446d5f31bae6f77418215d4c0f1cb480c76d7730330e
+parse-errors.test.sh::021::interactive parse error (regression)	stderr	7daf4c49430041975a488b8e3e0da3922efae4416291f6bcfa109eb5e997f886	e1cd2effb720b7e408c39210ecd1fc89ee7bb938659a8241d138672081f1bd37
+parse-errors.test.sh::022::array literal inside array is a parse error	stdout,stderr	3cd19c9c011dbacc540fece068a41fce53172b1a5bc3b90728d084363ca25411	849ece8c66d216096f925e2e309ba5b731d76d84a24afad233828d9dfa060cc8
+parse-errors.test.sh::023::array literal inside loop is a parse error	status,stdout,stderr	e0099d6633bd96a10b315defcb9d9820a2b19e3a46051fb0e4e976875e9965bf	fb7c41caa9801851b6273d9493de72a1a3b9760048944aa633b5c86a66db49da
+parse-errors.test.sh::024::array literal in case	status,stderr	18f9363f7f9dfd6311b9ae5698c2f4462579159ea7ca00b6eea01196124fe295	f74d9274770c8122d4daa8fb16031d2a648a4b30f233f21659d68e0356f59f68
+parse-errors.test.sh::025::%foo=() is parse error (regression)	stderr	40bf32de18d7d606079dd688e86bea14802c5d46cf78fbb1c9c258dd23977a8e	5c2c064aabd6f3c61721d9fc464f64f4da0af617ae068aec35fa7e91824f8f3f
+pipeline.test.sh::006::Initial value of PIPESTATUS is empty string	stdout	a7b1df7769e6fe93a075e3a1e055baf41ac8a8e954c31153da54354e7a5e63ef	30aeea5f814ff745ff63d443425cb05d07012740fa66262925ddf86f86e88c41
+posix.test.sh::000::Empty for loop is allowed	stdout	f74d9274770c8122d4daa8fb16031d2a648a4b30f233f21659d68e0356f59f68	0ee70756adf2d0ba0212f8b769110292f755af965f53e7edfabe2bd2fece450b
+posix.test.sh::006::Empty action for case is syntax error	status,stderr	6f0d932c6b0a20618f814570b3b93c009f519dac382ec310a74fae85e0820ff1	ea974348031bbebb8ce5830f0773e9c4a0057e5014c43351e0a0f1b57f6fb787
+posix.test.sh::009::Bare semi-colon not allowed	status,stderr	a87c2034b348175af85c0d4c98440b32115d80fc86622f2d7484d0a7b99bffc2	f74d9274770c8122d4daa8fb16031d2a648a4b30f233f21659d68e0356f59f68
+posix.test.sh::013::Multiple here docs on one line	stdout	1e0c472b5fdb9a555e028e1e29b933b6a40068303e10ed4529959e8bf015252e	4b7c19d372848418ef807bf0d8ed6d794f64e806d4569dd14565b74c0e454ecb
+posix.test.sh::014::cat here doc; echo; cat here doc	stdout	d9afb45fd6b293d0d99730b043f02d027a9daccec845322c52bcf922b50f9174	4df9f1c3d912082ea9a89313827c8dfb21b4260ceeb1fcadef62d50d6583ae2b
+prompt.test.sh::003::special case for $	stdout	b056df89a37007a4cc81885073f0f3e4ade844c1413c91820e6ba15d1b16f583	6feb18ca5aed52bf92c93a40a56e75570e4b7abfb5f8d1283364ad83d50dc406
+prompt.test.sh::005::PS1 evaluation order 2	stdout	0fa8968c66a324c48811aaa05df1df5ed8f9c363c369f3f71a60ea3a4fa6df78	ca9d749a6c8360a299e466d73086f897d2887975059cdafaf37d5a208224f136
+prompt.test.sh::008::\\555 is beyond max octal byte of \\377 and wrapped to m	stdout	53213fd8fb891dd1a8bda9b389b059cede08d33e3a42e4dc77d105231cd8abc3	5b694432e5cf701be564572f96966bc1bf26ecf0967f37be81e1ee3f7c9b34c5
+prompt.test.sh::027::\\j for number of jobs	stdout,stderr	variable	51496f6791efd3516d27a94866033ad1122fb5fefa955c1fc716ae6dfb43e803
+prompt.test.sh::028::\\l for TTY device basename	stdout	0212da626596fb262ac2737362ef3e36e0429af339281f341a5054063b83514e	109d15aa17b07e06968b6df1fd0c96f8fcd9c8cdddf97c6684e132f6aac2ec28
+prompt.test.sh::032::default PS1	stderr	f4a5903d136821c528e7a75dd8455e3c3e391718aaa0a2856c9c3aaf9b386bc9	20c1d3eb6587c7844b2f4182b863de524166a76714200769cc22e3a40bec3511
+quote.test.sh::020::Unterminated single quote	stderr	4ae95fa64772c57508590f9d92b9b3cc3b68d52fa24b22b42e7552570d6dc05f	853bacf01c9dcd12b0ed847c34bab2374f76f9521c9f4406320ca4649e3c4bc0
+quote.test.sh::021::Unterminated double quote	stderr	8c5f765879f98a3d9ecd1127f16fcbe3d6d59f5bf64d0cbab935d284f040c5a3	853bacf01c9dcd12b0ed847c34bab2374f76f9521c9f4406320ca4649e3c4bc0
+quote.test.sh::034::\\c' is an escape, unlike bash	status,stdout,stderr	9497e0add454cf2807207ddbffe7095c9a71d5e13024ef75700b616f9c491bb3	be138da924de28fb96c6125c2479695bbe1d6e4422fac14efa50741c07efa47d
+redirect-command.test.sh::003::$(< file; end) is not a special case	stdout,stderr	fa6dcb3806164c322b4b83c8d7f7af417a8942b69c9287afb18146d8b8f4e143	b9754c45f44e5a9850fb3cb510b7833d5f7ca874ff660df9604bfa1ea3c28bd4
+redirect-command.test.sh::019::Prefix redirect for loop -- not allowed	stderr	04529387a32a07be196ba0f63ce7d9de425d6b1b079ee0067fd34b540e6a4364	144a03482e05d016cd3ab516131a217abecd28bb533266a80a3590bf3582bd57
+redirect.test.sh::003::2&>1 (is it a redirect or is it like a&>1)	stdout	c0f9a508382f5bc9def1ee87a2b1028d428e3e605c4d27aa7347ccd3dd35c747	0fa8968c66a324c48811aaa05df1df5ed8f9c363c369f3f71a60ea3a4fa6df78
+regex.test.sh::010::Regex with == and not =~ is parse error, different lexer mode required	stderr	7af8cea4477b5339992c11ae774ce3dc12b9246b38b98918d775317bd76f9907	f9f9ca611ba85db4d65b75f6189540c979dbf0cb098b124ce8696072b13771bb
+regex.test.sh::012::Malformed regex	stderr	c73cf32504d1078472aa8c79f93d8a04235cbd8a78caed91da643fc5ff79dc1b	27ae9a311707e0174695c7f2d6bdacf07af69edf1372a9679b164429de201110
+regex.test.sh::017::Fatal error inside [[ =~ ]]	stdout,stderr	9a66e1a45758c72c5dec2037bdd2bff569ae458aee776eb91ae1e5b3dd94c140	f0027d5e6d5c53e705d5b38e63aa7f6ce725e5a4c43356097a4fbfa384419918
+regex.test.sh::026::Bug: Nix idiom with closing ) next to pattern	status,stdout,stderr	1e0c472b5fdb9a555e028e1e29b933b6a40068303e10ed4529959e8bf015252e	2505859f80c28ec44df40e3c12056d118376ad0c76dff7d6db44bcb111bc4792
+regex.test.sh::029::unquoted [a  b] as pattern, [a  b|c]	stdout,stderr	0af7055a882e1bbaa37e889c57708746b648226c55fce03665972ef8b7bec306	8d6a5282cc1a02e4c86cdba713d7432ab1d92a4d057dd032f44035d787d369e5
+regex.test.sh::031::Operator chars ; & but not |	stdout,stderr	35082148b0a581c880b470009e864ea25decb59fc06279ad45b09fa2e6dc03c6	341c7f7fad0d01597b485c1cbf2cfbe44d24f2be286ec1bc0ad98bc47113efc2
+regex.test.sh::034::Parse error with 2 words	status,stderr	cf27e1297410076bb8f8b567abd7b5328fdb2e3df9097f0461afff5c285f3268	f74d9274770c8122d4daa8fb16031d2a648a4b30f233f21659d68e0356f59f68
+serialize.test.sh::004::printf %q unicode	stdout	787b2cedda30453220d7f6c914afc08f3c12dcdf6e6a6fa603e260c591202dcd	c55bf56984e6dcda770a80cc0bc3acb4567191263b7cbb78d7f36aeef331df57
+serialize.test.sh::005::printf %q invalid unicode	stdout	8f4ad4a60d631ac9a622a58cb405ec89631b617ae81138e8f615ed67e136f6c9	3580ca55ff845688199ad72df5f332b6f2271a38a3a8ba52933866b4da6c68a3
+serialize.test.sh::008::${var@Q}	stdout	9c11897de6607cc858a9216ee301e39a7ce03c2c7ce6bc7869f53ce524175982	cddd3e20e634f4b1f9aac9294c59f299f61d0a761efb7fe8e285c8b4ea7c37fd
+sh-options.test.sh::003::$- with interactive shell	stderr	ee9628db421c95c1ee7859953f1083474aefa68c8d1b579a501cf1f47af2d8ec	24a18abd9a6fb7e690a2b6b86021547d0f4d683371ea7d94950fe722571433e4
+sh-options.test.sh::009::interactive shell starts with emacs mode on	stderr	535aeb521a52ac6debde92288b34bf49b4b1c1659c71b1d8c5877ade63fe2d7a	8b0449abc5a0337e06d7ec65779680f715e156ad88841545ccf7ed89ec4e59a5
+sh-options.test.sh::022::noclobber on &> >	stdout,stderr	7dd2473cd4a64070e659d53eef5f7aed7d7c554fd4033d518956e52ef3a0c2b7	b23cf3afbf059965c68c1fc597115ffff83d74febabf92e3fa6256127129eccd
+sh-usage.test.sh::011::--rcfile in non-interactive shell prints warnings	stdout	34b93b0d7860b21540d988291f42c07b4fec11ece48bf0d829972212cd45d1b2	f6629ab9211d1ebb72fdb24ebbb9939cb3ae53ab299d2379e351901fd3874bfb
+sh-usage.test.sh::015::Set LC_ALL LC_CTYPE LC_COLLATE LANG - affects glob ?	stdout	932f45a2c003df4d99d3849f92b9cfb0ba8543fe77075c020af24449985c046e	775dca158942a5f7399b8bf1263365e9e95051b1661750ad73c6ae0b3ba4e5ee
+sh-usage.test.sh::016::LC_CTYPE=invalid	stdout	fc3187d395229d8f39e97dd0ff955e983670ad007209bb0c90098a95ed494fb6	e31783aee8f185a9d82055e398c05be01b820cff9fcef34d0969a6ed8db409c3
+sh-usage.test.sh::017::sh -c -- 'echo hi' does not run anything (#2637)	stderr	1fd67aa9292a57d6ec2793aa3e18d9e01cbf36be7db9a80631a7c2965005523b	38ff6681e60e27fe99e45b98e1c1d00a94a1ef8ba38879502819018956149b51
+sh-usage.test.sh::018::sh -c with multiple -- args	stderr	43e7a17b0174cf378cba881731831ea0a32e2befdbfcca285e96931bc499d720	72a1bb800b1f23eaefa02b2366e3f934189b0d831cba0a0e6c4ddff7a971e04a
+sh-usage.test.sh::021::weird flag parsing -oo errexit noglob	status,stdout,stderr	817e36372d0565c5c6b02b6adcd9b608876f4ee1b43eaa7d475da039b2c67730	391b1674aac0a802de0ef84dabed5a08f5cc4d461c5411b1e80fad374e6cee0e
+sh-usage.test.sh::022::'sh -c -z' does not try to run -z	stderr	78ad74ef0343e9f86572eeeae6f2c92c42aa0ac31c9ccbf67fbac75c8a78ceb0	c09111358856751c4194b3695a147ab12dab8efbcfe873ad12cc77590ee2b378
+shell-grammar.test.sh::023::If with then on same line missing semicolon	stderr	38fad9433882d8cfabf5e0f8dc429c8303ea6c5c1a1f8386b12a5ca769f08a9f	765a8db00eed3ddeeb3afa6ff7e1d7da0f5647cbb993e2a72a8888e3f448c95e
+shell-grammar.test.sh::030::case item without ;; is not allowed	status,stderr	de2f0fb2771096aad6d1498885cb3842c8c599f22a7f9b84c1263c51b0b6d789	b592cb28979df1767b6cc6ef4e2de061cd520a855dd335cf97ec26baa6f591dc
+shell-grammar.test.sh::035::Case all on one line without trailing ;; or ;	stderr	9d321312977a2b1ea224defe17f5b3270c669717603b1ee80bc0133c0b7551da	f999cbef1cf11207cc551c6f5e75e2a6835467dbe6c67e30c587cb5550c22f92
+shell-grammar.test.sh::036::case: Using ; instead of ;;	status,stderr	e5034e2091bc234a96b0aae59de8c70ff6324cb900958ba57b0ee487e3c8735e	0d7352a112154da0946c1ad557211e9ef6c854c3f7febc57006a2b16d6937d0e
+tilde.test.sh::011::x=${undef-~:~}	stdout	e282e5b07209723931820cb6863bfcfe2f6dbf84776baac37df2739dde4af1c9	6305c683bb366d637d74aceacdb75c1a0d7f493f828c758922f033f8b5a02e83
+toysh-posix.test.sh::007::no shebang	status,stdout,stderr	04e951b9ae88024f877daa755e331e13c3b9f73bb7ba8b19cd239c8202faeeb4	677a4672e3b04b1e0396712d9fa9e98952aeee620b725ce18468f0e1ef697931
+toysh-posix.test.sh::021::Command Sub Syntax Error	stderr	805e2643df27431a74328b7edc79923c94f8a74012cf6242d6fcbfda8b1929ac	494aee0315bb93668dfca2221491cc479df61fe6740d38cc2726170fd6fb98f2
+toysh.test.sh::001::extglob $IFS 1	stdout	de0108f5eea330538fd4087c4ef1bb93322367a52e9a88a59c915f28d56bc426	3e5cd4927476c2b2e16e1acf64db923e0d4d77404d705125dd35216c78fc9e41
+toysh.test.sh::002::extglob $IFS 2	stdout	72a636aeb8a4c1f6d310b3732f5b4b310cd1ffeea6e41465d96b1b073703b777	71c140f3365cc47fb12f6c9865b16dd3e6c8317fb363b1c3be2808b57f5a4e0b
+unicode.test.sh::000::OSH source code doesn't have to be valid Unicode (like other shells)	stdout	ba3d67f6f10c1453c19f8ead0d060f0aa9375f470e1d7da1b7784ce8b3324054	6c593b9f469d7370a4926013248539450280c66d2b9f5a18983f8358b546f238
+unicode.test.sh::005::printf / echo -e do NOT check max code point at runtime	stdout	be8488f3bed34c590e14d59401e4db9c867d06ee35872e472bf988d31c6d2a41	6fa6ec4bcfa61195d8051113088c6d542f429e03baaca522b98ad1b201ca9ba2
+unicode.test.sh::006::printf / echo -e do NOT check surrogates at runtime	stdout	d97550ddad120868fc1040d183f599b85cd972b5e4bde2566596d4872ca57974	cfe72cc74056a226246c82358d26cced268a2a075f8b129a40f238ecef16f989
+var-num.test.sh::004::$0 with -i	stderr	847c15aed5c4c66857cf92351b9ffbfa69c4289a9436f7c261c394c0569dc163	0bc5efc83240d5a0864fd68d1f18c038214f5fe31cfd4d0cddc228b270248202
+var-op-bash.test.sh::002::Case folding - Unicode characters	stdout	2e6a5b320d3b57d4e54226d28009bd2fa3944ea20b68794a812ac42b159ce4a5	54632562b51d98bdcd45e6b62a7e8650b9407879dddc4f37227641eb4bf956a3
+var-op-bash.test.sh::019::${!A@a} and ${!A[@]@a}	status,stdout,stderr	246d1cf991b7e782ef8eae16c8d73c8313abc678e283a32bfd921fc0788cdf5c	4c078fe56795ebc5eca505fd19b661f6f8e177c6c80b53c65ae8fa85603e38d8
+var-op-bash.test.sh::020::undef vs. empty string in var ops	stdout	632ae00ef77f39377e861c6bb858151c5d087a2d67017e5a036bc6bbe0bd2494	6799079aade3b5e0d3781c6e8deb2a0df6b712b86efa07f9a553b490c01a3e70
+var-op-bash.test.sh::021::-o nounset with var ops	stdout,stderr	ce8bbc53d81b5bdcef7f4d68abf8f1a7874b37845dc2a8dba813dcc263549ca1	7a0de72369566b054fce916b32c95cac7d27561a6b4c0e7efeda0ee2f63534da
+var-op-bash.test.sh::022::${a[0]@a} and ${a@a}	stdout	9c118c7711487460dec7c919c880570c25aed35329fb723d4a673d2212a929af	3ed6a658853afaa611c8cf0acaae1ca0f4dca0caa2adce331bec11b3950cf2c6
+var-op-bash.test.sh::023::${!r@a} with r='a[0]' (attribute for indirect expansion of an array element)	stdout	ef279e21093a9879b456330858af70a17ad59bef670beca85f060f29370db484	b744d7c9052cdaa102aee20609d94782bfa04bc605634c8220805b22b4b95b06
+var-op-bash.test.sh::024::Array expansion with nullary var op @Q	stdout	a8c1c6ec1347190bac354fb94f8447d6f63ae86ea98d8f897c2a8287430abdb1	cc8feb1f466d1c627ea05376728aa76a060c7e4d1cb347a71fb9c34ad78da78a
+var-op-bash.test.sh::025::Array expansion with nullary var op @P	stdout	eb37d4d1559b0b50879882d8aca2da281d0988eb827443777189df8a9720c97e	2465ace024ac062c8c5955956db5f5e477ad4dcd3bcdaf5911d6af2be9b664f2
+var-op-bash.test.sh::026::Array expansion with nullary var op @a	stdout	f8a0082a29f3e6268954081feef7e6889e38acecc55993fd5c8e5ff1304f4de5	a69cf0b2d27d8c75b96126b07a638180ad8587682ac2dca21e5b773533b510d0
+var-op-len.test.sh::003::String length with incomplete utf-8	stdout	1afa1a57fa133bad070dbcb993b4606c7fc99fc7ef21f9f4a8cae0f537e13428	b63e08e188383854381435458112c8814f69103eca23f71ef95092d4eb9f5670
+var-op-len.test.sh::004::String length with invalid utf-8 continuation bytes	stdout	19e5d60bac360e01cfd6beb162455cc4dce345cd0bc74c5e6c28088bc9dd877e	f80b404e68cda838e8637e55d07c9e73a86cbba30b6d33e7f84b258ccb1a8e17
+var-op-patsub.test.sh::011::Confusing unquoted slash matches bash (and ash)	stdout	eb0e5a098b1ecf5668c3b5ade65466a12c80cd56d98e872b30d3693a338217fe	7ede6807d6e65db247076e18d82b1ef1052e288f487cb7ba89efc52f9699b9e7
+var-op-patsub.test.sh::012::Synthesized ${x///} bug (similar to above)	stdout	2e6a927fe8cd4909914d4a1c5847df83c7a8bd9444ebd5b0fa36c55f06865b02	b8b40e94f0249a12254cf2851e0eefc54943dab633b76db1ad9c8b38e3688798
+var-op-patsub.test.sh::018::Substitute one unicode character (UTF-8)	stdout	3511d1f2f746b8866c1b1ddac151b312242e0a2316b541b72c19736823cdb7cb	abcdf4f89f23279ef1b390dbc0814e288a28ea7fed3cb416b1625f1e5f29172e
+var-op-patsub.test.sh::023::patsub with [^]]	stdout	81a5408d36a21155e37b539903a924a7406033bf637b6c2f9966dede080c747a	79c4406024133422a3b47c62fb28f6e08fcf718ea7c9f8e14f91e0216ed8eff9
+var-op-patsub.test.sh::026::Chromium from http://www.oilshell.org/blog/2016/11/07.html	stdout	3a9fca46398404af9fd54ac3866fb4f305c3f18c69ab6b888ce0fe70e7edcbb1	9b668edb18a83e7b19b09199b35e820b27d2def3226b6f6b752a2c228b7aede2
+var-op-strip.test.sh::010::Strip unicode prefix	stdout	f4edf136eed155f89fd84492e6e0f267017fa3604396688afaddeb373f6ba052	c39c0a3f19044ff61ae6c5311df11b0c3c33a4ca071709c6533e018b091f2256
+var-op-strip.test.sh::024::strip all unicode	stdout	d34d69f24989d582184a5a2c60f65150134748fa4422511bae9fa7cfa1e11bf4	ecef6b065c84978ee8e1bb5f5f86503024180bda45f93d7d1c82acb3e783d7a0
+var-op-test.test.sh::003::Unquoted with array as default value	stdout	1c02207d2e01e32a4a769c50dabc5700215c87bf27800faf100e2ca87f2a7926	42d7ada02b85bc4384913cb88852af7ff591096e7d3b8081338c0c0394859305
+var-op-test.test.sh::005::Assign default with array	stdout	9289613eac9fe3a8d1af6c7f9eb9a1a48392220c21e4005217e3a6ff08da0bf8	00d360a0e19c5523a2da00c3d51645d1a078efcc3344cd8a64f4da37fcfff86f
+var-op-test.test.sh::021::$* ("" "") and - and + (IFS=)	stdout	1e1ce1022e73cab7ff085ffe783bef0e0b6005dd6ec25dcd71f8435da614d645	830cd2ed198bedce7ff4fd459b0172831a5a2f0aec2a9237f2f1a5dcd2fba5e8
+var-op-test.test.sh::035::op-test for ${!array} with array="a[@]" or array="a[*]"	stdout	8c124f861cf71206e32bf91072f6219875a9a8f84ff4288b60ad5e89385d350c	4ea0fedc42b5ba57704caf12980f245030c32fecff77eaa02ad8852929820c76
+var-op-test.test.sh::036::op-test for unquoted ${a[*]:-empty} with IFS=	stdout	66c928d13b99658f8dbce017686fd94caa52c1d3081bdd954ab5d6650d7a66ea	21e76c9fc1da4b1f716a4e011ee603b857c80f46637e3ff14f29bee196c4d0ba
+var-ref.test.sh::003::comparison to ${!array[@]} keys (similar SYNTAX)	stdout,stderr	b19bdd8c451ae6644f5beadf14f0c206c2d38e4feca0367dfebec787e20df094	bc66712be2c348418f3febbf7dd7b3e48b97ce52aa4f3e0789ad4a4e0e9e345d
+var-ref.test.sh::004::${!a[@]-'default'} is legal but fails with more than one element	stderr	200407f4a77f901f28273ef466ea8d231200ec894e566b8412ff8d604770650a	7df930fdd5ef92f8d98f02694eecbe8cdf47c73527bc4b4cf71c96184f0f9931
+var-ref.test.sh::011::Var ref, then error with ${ ? }	stderr	d7682b4a7c21c6b1f14d970dd1bc328609c294f30957c7c38ef5db2ad77ec4a7	b32e83dfbd94e57f73898e5070b9da4d88939a1cd1fe8c3da9cbe8884178809f
+var-ref.test.sh::012::Indirect expansion, THEN suffix operators	stdout,stderr	3d2c1f2ca5ec7a4431485186bb6c1ba1cd7fecfee9017208225224c4850fdb1d	96cb9044b26b4c4d1b0ce6ff53e30ee114604a8a5ce7b3f622498d7445e2b882
+var-ref.test.sh::019::var ref TO array with arbitrary subscripts	stdout,stderr	43f6d04469f2ca0d882e89844d5630de1e34b3b5a0c19c9c439718d241e022f6	50281c417a44a3be0a11180d5062b46d8f84637fa692d71c3deb1b4ab51faf6a
+var-ref.test.sh::021::Indirect expansion TO fancy expansion features bash disallows	stdout,stderr	c26798838cfcda985186db03a21332d16f408e900e7fe64bf1368bd8db697b52	3f747768d180e33dc204b5d1e084d1c9d0500daed93f9f6d9462425b6bea2184
+var-ref.test.sh::028::Array indirect expansion with suffix operators	stdout,stderr	b896f075ca2cafd3969c27a46ead87b63fa991119e0a8786e4fdf8fd7e96f509	a0535a6cc5f8b1df0f3f5ab56b999366c487161bc2b4583f10551cdf8453d1e9
+var-ref.test.sh::030::Array indirect expansion with @? conversion	stdout	f055bf7241a7281e13de592e3ca1196ab26c69161c958762ae37c52276c88ef9	2d9972197b21160f18ae50fdd74993e45c73c2c6a7e484f8c7fdc56805d82655
+var-sub-quote.test.sh::031::Syntax error for single quote in double quote	status,stderr	bdce6cb3606c44e71411a6f759a1ff68045b500a1e906b113cdbfae6e7005457	79316ea1876ea0dcfa981083d110518c62c541960785578e84b07bea667db78a
+var-sub.test.sh::005::Here doc with bad "$@" delimiter	stderr	54d60fb4237185fd1693aff09751d2e19da3277964523089f3c2e3407ae31c9c	8893e4df0eccbd719c13806cb3155f3900de075b8a75f36bcfea6f0440dfba24
+vars-bash.test.sh::000::$SHELL is set to what is in /etc/passwd	stderr	b9545800dc9cf1e43a8abd09c531f7cc00b322f7a5401c06bba61b0f91295c46	401915b8ef03c802da5d86cecf36caafacda3e13ff0e26c8365e093860338a6c
+vars-special.test.sh::003::$HOME is NOT set	stderr	918c9639cca066a56a0ff3c252723912e592dd3bf07b8f12fc2fa7351c7d8d55	bec17c2bea92f4154db83a089cc5b19c022058dd53cde56cd78e1cf1734c2fce
+vars-special.test.sh::004::Vars set interactively only: $HISTFILE	stdout,stderr	6ed7e4a6762ecb55a6ee8c282d92fceea22d9dc77d9002fc4407ae300457bf5a	f2d47b27a535d8e3e765c509141e9c48d3e3bc4eb60cd1660db95d3cf2d4d4a4
+vars-special.test.sh::007::HOSTNAME OSTYPE can be changed	stdout	79ca8f9995197380c0859bc4e8278f542e1bc8ea0bc857a05255627a06166b89	91e5e06f70346dea13d759f9110acd6436651f978d62f97619a78e180f97865a
+vars-special.test.sh::017::$RANDOM	stdout	variable	6a8e3bd17b1f744ef1f7058305a4562cc317dbee7cfdb686352734063bfd4e83
+vars-special.test.sh::037::$_ with assignments, arrays, etc.	stdout	585770b3665e9f20b5985014c778d292d79e7d560babc8020fa88e9cbe3ac6f7	73d555148b3cc6415f86c6edf293abc8b17a7a0b627c616b19277fc178c918a1
+whitespace.test.sh::000::Parsing shell words \\r \\v	stdout	c3410bf69d382e512db2717b87163f7bd3ddaa96a7d092f61bcd8f4db250790f	281ae4759bccfef317ad757d3019ec993139c0b85e5f99ff40d9708930412d17
+whitespace.test.sh::001::\\r in arith expression is allowed by some shells, but not most!	stdout,stderr	6dcc80ec8eee8ac19f1385fa88fb9db5694d3c67b2d8bc667ec02112054319f5	2ecc56b2ec1c895556bf3d324e7f40dea50eb169e83fe1ebbcd026be8b9ab18d
+whitespace.test.sh::002::whitespace in string to integer conversion	stdout,stderr	86c70da576274caf023c85a996011983a1a001137337ea2b547030459cd7df78	c122be0c79db6162046d1ea15254528046726bd9205447efd4cb31e4821009ae
+whitespace.test.sh::003::\\r at end of line is not special	stdout	9a0a56c01b417bd9d2e9bf8e1ef360726f16ec3f19258f14628c483bdf6916e7	11fce8265cac85b06cb45d8ebcc31a98c2cd0cdc3af50f4ccd1b19ab471b9014
+word-split.test.sh::039::IFS='' with ${!prefix@} and ${!prefix*} (bug #627)	stdout	f5862b60d05773c7f4fe6bcd7ea2aff9a7db4c8490bf9ff10381dbb732fdd4b8	7568c19d512da165fca788a49d2b782f6bc2497419e15308c4d9cc8248f8506d
+word-split.test.sh::040::IFS='' with ${!a[@]} and ${!a[*]} (bug #627)	stdout	f8e5b7b28bc7708cc27bff13815fd2027befb4a87302e83bfcb8150a8512906f	ac83bb595e6c03486c32fcaa4a7bb1024f06c3019192dac4ab64bcf1cbf1d6e2
+word-split.test.sh::046::4 x 3 table: (default IFS, IFS='', IFS=zx) x ( $* "$*" $@ "$@" )	stdout	e7e6dfe5f5fa4227afafb9f364e8b25469293887d3afdedf5f6ff24d4ad77852	3c66f5b0a5f9afe96a64e82acd3b5b2b3c08dda13407882356faddd70fbca2d0
+word-split.test.sh::047::4 x 3 table - with for loop	stdout	41d71ef6d41664c59ad6ddde2d6140edb8a25656533ced84dfc052568bdb95df	0b3aee34edef56c8565006b22d85d37308a7dc40a0751831dcbf38f14c69d660
+word-split.test.sh::049::IFS=x and '' and $@ (#2)	stdout	2ca59d4d227569a337c236cd26af8d309f8c524e03b110ba189ad517ba3f54fe	be136182ec241d276abe65d56faa4fa76636dfb936f18e35c0e6cc6776f6710c
+xtrace.test.sh::000::unset PS4	stderr	f268f4c46bd0482593c10c6d4d9b6684577a5c58e1b22fedae6fc596052c7f1c	3cd0168708331fd1aca2c5d4d6bc4ed08b1e0c5b78b454b67fed3cffc8d7e359
+xtrace.test.sh::006::xtrace with whitespace, quotes, and backslash	stderr	906f8afb9e0c376fdbaa2edbd952946573b680077cf18f8e4039f81845686909	6e1625c34ffe5ac2729933177419d9bc9ba1a968384bbf2ee1a0919fa281a9b1
+xtrace.test.sh::009::Assignments and assign builtins	stderr	6a4810769e356ec08d12422bc72f56ebaf17796955ba4d7fe41eb057555d52f6	46c91c203e084cb01be84365c04d72c2ad972443d55c8a0a3d30e1fb88e32ea1
+xtrace.test.sh::012::xtrace with variables in PS4	stderr	c77bbcc988abf58101700aa057734c990d1756a2fef9c8f150c04f610332dc72	3eb8927cc3fe559b1c3234777a89e67f8a5d2b7d25108612c58c998de8798556
+xtrace.test.sh::013::PS4 with unterminated ${	stderr	705ba42ac07583451be40b673ee42fdf44bdd7efb198ed9c95daffc5a29bb3a2	842912f650acae0713319294c85239d46effefedced89d41d36826c7ecfb798e
+xtrace.test.sh::014::PS4 with unterminated $(	stderr	7bffdaf5a97780ed47b3f9f83a1471b6edffe1becb50c314ec14f8d10b8b24de	ccfa4115ecd939be12a5c88c8a7be455fd0483b6ac8ccf1ababe238b46b311f1
+xtrace.test.sh::015::PS4 with runtime error	stderr	e087ad2ba32b00bd420a03c083aab9023eae9f39cf947f47a54fa51fa176d1ce	5428ec29b5861b04d908d0d7d18bb58f0c31b9bbd85c4f852c20ec695463966c
+xtrace.test.sh::017::Regression: xtrace for "declare -a a+=(v)"	stderr	b0a716ed75d57707386f5046e543b3a2ba79c398cb9b3122a2a3a3debc7d6dd1	1d7c5cb4868e0a95b2e453e231bc7bc9f753340b4737421896c61d155849e51a
+xtrace.test.sh::018::Regression: xtrace for "a+=(v)"	stderr	8231007cd46bdb3bfb5e8f629603c32a743fff7e5ecc34c840e19f6d9aa747a3	8d69d20ebe34a2adbf600c833841cc6a0ad8b1e42fc4bc61b0b785832b9d9999
+ysh-builtin-private.test.sh::009::builtin sleep behaves like external sleep	stdout,stderr	820e9bac114ef23aa44c9174616982820e83a542c653ea55fd0ca244ce293fc6	29174d2287489400ffa55556a2d819fe5eb46f4c91c86096fc8885ace352d1c8
+ysh-builtin-private.test.sh::012::builtin cat	stdout	9e1e0b8d0d1744f95996043d9216b943bcbb69a73e6ce12f42e918dd0ea40d7b	183112b66d87471bfe893eb9ee5f8fa37362d61cdf9f2b04b08e81b249c7a417
+ysh-builtin-private.test.sh::013::builtin cat usage	stdout,stderr	b7c888103a8bfc2900327be0aa65ced05e9dd50b4ffe38bae3d9d3a029648770	0fa8968c66a324c48811aaa05df1df5ed8f9c363c369f3f71a60ea3a4fa6df78
+ysh-builtin-private.test.sh::014::builtin cat non nonexistent file	stdout,stderr	a4c8345b1336f045ffb543c68d6d98b149bc8ba53a446220c4e56d9122c6b2f9	0fa8968c66a324c48811aaa05df1df5ed8f9c363c369f3f71a60ea3a4fa6df78
+ysh-builtin-private.test.sh::015::builtin cat accept - for stdin	stdout	f451e89db123eca6f523d6f8ccb2cd85925fb016891ea3ab90a0271bad6abc1a	183112b66d87471bfe893eb9ee5f8fa37362d61cdf9f2b04b08e81b249c7a417
+ysh-builtin-private.test.sh::016::builtin rm: usage, removing files	stdout,stderr	ec9433f46292b20a4cb17e7820fb7033c0b9f465e803fc691991cd70a66ea4a9	700441438d61bc3f2896abc5711113dc9f9134a4d4d6451a1fb347ea2a5083da
+ysh-builtin-private.test.sh::017::builtin rm -f - ignores arguments that don't exist	stdout,stderr	919f8b1224689013a05b5dfc86084ec18e8adddb4fcd7a526172d1d08d85171e	f2bea8419d03f729499d3533847e2a88fbd93f595e04dae758f5b843400f1267
+ysh-builtin-private.test.sh::018::builtin rm -f - still fails when file can't be removed	stdout,stderr	cadd46d113d7e067583350bff6591b8b7b4590e167a7c5b7da5ca3dbb05ae9c4	9f80cee5593faf327cc037e43ca50f0bd470d5f30c2c947744bdbc7d9c339d79
+ysh-builtin-private.test.sh::020::builtin rm always fails on directories (regardless of -f)	stdout,stderr	c821fab86f8f7690e835c8cd485ade4dc4d07931468cd3b87e73bf41a778f2ac	f2bea8419d03f729499d3533847e2a88fbd93f595e04dae758f5b843400f1267

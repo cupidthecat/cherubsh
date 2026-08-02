@@ -98,6 +98,7 @@ impl OilsOutcome {
 pub struct OilsKnownMismatch {
     pub id: String,
     pub fields: Vec<String>,
+    pub oracle_fingerprint: String,
     pub candidate_fingerprint: String,
 }
 
@@ -183,6 +184,8 @@ pub fn classify_oils_outcome(
         .map(str::to_owned)
         .collect::<Vec<_>>();
     if fields == known.fields
+        && (known.oracle_fingerprint == "variable"
+            || candidate_fingerprint(&outcome.bash) == known.oracle_fingerprint)
         && candidate_fingerprint(&outcome.cherub) == known.candidate_fingerprint
     {
         OilsVerdict::Known
@@ -200,7 +203,7 @@ pub fn load_oils_ratchet(path: &Path) -> Result<BTreeMap<String, OilsKnownMismat
     let Some((_, header)) = lines.next() else {
         return Err(invalid_data("Oils ratchet has no header".to_string()));
     };
-    if header != "case\tfields\tcandidate_sha256" {
+    if header != "case\tfields\toracle_sha256\tcandidate_sha256" {
         return Err(invalid_data("invalid Oils ratchet header".to_string()));
     }
 
@@ -214,7 +217,7 @@ pub fn load_oils_ratchet(path: &Path) -> Result<BTreeMap<String, OilsKnownMismat
     let mut entries = BTreeMap::new();
     for (line_index, line) in lines {
         let columns = line.split('\t').collect::<Vec<_>>();
-        if columns.len() != 3 {
+        if columns.len() != 4 {
             return Err(invalid_data(format!(
                 "invalid Oils ratchet row on line {}",
                 line_index + 1
@@ -231,17 +234,21 @@ pub fn load_oils_ratchet(path: &Path) -> Result<BTreeMap<String, OilsKnownMismat
                 line_index + 1
             )));
         }
-        let fingerprint = columns[2];
-        if fingerprint.len() != 64 || !fingerprint.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        let oracle_fingerprint = columns[2];
+        let candidate_fingerprint = columns[3];
+        if !(oracle_fingerprint == "variable" || valid_fingerprint(oracle_fingerprint))
+            || !valid_fingerprint(candidate_fingerprint)
+        {
             return Err(invalid_data(format!(
-                "invalid Oils candidate fingerprint on line {}",
+                "invalid Oils fingerprint on line {}",
                 line_index + 1
             )));
         }
         let entry = OilsKnownMismatch {
             id: unescape_tsv_field(columns[0], line_index + 1)?,
             fields,
-            candidate_fingerprint: fingerprint.to_ascii_lowercase(),
+            oracle_fingerprint: oracle_fingerprint.to_ascii_lowercase(),
+            candidate_fingerprint: candidate_fingerprint.to_ascii_lowercase(),
         };
         if entries.insert(entry.id.clone(), entry).is_some() {
             return Err(invalid_data(format!(
@@ -252,6 +259,10 @@ pub fn load_oils_ratchet(path: &Path) -> Result<BTreeMap<String, OilsKnownMismat
         }
     }
     Ok(entries)
+}
+
+fn valid_fingerprint(fingerprint: &str) -> bool {
+    fingerprint.len() == 64 && fingerprint.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
 pub fn assess_oils_outcomes(
@@ -294,9 +305,10 @@ pub fn write_oils_report(
         fs::remove_dir_all(&failures_dir).map_err(HarnessError::Io)?;
     }
     fs::create_dir_all(&failures_dir).map_err(HarnessError::Io)?;
+    let nondeterministic = oils_nondeterministic_case_ids()?;
 
-    let mut report = String::from("verdict\tcase\tfields\tcandidate_sha256\n");
-    let mut suggested = String::from("case\tfields\tcandidate_sha256\n");
+    let mut report = String::from("verdict\tcase\tfields\toracle_sha256\tcandidate_sha256\n");
+    let mut suggested = String::from("case\tfields\toracle_sha256\tcandidate_sha256\n");
     let mut tally = OilsTally::default();
     let mut artifact_index = 0usize;
     for assessment in assessments {
@@ -308,22 +320,28 @@ pub fn write_oils_report(
             OilsVerdict::UnexpectedPass => tally.xpass += 1,
             OilsVerdict::Stale => tally.stale += 1,
         }
-        let (fields, fingerprint) = assessment
+        let (fields, oracle_fingerprint, candidate_fingerprint) = assessment
             .outcome
             .as_ref()
             .map(|outcome| {
                 (
                     outcome.observed_fields().join(","),
+                    if nondeterministic.contains(&outcome.id) {
+                        "variable".to_string()
+                    } else {
+                        candidate_fingerprint(&outcome.bash)
+                    },
                     candidate_fingerprint(&outcome.cherub),
                 )
             })
             .unwrap_or_default();
         report.push_str(&format!(
-            "{}\t{}\t{}\t{}\n",
+            "{}\t{}\t{}\t{}\t{}\n",
             assessment.verdict.as_str(),
             tsv_field(&assessment.id),
             fields,
-            fingerprint
+            oracle_fingerprint,
+            candidate_fingerprint
         ));
 
         let Some(outcome) = assessment.outcome.as_ref() else {
@@ -331,10 +349,11 @@ pub fn write_oils_report(
         };
         if !outcome.passed() {
             suggested.push_str(&format!(
-                "{}\t{}\t{}\n",
+                "{}\t{}\t{}\t{}\n",
                 tsv_field(&assessment.id),
                 fields,
-                fingerprint
+                oracle_fingerprint,
+                candidate_fingerprint
             ));
             let artifact_dir = failures_dir.join(format!("{artifact_index:04}"));
             artifact_index += 1;
@@ -407,12 +426,20 @@ pub fn default_oils_ratchet_path() -> PathBuf {
 pub fn oils_nondeterministic_case_ids() -> Result<BTreeSet<String>, HarnessError> {
     let path = workspace_root().join("crates/test-harness/oils-nondeterministic-cases.txt");
     let text = fs::read_to_string(path).map_err(HarnessError::Io)?;
-    Ok(text
-        .lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty() && !line.starts_with('#'))
-        .map(str::to_owned)
-        .collect())
+    let mut ids = BTreeSet::new();
+    for (line_index, line) in text.lines().enumerate() {
+        let id = line.trim();
+        if id.is_empty() || id.starts_with('#') {
+            continue;
+        }
+        if !ids.insert(id.to_string()) {
+            return Err(invalid_data(format!(
+                "duplicate Oils nondeterministic case on line {}: {id}",
+                line_index + 1
+            )));
+        }
+    }
+    Ok(ids)
 }
 
 pub fn run_oils_case_with_shells(
