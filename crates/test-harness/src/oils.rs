@@ -1,7 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io::{Read, Write};
-use std::os::unix::fs::symlink;
 use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -130,8 +129,8 @@ fn run_shell_for_case(
     if case.legacy_tmp_dir {
         fs::create_dir(work.join("_tmp")).map_err(HarnessError::Io)?;
     }
-    symlink("/opt/spec", work.join("spec")).map_err(HarnessError::Io)?;
-    symlink(&shell_path, bin.join("bash")).map_err(HarnessError::Io)?;
+    std::os::unix::fs::symlink("/opt/spec", work.join("spec")).map_err(HarnessError::Io)?;
+    fs::write(bin.join("bash"), []).map_err(HarnessError::Io)?;
 
     let bwrap = std::env::var_os("BWRAP").unwrap_or_else(|| "bwrap".into());
     let mut command = Command::new(bwrap);
@@ -142,11 +141,37 @@ fn run_shell_for_case(
             "--unshare-net",
             "--unshare-ipc",
             "--unshare-uts",
-            "--ro-bind",
+            "--tmpfs",
             "/",
-            "/",
+            "--dev",
+            "/dev",
             "--proc",
             "/proc",
+            "--ro-bind",
+            "/usr",
+            "/usr",
+            "--ro-bind",
+            "/bin",
+            "/bin",
+            "--ro-bind",
+            "/sbin",
+            "/sbin",
+            "--ro-bind",
+            "/lib",
+            "/lib",
+            "--ro-bind-try",
+            "/lib64",
+            "/lib64",
+            "--ro-bind",
+            "/etc",
+            "/etc",
+            "--ro-bind-try",
+            "/sys",
+            "/sys",
+            "--dir",
+            "/var",
+            "--dir",
+            "/var/run",
             "--bind",
         ])
         .arg(&root)
@@ -154,6 +179,9 @@ fn run_shell_for_case(
         .arg("--ro-bind")
         .arg(oils_root)
         .arg("/opt")
+        .arg("--ro-bind")
+        .arg(&shell_path)
+        .arg("/tmp/.cherub-bin/bash")
         .args([
             "--chdir",
             "/tmp/work",
@@ -209,14 +237,14 @@ fn run_shell_for_case(
     }
 
     let mut child = command.spawn().map_err(HarnessError::Io)?;
-    if let Some(mut stdin) = child.stdin.take() {
-        stdin
-            .write_all(case.code.as_bytes())
-            .map_err(HarnessError::Io)?;
-    }
+    let started = Instant::now();
+    let input = case.code.as_bytes().to_vec();
+    let stdin = child
+        .stdin
+        .take()
+        .map(|mut stdin| thread::spawn(move || stdin.write_all(&input)));
     let stdout = child.stdout.take().map(spawn_byte_reader);
     let stderr = child.stderr.take().map(spawn_byte_reader);
-    let started = Instant::now();
     let mut timed_out = false;
     let status = loop {
         if let Some(status) = child.try_wait().map_err(HarnessError::Io)? {
@@ -233,6 +261,7 @@ fn run_shell_for_case(
         }
         thread::sleep(Duration::from_millis(10));
     };
+    join_stdin_writer(stdin)?;
     let stdout = join_byte_reader(stdout)?;
     let stderr = join_byte_reader(stderr)?;
     drop(cleanup);
@@ -243,6 +272,22 @@ fn run_shell_for_case(
         stderr,
         timed_out,
     })
+}
+
+fn join_stdin_writer(
+    writer: Option<thread::JoinHandle<std::io::Result<()>>>,
+) -> Result<(), HarnessError> {
+    let Some(writer) = writer else {
+        return Ok(());
+    };
+    match writer
+        .join()
+        .map_err(|_| invalid_data("Oils stdin writer panicked".to_string()))?
+    {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::BrokenPipe => Ok(()),
+        Err(error) => Err(HarnessError::Io(error)),
+    }
 }
 
 fn temporary_sandbox(label: &str) -> Result<PathBuf, HarnessError> {

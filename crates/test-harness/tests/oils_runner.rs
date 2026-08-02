@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use cherubsh_test_harness::oils::{run_oils_case_with_shells, OilsCase};
+use cherubsh_test_harness::workspace_root;
 
 fn case(code: &str) -> OilsCase {
     OilsCase {
@@ -82,4 +83,55 @@ fn sandbox_timeout_is_never_a_pass_even_when_both_shells_timeout() {
     assert!(outcome.cherub.timed_out);
     assert!(!outcome.passed());
     assert!(outcome.differing_fields().is_empty());
+}
+
+#[test]
+fn sandbox_does_not_expose_host_workspace_files() {
+    let sentinel = workspace_root().join("target/oils-host-secret");
+    std::fs::create_dir_all(sentinel.parent().expect("sentinel parent"))
+        .expect("create sentinel parent");
+    std::fs::write(&sentinel, b"private\n").expect("write host sentinel");
+    let fixture = case(&format!(
+        "if test -r '{}'; then echo exposed; else echo hidden; fi\n",
+        sentinel.display()
+    ));
+
+    let outcome = run_oils_case_with_shells(
+        &fixture,
+        Path::new("/bin/bash"),
+        Path::new("/bin/bash"),
+        fixture_spec_dir(),
+        Duration::from_secs(3),
+    )
+    .expect("run isolated case");
+    std::fs::remove_file(&sentinel).expect("remove host sentinel");
+
+    assert_eq!(outcome.bash.stdout, b"hidden\n");
+}
+
+#[test]
+fn timeout_includes_blocked_stdin_delivery() {
+    let mut code = String::from("sleep 1\n");
+    for _ in 0..100_000 {
+        code.push_str("# padding that fills the stdin pipe\n");
+    }
+    let fixture = case(&code);
+    let started = std::time::Instant::now();
+
+    let outcome = run_oils_case_with_shells(
+        &fixture,
+        Path::new("/bin/bash"),
+        Path::new("/bin/bash"),
+        fixture_spec_dir(),
+        Duration::from_millis(100),
+    )
+    .expect("time stdin delivery");
+
+    assert!(outcome.bash.timed_out);
+    assert!(outcome.cherub.timed_out);
+    assert!(
+        started.elapsed() < Duration::from_secs(1),
+        "stdin write escaped the timeout: {:?}",
+        started.elapsed()
+    );
 }
