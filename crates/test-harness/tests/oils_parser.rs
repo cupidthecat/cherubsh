@@ -28,9 +28,13 @@ fn nondeterministic_case_manifest_only_names_vendored_cases() {
     let nondeterministic =
         oils_nondeterministic_case_ids().expect("load Oils nondeterministic case manifest");
 
-    assert_eq!(nondeterministic.len(), 18);
+    assert_eq!(nondeterministic.len(), 22);
     for id in [
+        "background.test.sh::012::Wait for job and PIPESTATUS",
         "builtin-kill.test.sh::001::kill -KILL kills the process with SIGKILL",
+        "builtin-trap-bash.test.sh::020::Combine DEBUG trap and USR1 trap",
+        "builtin-trap-bash.test.sh::021::Combine ERR trap and USR1 trap",
+        "builtin-trap.test.sh::024::exit codes for traps are isolated",
         "paren-ambiguity.test.sh::005::((gzip example - zdiff package - #2337",
         "posix.test.sh::012::Newlines in compound lists",
         "process-sub.test.sh::002::Process sub from shell to stdin",
