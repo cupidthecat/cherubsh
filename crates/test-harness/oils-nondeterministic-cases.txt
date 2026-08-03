@@ -2,6 +2,8 @@ background.test.sh::012::Wait for job and PIPESTATUS
 builtin-misc.test.sh::003::time pipeline
 builtin-kill.test.sh::001::kill -KILL kills the process with SIGKILL
 builtin-kill.test.sh::002::kill -n 9 specifies the signal number
+builtin-trap-bash.test.sh::020::Combine DEBUG trap and USR1 trap
+builtin-trap-bash.test.sh::021::Combine ERR trap and USR1 trap
 builtin-trap.test.sh::024::exit codes for traps are isolated
 exit-status.test.sh::007::If subshell true WITH ARGUMENT
 here-doc.test.sh::032::Multiple here docs in pipeline
