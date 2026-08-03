@@ -1,3 +1,4 @@
+background.test.sh::012::Wait for job and PIPESTATUS
 builtin-misc.test.sh::003::time pipeline
 builtin-kill.test.sh::001::kill -KILL kills the process with SIGKILL
 builtin-kill.test.sh::002::kill -n 9 specifies the signal number

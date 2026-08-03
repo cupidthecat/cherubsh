@@ -28,8 +28,9 @@ fn nondeterministic_case_manifest_only_names_vendored_cases() {
     let nondeterministic =
         oils_nondeterministic_case_ids().expect("load Oils nondeterministic case manifest");
 
-    assert_eq!(nondeterministic.len(), 19);
+    assert_eq!(nondeterministic.len(), 20);
     for id in [
+        "background.test.sh::012::Wait for job and PIPESTATUS",
         "builtin-kill.test.sh::001::kill -KILL kills the process with SIGKILL",
         "builtin-trap.test.sh::024::exit codes for traps are isolated",
         "paren-ambiguity.test.sh::005::((gzip example - zdiff package - #2337",
