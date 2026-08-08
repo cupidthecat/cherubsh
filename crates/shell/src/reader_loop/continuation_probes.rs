@@ -354,7 +354,12 @@ fn has_unclosed_compound_assignment(input: &str) -> bool {
             comment_ok = false;
             continue;
         }
-        if b == b'\'' || b == b'"' {
+        if b == b'\'' {
+            i = skip_single_quoted_for_probe(bytes, i).unwrap_or(bytes.len());
+            comment_ok = false;
+            continue;
+        }
+        if b == b'"' {
             i = skip_simple_quoted_for_probe(bytes, i, b).unwrap_or(bytes.len());
             comment_ok = false;
             continue;
@@ -442,7 +447,8 @@ fn skip_compound_assignment_body(bytes: &[u8], mut i: usize) -> Option<usize> {
     while i < bytes.len() {
         match bytes[i] {
             b'\\' => i += if i + 1 < bytes.len() { 2 } else { 1 },
-            b'\'' | b'"' => i = skip_simple_quoted_for_probe(bytes, i, bytes[i])?,
+            b'\'' => i = skip_single_quoted_for_probe(bytes, i)?,
+            b'"' => i = skip_simple_quoted_for_probe(bytes, i, bytes[i])?,
             b'`' => i = skip_backtick_body(bytes, i)?,
             b'$' if i + 1 < bytes.len() && bytes[i + 1] == b'\'' => {
                 i = skip_ansi_c_quoted_for_probe(bytes, i + 2)?
@@ -478,6 +484,17 @@ fn skip_simple_quoted_for_probe(bytes: &[u8], mut i: usize, quote: u8) -> Option
             continue;
         }
         if bytes[i] == quote {
+            return Some(i + 1);
+        }
+        i += 1;
+    }
+    None
+}
+
+fn skip_single_quoted_for_probe(bytes: &[u8], mut i: usize) -> Option<usize> {
+    i += 1;
+    while i < bytes.len() {
+        if bytes[i] == b'\'' {
             return Some(i + 1);
         }
         i += 1;

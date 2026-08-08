@@ -8,28 +8,7 @@ fn skip_parameter_brace_for_probe(
         match bytes[i] {
             b'\\' => i += if i + 1 < bytes.len() { 2 } else { 1 },
             b'\'' if !posix_single_quote => {
-                let mut j = i + 1;
-                let mut saw_escaped_quote = false;
-                let mut closes_before_quote = false;
-                while j < bytes.len() && bytes[j] != b'\'' {
-                    if bytes[j] == b'\\' && j + 1 < bytes.len() {
-                        if bytes[j + 1] == b'\'' {
-                            saw_escaped_quote = true;
-                        }
-                        j += 2;
-                        continue;
-                    }
-                    if bytes[j] == b'}' && saw_escaped_quote {
-                        closes_before_quote = true;
-                        break;
-                    }
-                    j += 1;
-                }
-                if closes_before_quote {
-                    i += 1;
-                } else {
-                    i = skip_simple_quoted_for_probe(bytes, i, bytes[i])?;
-                }
+                i = skip_single_quoted_for_probe(bytes, i)?;
             }
             b'"' => i = skip_simple_quoted_for_probe(bytes, i, bytes[i])?,
             b'$' if i + 1 < bytes.len() && bytes[i + 1] == b'\'' => {
@@ -267,7 +246,8 @@ fn skip_current_subst_brace_for_probe(bytes: &[u8], mut i: usize) -> Option<usiz
     while i < bytes.len() {
         match bytes[i] {
             b'\\' => i += if i + 1 < bytes.len() { 2 } else { 1 },
-            b'\'' | b'"' | b'`' => i = skip_simple_quoted_for_probe(bytes, i, bytes[i])?,
+            b'\'' => i = skip_single_quoted_for_probe(bytes, i)?,
+            b'"' | b'`' => i = skip_simple_quoted_for_probe(bytes, i, bytes[i])?,
             b'$' if i + 1 < bytes.len() && bytes[i + 1] == b'\'' => {
                 i = skip_ansi_c_quoted_for_probe(bytes, i + 2)?
             }

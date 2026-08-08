@@ -362,6 +362,9 @@ impl<'a> Lexer<'a> {
     }
 
     fn brace_can_close(&self) -> bool {
+        if self.last_reserved {
+            return true;
+        }
         matches!(
             self.last_kind,
             None | Some(TokenKind::Newline)
@@ -369,6 +372,8 @@ impl<'a> Lexer<'a> {
                 | Some(TokenKind::Ampersand)
                 | Some(TokenKind::RParen)
                 | Some(TokenKind::DblRParen)
+                | Some(TokenKind::RBrace)
+                | Some(TokenKind::DblRBracket)
         )
     }
 
@@ -751,7 +756,7 @@ impl<'a> Lexer<'a> {
                     self.offset += 1;
                 }
             }
-            b'\'' => {
+            b'\'' if !in_double_quotes => {
                 *flags |= W_QUOTED;
                 out.push('\'');
                 self.offset += 1;
@@ -922,34 +927,9 @@ impl<'a> Lexer<'a> {
                 self.offset += 1;
                 self.scan_dollar(out, flags, in_double_quotes);
             } else if ch == b'\'' && !(in_double_quotes && self.posix_mode) {
-                let mut j = self.offset + 1;
-                let mut saw_escaped_quote = false;
-                let mut closes_before_quote = false;
-                while j < self.input.len() && self.input.as_bytes()[j] != b'\'' {
-                    if self.input.as_bytes()[j] == b'\\' && j + 1 < self.input.len() {
-                        if self.input.as_bytes()[j + 1] == b'\'' {
-                            saw_escaped_quote = true;
-                        }
-                        j += 2;
-                        continue;
-                    }
-                    if self.input.as_bytes()[j] == b'}' && saw_escaped_quote {
-                        closes_before_quote = true;
-                        break;
-                    }
-                    j += 1;
-                }
-                if closes_before_quote {
-                    out.push(self.take_char());
-                    continue;
-                }
                 out.push('\'');
                 self.offset += 1;
                 while self.offset < self.input.len() && self.peek_byte() != b'\'' {
-                    if self.peek_byte() == b'\\' && self.offset + 1 < self.input.len() {
-                        out.push('\\');
-                        self.offset += 1;
-                    }
                     out.push(self.take_char());
                 }
                 if self.offset < self.input.len() {
@@ -1386,7 +1366,7 @@ impl<'a> Lexer<'a> {
         out.push(quote as char);
         self.offset += 1;
         while self.offset < self.input.len() && self.peek_byte() != quote {
-            if self.peek_byte() == b'\\' && self.offset + 1 < self.input.len() {
+            if quote != b'\'' && self.peek_byte() == b'\\' && self.offset + 1 < self.input.len() {
                 out.push('\\');
                 self.offset += 1;
             }

@@ -1968,6 +1968,7 @@ impl Parser {
             return false;
         }
         match self.peek_kind() {
+            Some(TokenKind::DblRParen) if stop_kinds.contains(&TokenKind::RParen) => true,
             Some(kind) => stop_kinds.contains(&kind),
             None => false,
         }
@@ -2117,6 +2118,12 @@ impl Parser {
     }
 
     fn expect_kind(&mut self, kind: TokenKind, message: &str) -> Result<(), ParseError> {
+        if kind == TokenKind::RParen && self.peek_kind() == Some(TokenKind::DblRParen) {
+            let token = &mut self.tokens[self.index];
+            token.kind = TokenKind::RParen;
+            token.span.start = token.span.start.saturating_add(1);
+            return Ok(());
+        }
         if self.peek_kind() != Some(kind.clone()) {
             return Err(ParseError {
                 message: message.to_string(),
@@ -2180,13 +2187,21 @@ impl Parser {
         if self.index == 0 {
             return false;
         }
+        let Some(token) = self.tokens.get(self.index - 1) else {
+            return false;
+        };
         matches!(
-            self.tokens.get(self.index - 1).map(|token| &token.kind),
-            Some(TokenKind::Semicolon)
-                | Some(TokenKind::Ampersand)
-                | Some(TokenKind::Newline)
-                | Some(TokenKind::RParen)
-                | Some(TokenKind::DblRParen)
+            token.kind,
+            TokenKind::Semicolon
+                | TokenKind::Ampersand
+                | TokenKind::Newline
+                | TokenKind::RParen
+                | TokenKind::DblRParen
+                | TokenKind::RBrace
+                | TokenKind::DblRBracket
+        ) || matches!(
+            &token.value,
+            TokenValue::Text(word) if matches!(word.as_str(), "fi" | "done" | "esac" | "}")
         )
     }
 

@@ -42,6 +42,7 @@ fn quoting_fixtures() {
         r#"echo "outer $(echo "inner") tail""#,
         r#"echo 'a;b;c'"#,
         r#"echo "a;b;c""#,
+        "if true; then\n x=\"grep '^${v}$'\"\nelse\n :\nfi",
     ]);
 }
 
@@ -211,6 +212,10 @@ fn group_and_subshell_fixtures() {
         "( echo a ) >out",
         "{ echo a; echo b; }",
         "(echo a; echo b)",
+        "(true && (false)) | cat",
+        "{ { :; } }",
+        "{ if true; then :; fi }",
+        "{ [[ -n $x ]] }",
     ]);
 }
 
@@ -226,9 +231,11 @@ fn substitution_fixtures() {
         "echo ${var#prefix}",
         "echo ${var%suffix}",
         "echo $(date)",
+        r#"value=$(ble/bin/"$awk" '{gsub(/\'"$seq"'/, "<DEL>");print $0 "x";}' <<< "x${ctrl}y")"#,
         "echo `date`",
         "echo $((1+2))",
         "echo ${a[0]}",
+        "if true; then\n x=${x//'\\'/'\\\\'}\nfi",
         "echo ${a[@]}",
     ]);
 }
@@ -257,5 +264,10 @@ fn redir_word_fixtures() {
 
 #[test]
 fn negative_syntax_fixtures() {
-    check_all(&["echo >", "for i in a b do :; done", "{ echo a }"]);
+    check_all(&[
+        "echo >",
+        "for i in a b do :; done",
+        "{ echo a }",
+        "x=${x//'\\'/'\\\\'}\nfi",
+    ]);
 }
