@@ -108,6 +108,8 @@ fn arith_fixtures() {
         "(( a < b ))",
         "(( a == b ))",
         "(( a++ ))",
+        "((a=1,\n b=2))",
+        "((a>0&&\n --a==0))",
         "for ((i=0; i<10; i++)); do echo $i; done",
         "for (( ; ; )); do break; done",
     ]);
