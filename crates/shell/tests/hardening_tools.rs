@@ -71,6 +71,11 @@ fn large_script_parity_has_a_deterministic_self_test() {
     let output = Command::new("python3")
         .arg(workspace_root().join("tools/large-script-parity.py"))
         .arg("--self-test")
+        .env("BASH_ORACLE_PATH", default_bash_path())
+        .env(
+            "CHERUBSH_BIN",
+            cherub_path().expect("CherubSH test binary for corpus self-test"),
+        )
         .output()
         .expect("run large-script parity self-test");
 
@@ -82,7 +87,7 @@ fn large_script_parity_has_a_deterministic_self_test() {
     );
     assert_eq!(
         String::from_utf8_lossy(&output.stdout),
-        "large-script parity self-test: 7 checks passed\n"
+        "large-script parity self-test: 12 checks passed\n"
     );
 }
 

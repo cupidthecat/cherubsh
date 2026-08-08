@@ -4,17 +4,22 @@
 from __future__ import annotations
 
 import argparse
+from collections import Counter
 import os
 from dataclasses import dataclass
 from pathlib import Path
 import re
 import shlex
+import shutil
 import subprocess
+import sys
 import tempfile
 from urllib.parse import urlparse
 
 
 COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
+PROJECT_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
+GITHUB_PATH_RE = re.compile(r"^/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+\.git$")
 REGULAR_MODES = {"100644", "100755"}
 POLICIES = {"required", "optional-safety"}
 
@@ -60,6 +65,12 @@ class ReportRow:
     cherub: ShellResult
 
 
+@dataclass(frozen=True)
+class ProjectResult:
+    rows: list[ReportRow]
+    inventory: Counter[str]
+
+
 def git_output(
     arguments: list[str],
     *,
@@ -91,7 +102,7 @@ def load_manifest(path: Path) -> list[Project]:
         if len(fields) != 4:
             raise CorpusError(f"{path}:{line_number}: expected four tab-separated fields")
         name, repository, commit, policy = fields
-        if not name or name in names:
+        if not PROJECT_RE.fullmatch(name) or name in names:
             raise CorpusError(f"{path}:{line_number}: invalid or duplicate project name")
         if not valid_repository_url(repository):
             raise SafetyError(f"{path}:{line_number}: repository must be an HTTPS GitHub URL")
@@ -114,8 +125,7 @@ def valid_repository_url(repository: str) -> bool:
         and parsed.params == ""
         and parsed.query == ""
         and parsed.fragment == ""
-        and parsed.path.endswith(".git")
-        and len([part for part in parsed.path.split("/") if part]) == 2
+        and GITHUB_PATH_RE.fullmatch(parsed.path) is not None
     )
 
 
@@ -135,8 +145,14 @@ def ensure_object_store(project: Project, cache: Path) -> Path:
     if not COMMIT_RE.fullmatch(project.commit):
         raise CorpusError(f"{project.name}: invalid pinned commit")
 
+    if cache.is_symlink():
+        raise SafetyError("cache directory must not be a symlink")
+    if cache.exists() and not cache.is_dir():
+        raise SafetyError("cache path is not a directory")
     cache.mkdir(parents=True, exist_ok=True)
     repo = cache / f"{project.name}.git"
+    if repo.is_symlink():
+        raise SafetyError(f"{project.name}: object-store path must not be a symlink")
     if not repo.exists():
         git_output(["init", "--bare", "--quiet", str(repo)])
     elif not repo.is_dir():
@@ -244,6 +260,239 @@ def selected_shell_blobs(repo: Path, entries: list[TreeEntry]) -> list[tuple[Tre
         if is_shell_blob(entry.path, data):
             selected.append((entry, data))
     return selected
+
+
+def run_shell(
+    binary: Path,
+    kind: str,
+    source: bytes,
+    timeout: float,
+    cwd: Path,
+) -> ShellResult:
+    if kind == "bash":
+        arguments = [str(binary), "--noprofile", "--norc", "-n", "-s"]
+    elif kind == "cherub":
+        arguments = [str(binary), "--norc", "-n", "-s"]
+    else:
+        raise ValueError(f"unsupported shell kind: {kind}")
+    environment = {
+        "HOME": str(cwd),
+        "PATH": "/usr/bin:/bin",
+        "LC_ALL": "C",
+        "BASH_ENV": "/dev/null",
+        "ENV": "/dev/null",
+    }
+    try:
+        completed = subprocess.run(
+            arguments,
+            input=source,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            cwd=cwd,
+            env=environment,
+            timeout=timeout,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as error:
+        stderr = error.stderr if isinstance(error.stderr, bytes) else b""
+        return ShellResult("timeout", None, stderr)
+    state = "accept" if completed.returncode == 0 else "reject"
+    return ShellResult(state, completed.returncode, completed.stderr)
+
+
+def compare_results(bash: ShellResult, cherub: ShellResult) -> str:
+    if bash.state == "timeout" or cherub.state == "timeout":
+        return "TIMEOUT"
+    if bash.state == cherub.state:
+        return "PASS"
+    return "FAIL"
+
+
+def shell_result_field(result: ShellResult) -> str:
+    status = "-" if result.status is None else str(result.status)
+    return f"{result.state}:{status}"
+
+
+def escape_report_path(path: bytes) -> str:
+    return (
+        path.decode("utf-8", "surrogateescape")
+        .encode("unicode_escape")
+        .decode("ascii")
+        .replace("\\t", "\\x09")
+    )
+
+
+def write_report(path: Path, rows: list[ReportRow]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8", newline="\n") as report:
+        report.write(
+            "verdict\tproject\trevision\tpath\tbash_result\tcherub_result"
+            "\tbash_timeout\tcherub_timeout\n"
+        )
+        for row in sorted(rows, key=lambda item: (item.project, item.path)):
+            report.write(
+                "\t".join(
+                    [
+                        row.verdict,
+                        row.project,
+                        row.revision,
+                        escape_report_path(row.path),
+                        shell_result_field(row.bash),
+                        shell_result_field(row.cherub),
+                        str(row.bash.state == "timeout").lower(),
+                        str(row.cherub.state == "timeout").lower(),
+                    ]
+                )
+                + "\n"
+            )
+
+
+def inventory(entries: list[TreeEntry]) -> Counter[str]:
+    counts: Counter[str] = Counter()
+    for entry in entries:
+        if entry.kind == "commit" or entry.mode == "160000":
+            counts["submodule"] += 1
+        elif entry.mode == "120000":
+            counts["symlink"] += 1
+        elif entry.kind == "blob" and entry.mode in REGULAR_MODES:
+            counts["regular"] += 1
+        else:
+            counts["unsupported"] += 1
+    return counts
+
+
+def assert_empty_working_directory(directory: Path) -> None:
+    created = list(directory.iterdir())
+    if created:
+        names = ", ".join(path.name for path in created[:5])
+        raise SafetyError(f"no-execution shell created files: {names}")
+
+
+def run_project(
+    project: Project,
+    cache: Path,
+    bash: Path,
+    cherub: Path,
+    timeout: float,
+    working_root: Path,
+) -> ProjectResult:
+    repo = ensure_object_store(project, cache)
+    entries = list_tree(repo, project.commit)
+    counts = inventory(entries)
+    selected = selected_shell_blobs(repo, entries)
+    counts["selected"] = len(selected)
+    if not selected:
+        raise CorpusError(f"{project.name}: pinned tree contains no selected shell files")
+    rows: list[ReportRow] = []
+    working_directory = working_root / project.name
+    working_directory.mkdir()
+    for entry, source in selected:
+        bash_result = run_shell(bash, "bash", source, timeout, working_directory)
+        assert_empty_working_directory(working_directory)
+        cherub_result = run_shell(cherub, "cherub", source, timeout, working_directory)
+        assert_empty_working_directory(working_directory)
+        rows.append(
+            ReportRow(
+                compare_results(bash_result, cherub_result),
+                project.name,
+                project.commit,
+                entry.path,
+                bash_result,
+                cherub_result,
+            )
+        )
+    return ProjectResult(rows, counts)
+
+
+def executable_path(path: Path, label: str) -> Path:
+    resolved = path.expanduser().resolve()
+    if not resolved.is_file() or not os.access(resolved, os.X_OK):
+        raise CorpusError(f"{label} is not an executable file: {path}")
+    return resolved
+
+
+def skipped_row(project: Project, verdict: str, reason: str) -> ReportRow:
+    unavailable = ShellResult("skip", None, reason.encode("utf-8", "replace"))
+    label = f"reason={reason}".encode("utf-8", "replace")
+    return ReportRow(verdict, project.name, project.commit, label, unavailable, unavailable)
+
+
+def run_corpus(arguments: argparse.Namespace) -> int:
+    manifest = Path(arguments.manifest).resolve()
+    cache = Path(os.path.abspath(arguments.cache_dir))
+    report_directory = Path(arguments.report_dir).resolve()
+    bash = executable_path(Path(arguments.bash), "Bash oracle")
+    cherub = executable_path(Path(arguments.cherub), "CherubSH")
+    if arguments.timeout <= 0:
+        raise CorpusError("timeout must be greater than zero")
+
+    projects = load_manifest(manifest)
+    if arguments.project:
+        requested = set(arguments.project)
+        available = {project.name for project in projects}
+        unknown = sorted(requested - available)
+        if unknown:
+            raise CorpusError(f"unknown project selection: {', '.join(unknown)}")
+        projects = [project for project in projects if project.name in requested]
+
+    rows: list[ReportRow] = []
+    failed = False
+    with tempfile.TemporaryDirectory(prefix="cherubsh-large-script-run-") as raw_work:
+        working_root = Path(raw_work)
+        for project in projects:
+            try:
+                result = run_project(
+                    project,
+                    cache,
+                    bash,
+                    cherub,
+                    arguments.timeout,
+                    working_root,
+                )
+            except SafetyError as error:
+                if project.policy == "optional-safety":
+                    rows.append(skipped_row(project, "SKIP", str(error)))
+                    print(f"{project.name}: SKIP ({error})")
+                    continue
+                rows.append(skipped_row(project, "ERROR", str(error)))
+                print(f"{project.name}: ERROR ({error})", file=sys.stderr)
+                failed = True
+                continue
+            except CorpusError as error:
+                rows.append(skipped_row(project, "ERROR", str(error)))
+                print(f"{project.name}: ERROR ({error})", file=sys.stderr)
+                failed = True
+                continue
+
+            rows.extend(result.rows)
+            verdicts = Counter(row.verdict for row in result.rows)
+            print(
+                f"{project.name}: selected={result.inventory['selected']} "
+                f"pass={verdicts['PASS']} fail={verdicts['FAIL']} "
+                f"timeout={verdicts['TIMEOUT']}"
+            )
+            if verdicts["FAIL"] or verdicts["TIMEOUT"]:
+                failed = True
+                for row in result.rows:
+                    if row.verdict in {"FAIL", "TIMEOUT"}:
+                        label = escape_report_path(row.path)
+                        print(
+                            f"  {row.verdict} {label}: "
+                            f"bash={shell_result_field(row.bash)} "
+                            f"cherub={shell_result_field(row.cherub)}",
+                            file=sys.stderr,
+                        )
+
+    report_path = report_directory / "report.tsv"
+    write_report(report_path, rows)
+    totals = Counter(row.verdict for row in rows)
+    print(
+        "large-script parity: "
+        f"pass={totals['PASS']} fail={totals['FAIL']} "
+        f"timeout={totals['TIMEOUT']} skip={totals['SKIP']} "
+        f"error={totals['ERROR']} report={report_path}"
+    )
+    return 1 if failed else 0
 
 
 def self_test_git_environment() -> dict[str, str]:
@@ -358,14 +607,86 @@ def run_self_test() -> None:
         escape = root.parent / "escape.sh"
         assert is_shell_blob(b"../../escape.sh", b":\n")
         assert not escape.exists()
+        skip = skipped_row(project, "SKIP", "safety boundary")
+        assert escape_report_path(skip.path) == "reason=safety boundary"
         checks += 1
 
-    assert checks == 7
+        accepted = ShellResult("accept", 0, b"")
+        rejected = ShellResult("reject", 2, b"syntax error")
+        assert compare_results(accepted, accepted) == "PASS"
+        checks += 1
+
+        assert compare_results(rejected, rejected) == "PASS"
+        checks += 1
+
+        assert compare_results(accepted, rejected) == "FAIL"
+        checks += 1
+
+        timeout_shell = root / "timeout-shell"
+        timeout_shell.write_text(
+            "#!/usr/bin/python3\nimport time\ntime.sleep(1)\n", encoding="utf-8"
+        )
+        timeout_shell.chmod(0o755)
+        timeout_work = root / "timeout-work"
+        timeout_work.mkdir()
+        timed_out = run_shell(timeout_shell, "cherub", b":\n", 0.01, timeout_work)
+        assert timed_out.state == "timeout"
+        assert compare_results(accepted, timed_out) == "TIMEOUT"
+        checks += 1
+
+        bash_value = os.environ.get("BASH_ORACLE_PATH") or shutil.which("bash")
+        if not bash_value:
+            raise AssertionError("self-test requires Bash")
+        cherub_value = os.environ.get("CHERUBSH_BIN")
+        if not cherub_value:
+            cherub_value = str(Path(__file__).resolve().parent.parent / "target/debug/cherubsh")
+        bash_binary = executable_path(Path(bash_value), "self-test Bash")
+        cherub_binary = executable_path(Path(cherub_value), "self-test CherubSH")
+        noexec_work = root / "noexec-work"
+        noexec_work.mkdir()
+        canary = noexec_work / "must-not-exist"
+        quoted_canary = shlex.quote(str(canary))
+        source = (
+            f"touch -- {quoted_canary}\n"
+            f"value=$(touch -- {quoted_canary})\n"
+            f": > {quoted_canary}\n"
+            f"source {quoted_canary}\n"
+        ).encode("utf-8")
+        bash_result = run_shell(bash_binary, "bash", source, 2.0, noexec_work)
+        cherub_result = run_shell(cherub_binary, "cherub", source, 2.0, noexec_work)
+        assert bash_result.state == "accept" and cherub_result.state == "accept"
+        assert not canary.exists()
+        assert_empty_working_directory(noexec_work)
+        checks += 1
+
+    assert checks == 12
     print(f"large-script parity self-test: {checks} checks passed")
 
 
 def parse_arguments() -> argparse.Namespace:
+    root = Path(__file__).resolve().parent.parent
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--manifest", default=root / "large-scripts.lock", type=Path)
+    parser.add_argument(
+        "--cache-dir", default=root / "target/upstream/large-scripts", type=Path
+    )
+    parser.add_argument(
+        "--report-dir", default=root / "target/hardening/large-scripts", type=Path
+    )
+    parser.add_argument(
+        "--bash",
+        default=os.environ.get(
+            "BASH_ORACLE_PATH", root / "target/oracle/bash-5.3.15/bash"
+        ),
+        type=Path,
+    )
+    parser.add_argument(
+        "--cherub",
+        default=os.environ.get("CHERUBSH_BIN", root / "target/debug/cherubsh"),
+        type=Path,
+    )
+    parser.add_argument("--timeout", default=5.0, type=float)
+    parser.add_argument("--project", action="append")
     parser.add_argument("--self-test", action="store_true")
     return parser.parse_args()
 
@@ -375,12 +696,12 @@ def main() -> int:
     if arguments.self_test:
         run_self_test()
         return 0
-    raise CorpusError("no action selected; pass --self-test")
+    return run_corpus(arguments)
 
 
 if __name__ == "__main__":
     try:
         raise SystemExit(main())
     except CorpusError as error:
-        print(f"error: {error}", file=os.sys.stderr)
+        print(f"error: {error}", file=sys.stderr)
         raise SystemExit(2) from error
