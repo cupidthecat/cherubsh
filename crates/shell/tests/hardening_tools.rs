@@ -10,6 +10,62 @@ fn workspace_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
 
+#[test]
+fn large_script_manifest_pins_the_approved_corpus() {
+    let manifest = fs::read_to_string(workspace_root().join("large-scripts.lock"))
+        .expect("read large-script source manifest");
+    let rows = manifest
+        .lines()
+        .filter(|line| !line.trim().is_empty() && !line.starts_with('#'))
+        .map(|line| {
+            let fields = line.split('\t').collect::<Vec<_>>();
+            assert_eq!(
+                fields.len(),
+                4,
+                "manifest row must have four fields: {line}"
+            );
+            assert!(
+                fields[2].len() == 40
+                    && fields[2]
+                        .bytes()
+                        .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)),
+                "manifest commit must be a lowercase SHA-1: {}",
+                fields[2]
+            );
+            assert!(
+                matches!(fields[3], "required" | "optional-safety"),
+                "unsupported manifest policy: {}",
+                fields[3]
+            );
+            (fields[0], fields[3])
+        })
+        .collect::<Vec<_>>();
+
+    let projects = rows.iter().map(|(name, _)| *name).collect::<Vec<_>>();
+    assert_eq!(
+        projects,
+        [
+            "ble-sh",
+            "rear",
+            "bash-funk",
+            "nb",
+            "winetricks",
+            "testssl-sh",
+            "neofetch",
+            "acme-sh",
+            "distrobox",
+            "bashtop",
+        ]
+    );
+    assert_eq!(
+        rows.iter()
+            .filter(|(_, policy)| *policy == "optional-safety")
+            .map(|(name, _)| *name)
+            .collect::<Vec<_>>(),
+        ["rear"]
+    );
+}
+
 fn run_pty_matrix() {
     let Some(bash) = pinned_bash() else {
         return;
