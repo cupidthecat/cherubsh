@@ -93,6 +93,8 @@ pub struct Lexer<'a> {
     parser_state: Option<Rc<Cell<u32>>>,
     aliases: Option<&'a dyn AliasTable>,
     peek_word_after_time: bool,
+    after_function_keyword: bool,
+    after_function_name: bool,
     extglob_patterns: bool,
     posix_mode: bool,
     comments_enabled: bool,
@@ -114,6 +116,8 @@ impl<'a> Lexer<'a> {
             parser_state: None,
             aliases: None,
             peek_word_after_time: false,
+            after_function_keyword: false,
+            after_function_name: false,
             extglob_patterns: false,
             posix_mode: false,
             comments_enabled: true,
@@ -209,7 +213,7 @@ impl<'a> Lexer<'a> {
     }
 
     fn at_word_start(&self) -> bool {
-        if self.last_reserved {
+        if self.last_reserved || self.after_function_name {
             return true;
         }
         matches!(
@@ -272,6 +276,7 @@ impl<'a> Lexer<'a> {
     fn emit_simple(&mut self, kind: TokenKind, start: usize, end: usize) -> Token {
         self.last_kind = Some(kind.clone());
         self.last_reserved = false;
+        self.after_function_name = false;
         Token {
             kind,
             value: TokenValue::None,
@@ -361,6 +366,9 @@ impl<'a> Lexer<'a> {
     }
 
     fn lex_word_or_number(&mut self) -> Token {
+        let follows_function_keyword = self.after_function_keyword;
+        self.after_function_keyword = false;
+        self.after_function_name = false;
         let start = self.offset;
         let mut text = String::new();
         let mut flags: u32 = 0;
@@ -609,6 +617,7 @@ impl<'a> Lexer<'a> {
             if is_reserved_word_text(&text) {
                 self.last_reserved = true;
                 self.last_kind = Some(TokenKind::Word);
+                self.after_function_keyword = text == "function";
                 return Token {
                     kind: TokenKind::Word,
                     value: TokenValue::Text(text),
@@ -626,6 +635,7 @@ impl<'a> Lexer<'a> {
         };
         self.last_kind = Some(TokenKind::Word);
         self.last_reserved = false;
+        self.after_function_name = follows_function_keyword;
         tok
     }
 

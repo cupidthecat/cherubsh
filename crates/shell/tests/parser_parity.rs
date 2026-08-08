@@ -119,6 +119,7 @@ fn function_fixtures() {
         "f() { :; }",
         "function f { :; }",
         "function f() { :; }",
+        "function f { [[ -d $1 ]] || :; }",
         "f()\n{ :; }",
         "f() { echo $1; }",
         "_a1() { return 0; }",
