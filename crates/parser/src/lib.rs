@@ -1248,7 +1248,8 @@ impl Parser {
         while let Some(token) = self.tokens.get(idx) {
             match token.kind {
                 TokenKind::DblRParen => return true,
-                TokenKind::Semicolon | TokenKind::End => return false,
+                TokenKind::Semicolon => return false,
+                TokenKind::End => return true,
                 TokenKind::LParen => depth += 1,
                 TokenKind::RParen => {
                     if depth == 0 {

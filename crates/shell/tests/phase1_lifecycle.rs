@@ -343,6 +343,24 @@ fn just_one_command_from_stdin_reads_compound_command() {
 }
 
 #[test]
+fn parse_only_stdin_reads_multiline_nested_arithmetic() {
+    for source in [
+        "(((umin<0||umin>p1)&&(umin=p1),\n (umax<0||umax<p2)&&(umax=p2)))\n",
+        "((value>=end?(value+=shift):(\n value>=beg&&(value=end))))\n",
+    ] {
+        let spec = Spec {
+            args: vec!["-n", "-s"],
+            stdin: Some(source),
+            ..Spec::default()
+        };
+        let (bash, cherub) = run_both(&spec);
+        assert_eq!(bash.status, 0, "{bash:?}");
+        assert_eq!(cherub.status, bash.status, "{cherub:?}");
+        assert_eq!(cherub.stderr, bash.stderr, "{cherub:?}");
+    }
+}
+
+#[test]
 fn failglob_expansion_error_skips_simple_command() {
     let script = temp_file(
         "failglob",

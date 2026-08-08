@@ -6,6 +6,9 @@ fn parse_error_wants_more_input(err: &ParseError, input: &str) -> bool {
         .unwrap_or(true);
     at_end
         && (err.message.starts_with("expected")
+            || err
+                .message
+                .starts_with("unexpected EOF while looking for matching")
             || err.message == "function body must be a compound command"
             || err.message == "syntax error: unexpected end of file")
 }
