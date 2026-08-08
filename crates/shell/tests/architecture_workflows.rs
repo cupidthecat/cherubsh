@@ -34,6 +34,51 @@ fn parity_script_enforces_and_tallies_the_oils_ratchet() {
 }
 
 #[test]
+fn hardening_workflow_runs_the_large_bash_corpus() {
+    let workflow = fs::read_to_string(workspace_root().join(".github/workflows/hardening.yml"))
+        .expect("read hardening workflow");
+    let job = workflow
+        .split("  large-bash-corpus:\n")
+        .nth(1)
+        .and_then(|jobs| jobs.split("  address-sanitizer:\n").next())
+        .expect("large Bash corpus hardening job");
+
+    assert!(job.contains("runs-on: ubuntu-24.04"));
+    assert!(job.contains("timeout-minutes: 30"));
+    for package in [
+        "autoconf",
+        "bison",
+        "build-essential",
+        "curl",
+        "git",
+        "gpgv",
+        "libncurses-dev",
+        "patch",
+        "texinfo",
+    ] {
+        assert!(job.contains(package), "large corpus job omits {package}");
+    }
+    let fetch = job
+        .find("./tools/fetch-upstream.sh")
+        .expect("large corpus job fetches the Bash source");
+    let oracle = job
+        .find("oracle/build-bash-5.3.15.sh")
+        .expect("large corpus job builds the Bash oracle");
+    let build = job
+        .find("cargo build --locked -p cherubsh")
+        .expect("large corpus job builds CherubSH");
+    let corpus = job
+        .find("python3 tools/large-script-parity.py")
+        .expect("large corpus job runs the parser comparison");
+    assert!(fetch < oracle && oracle < build && build < corpus);
+    assert!(job.contains("--bash target/oracle/bash-5.3.15/bash"));
+    assert!(job.contains("--cherub target/debug/cherubsh"));
+    assert!(job.contains("if: failure()"));
+    assert!(job.contains("target/hardening/large-scripts"));
+    assert!(!job.contains("continue-on-error"));
+}
+
+#[test]
 fn release_workflow_builds_and_publishes_both_native_archives() {
     let workflow = fs::read_to_string(workspace_root().join(".github/workflows/release.yml"))
         .expect("read release workflow");

@@ -74,6 +74,52 @@ jobs:
           path: target/hardening
           if-no-files-found: ignore
 
+  large-bash-corpus:
+    name: large-bash-corpus
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install system packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes \
+            autoconf \
+            bison \
+            build-essential \
+            curl \
+            git \
+            gpgv \
+            libncurses-dev \
+            patch \
+            texinfo
+
+      - name: Install the pinned Rust toolchain
+        run: rustup toolchain install 1.93.1 --profile minimal
+
+      - name: Prepare the Bash oracle
+        run: |
+          ./tools/fetch-upstream.sh
+          oracle/build-bash-5.3.15.sh
+
+      - name: Build CherubSH
+        run: cargo build --locked -p cherubsh
+
+      - name: Parse the pinned large Bash corpus
+        run: |
+          python3 tools/large-script-parity.py \
+            --bash target/oracle/bash-5.3.15/bash \
+            --cherub target/debug/cherubsh
+
+      - name: Preserve large Bash corpus failures
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: large-bash-corpus-report
+          path: target/hardening/large-scripts
+          if-no-files-found: ignore
+
   address-sanitizer:
     runs-on: ubuntu-24.04
     timeout-minutes: 35
