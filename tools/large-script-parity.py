@@ -270,9 +270,17 @@ def run_shell(
     cwd: Path,
 ) -> ShellResult:
     if kind == "bash":
-        arguments = [str(binary), "--noprofile", "--norc", "-n", "-s"]
+        arguments = [
+            str(binary),
+            "--noprofile",
+            "--norc",
+            "-O",
+            "extglob",
+            "-n",
+            "-s",
+        ]
     elif kind == "cherub":
-        arguments = [str(binary), "--norc", "-n", "-s"]
+        arguments = [str(binary), "--norc", "-O", "extglob", "-n", "-s"]
     else:
         raise ValueError(f"unsupported shell kind: {kind}")
     environment = {
@@ -644,6 +652,17 @@ def run_self_test() -> None:
         cherub_binary = executable_path(Path(cherub_value), "self-test CherubSH")
         noexec_work = root / "noexec-work"
         noexec_work.mkdir()
+        extglob_source = b"case 123 in +([0-9])) : ;; esac\n"
+        bash_extglob = run_shell(
+            bash_binary, "bash", extglob_source, 2.0, noexec_work
+        )
+        cherub_extglob = run_shell(
+            cherub_binary, "cherub", extglob_source, 2.0, noexec_work
+        )
+        assert bash_extglob.state == "accept" and cherub_extglob.state == "accept"
+        assert_empty_working_directory(noexec_work)
+        checks += 1
+
         canary = noexec_work / "must-not-exist"
         quoted_canary = shlex.quote(str(canary))
         source = (
@@ -659,7 +678,7 @@ def run_self_test() -> None:
         assert_empty_working_directory(noexec_work)
         checks += 1
 
-    assert checks == 12
+    assert checks == 13
     print(f"large-script parity self-test: {checks} checks passed")
 
 

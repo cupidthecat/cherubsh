@@ -87,7 +87,7 @@ fn large_script_parity_has_a_deterministic_self_test() {
     );
     assert_eq!(
         String::from_utf8_lossy(&output.stdout),
-        "large-script parity self-test: 12 checks passed\n"
+        "large-script parity self-test: 13 checks passed\n"
     );
 }
 
