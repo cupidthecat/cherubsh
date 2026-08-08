@@ -66,6 +66,26 @@ fn large_script_manifest_pins_the_approved_corpus() {
     );
 }
 
+#[test]
+fn large_script_parity_has_a_deterministic_self_test() {
+    let output = Command::new("python3")
+        .arg(workspace_root().join("tools/large-script-parity.py"))
+        .arg("--self-test")
+        .output()
+        .expect("run large-script parity self-test");
+
+    assert!(
+        output.status.success(),
+        "large-script parity self-test failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "large-script parity self-test: 7 checks passed\n"
+    );
+}
+
 fn run_pty_matrix() {
     let Some(bash) = pinned_bash() else {
         return;
