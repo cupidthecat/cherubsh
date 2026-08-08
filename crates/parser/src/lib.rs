@@ -2,6 +2,7 @@ use cherubsh_common::{
     Span, CMD_COPROC_SUBSHELL, CMD_INVERT_RETURN, CMD_TIME_PIPELINE, CMD_TIME_POSIX,
     CMD_WANT_SUBSHELL, W_COMPASSIGN,
 };
+use cherubsh_lexer::Lexer;
 use cherubsh_lexer::Token;
 use cherubsh_lexer::TokenKind;
 use cherubsh_lexer::TokenValue;
@@ -2479,6 +2480,27 @@ impl Parser {
     }
 
     fn skip_tokens_in_range(&mut self, start_offset: usize, end_offset: usize) {
+        let spanning_source = self
+            .tokens
+            .iter()
+            .find(|token| {
+                token.span.start >= start_offset
+                    && token.span.start < end_offset
+                    && token.span.end > end_offset
+            })
+            .map(|token| token.span.source);
+
+        if let Some(source) = spanning_source {
+            self.tokens.retain(|token| token.span.start < start_offset);
+            let mut lexer = Lexer::with_source(&self.input[end_offset..], source);
+            while let Some(mut token) = lexer.next_token() {
+                token.span.start += end_offset;
+                token.span.end += end_offset;
+                self.tokens.push(token);
+            }
+            return;
+        }
+
         let mut idx = self.index;
         while idx < self.tokens.len() {
             let token_start = self.tokens[idx].span.start;
@@ -2533,7 +2555,11 @@ fn pattern_word_stops_before(
         PatternCollectContext::CondRegex => {
             matches!(
                 kind,
-                TokenKind::DblRBracket | TokenKind::AndAnd | TokenKind::OrOr | TokenKind::Newline
+                TokenKind::DblRBracket
+                    | TokenKind::AndAnd
+                    | TokenKind::OrOr
+                    | TokenKind::RParen
+                    | TokenKind::Newline
             )
         }
     }

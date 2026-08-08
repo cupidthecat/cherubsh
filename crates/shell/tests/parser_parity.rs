@@ -97,6 +97,8 @@ fn cond_fixtures() {
         "[[ ( $a == $b ) ]]",
         "[[ ( $a == $b ) || $c ]]",
         "[[ $x =~ abc ]]",
+        "[[ $x =~ $r1 && ! ( $x =~ $r2 ) ]]",
+        "[[ ( $a != no ) && (( -z $b ) || ( $b = $c )) ]]",
     ]);
 }
 
@@ -244,6 +246,7 @@ fn heredoc_fixtures() {
         "cat <<\"EOF\"\nhi\nEOF",
         "cat <<-EOF\n\thi\nEOF",
         "cat <<EOF >/tmp/x\nhi\nEOF",
+        "usage() {\n cat << EOF\n\n  \"$0 <file>\": basename \\$(file)\"\n\nEOF\n exit 0\n}",
     ]);
 }
 

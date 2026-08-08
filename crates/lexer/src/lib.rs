@@ -95,6 +95,7 @@ pub struct Lexer<'a> {
     peek_word_after_time: bool,
     after_function_keyword: bool,
     after_function_name: bool,
+    in_conditional: bool,
     extglob_patterns: bool,
     posix_mode: bool,
     comments_enabled: bool,
@@ -118,6 +119,7 @@ impl<'a> Lexer<'a> {
             peek_word_after_time: false,
             after_function_keyword: false,
             after_function_name: false,
+            in_conditional: false,
             extglob_patterns: false,
             posix_mode: false,
             comments_enabled: true,
@@ -274,6 +276,11 @@ impl<'a> Lexer<'a> {
     }
 
     fn emit_simple(&mut self, kind: TokenKind, start: usize, end: usize) -> Token {
+        match kind {
+            TokenKind::DblLBracket => self.in_conditional = true,
+            TokenKind::DblRBracket => self.in_conditional = false,
+            _ => {}
+        }
         self.last_kind = Some(kind.clone());
         self.last_reserved = false;
         self.after_function_name = false;
@@ -288,9 +295,9 @@ impl<'a> Lexer<'a> {
     fn lex_operator(&mut self) -> Option<Token> {
         let start = self.offset;
         let rest = &self.input[self.offset..];
-        let (kind, len) = if rest.starts_with("((") {
+        let (kind, len) = if rest.starts_with("((") && !self.in_conditional {
             (TokenKind::DblLParen, 2)
-        } else if rest.starts_with("))") {
+        } else if rest.starts_with("))") && !self.in_conditional {
             (TokenKind::DblRParen, 2)
         } else if rest.starts_with("[[") && self.at_word_start() {
             (TokenKind::DblLBracket, 2)
