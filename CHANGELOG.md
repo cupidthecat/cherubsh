@@ -4,9 +4,19 @@ This file records user-visible changes. Dates for published versions match their
 
 ## Unreleased
 
+### Added
+
+- Oils OSH parity coverage for 2,804 cases, with sandboxed execution and a reviewed mismatch ratchet.
+- Safe parsing checks for a pinned corpus of large Bash programs. Fetched source is treated as data and is never executed.
+
 ### Changed
 
 - Workspace tests now provision and require the Bash 5.3.15 oracle instead of comparing against a different system Bash.
+
+### Fixed
+
+- Parser handling for nested shell delimiters, multiline arithmetic, extended globs, case patterns, and large no-execution inputs.
+- Several nondeterministic Oils comparisons involving signals, background jobs, pipelines, here-documents, and scheduler timing.
 
 ## 0.4.0 - 2026-08-01
 

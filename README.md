@@ -10,17 +10,17 @@ The repository keeps the source for its GitHub Wiki in [`wiki/`](wiki/). Read th
 
 ## Compatibility status
 
-The v0.4.0 parity gates report:
+The current main branch runs these parity gates:
 
 | Suite | Result |
 | --- | ---: |
 | Upstream Bash 5.3 `run-*` drivers | 86 / 86 passing |
 | CherubSH differential fixtures | 99 / 99 passing |
-| Oils OSH cases compared with Bash 5.3.15 | 2,332 exact matches; 472 tracked differences |
+| Oils OSH cases compared with Bash 5.3.15 | 2,804 accounted for by exact matches or reviewed ratchet entries |
 | Runnable Brush compatibility cases | 2,104 / 2,104 passing |
 | Brush cases skipped by their metadata or Bash version | 1 |
 
-The upstream Bash gate uses the original `.right` files. The Oils gate runs 2,804 OSH spec cases in a Bubblewrap sandbox and compares raw status, standard output, standard error, and timeout state with Bash 5.3.15. Its checked-in ratchet records the mismatch fields and, by default, exact Bash and CherubSH fingerprints for each known difference. A changed failure, a new failure, or an unexpected pass stops CI.
+The upstream Bash gate uses the original `.right` files. The Oils gate was added after v0.4.0. It runs 2,804 OSH spec cases in a Bubblewrap sandbox and compares raw status, standard output, standard error, and timeout state with Bash 5.3.15. Its checked-in ratchet records the mismatch fields and, by default, exact Bash and CherubSH fingerprints for each known difference. The split between exact matches and accepted differences can change when variable cases are rerun, so the table reports the stable total instead. A changed failure, a new failure, or an unexpected pass stops CI.
 
 A short manifest limits variable fingerprints to cases affected by timing, process data, output ordering, or `$RANDOM`. The Bash fingerprint, the CherubSH fingerprint, or both may be variable for those named cases. Their mismatch fields normally stay exact, and a case with a variable CherubSH fingerprint may either match or differ on a given run. When the mismatched fields can also vary, a named case may list a small set of accepted combinations separated by `|`, such as `stdout|status,stdout`. For a mismatching run, an unlisted field combination is `DRIFT`.
 
