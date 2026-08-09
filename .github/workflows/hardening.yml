@@ -140,11 +140,28 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Install Clang
-        run: sudo apt-get update && sudo apt-get install --yes clang
+      - name: Install system packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes \
+            autoconf \
+            bison \
+            build-essential \
+            clang \
+            curl \
+            git \
+            gpgv \
+            libncurses-dev \
+            patch \
+            texinfo
 
       - name: Install the sanitizer toolchain
         run: rustup toolchain install nightly-2026-07-30 --profile minimal --component rust-src
+
+      - name: Prepare the Bash oracle
+        run: |
+          ./tools/fetch-upstream.sh
+          oracle/build-bash-5.3.15.sh
 
       - name: Run the Rust and C bridge tests under AddressSanitizer
         env:
