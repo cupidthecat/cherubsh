@@ -10,6 +10,108 @@ fn workspace_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
 
+#[test]
+fn large_script_manifest_pins_the_approved_corpus() {
+    let manifest = fs::read_to_string(workspace_root().join("large-scripts.lock"))
+        .expect("read large-script source manifest");
+    let rows = manifest
+        .lines()
+        .filter(|line| !line.trim().is_empty() && !line.starts_with('#'))
+        .map(|line| {
+            let fields = line.split('\t').collect::<Vec<_>>();
+            assert_eq!(
+                fields.len(),
+                4,
+                "manifest row must have four fields: {line}"
+            );
+            assert!(
+                fields[2].len() == 40
+                    && fields[2]
+                        .bytes()
+                        .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)),
+                "manifest commit must be a lowercase SHA-1: {}",
+                fields[2]
+            );
+            assert!(
+                matches!(fields[3], "required" | "optional-safety"),
+                "unsupported manifest policy: {}",
+                fields[3]
+            );
+            (fields[0], fields[3])
+        })
+        .collect::<Vec<_>>();
+
+    let projects = rows.iter().map(|(name, _)| *name).collect::<Vec<_>>();
+    assert_eq!(
+        projects,
+        [
+            "ble-sh",
+            "rear",
+            "bash-funk",
+            "nb",
+            "winetricks",
+            "testssl-sh",
+            "neofetch",
+            "acme-sh",
+            "distrobox",
+            "bashtop",
+        ]
+    );
+    assert_eq!(
+        rows.iter()
+            .filter(|(_, policy)| *policy == "optional-safety")
+            .map(|(name, _)| *name)
+            .collect::<Vec<_>>(),
+        ["rear"]
+    );
+}
+
+#[test]
+fn large_script_parity_has_a_deterministic_self_test() {
+    let output = Command::new("python3")
+        .arg(workspace_root().join("tools/large-script-parity.py"))
+        .arg("--self-test")
+        .env("BASH_ORACLE_PATH", default_bash_path())
+        .env(
+            "CHERUBSH_BIN",
+            cherub_path().expect("CherubSH test binary for corpus self-test"),
+        )
+        .output()
+        .expect("run large-script parity self-test");
+
+    assert!(
+        output.status.success(),
+        "large-script parity self-test failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "large-script parity self-test: 13 checks passed\n"
+    );
+}
+
+#[test]
+fn testing_guide_documents_the_large_script_corpus() {
+    let guide =
+        fs::read_to_string(workspace_root().join("wiki/Testing.md")).expect("read testing guide");
+
+    for expected in [
+        "tools/large-script-parity.py",
+        "large-scripts.lock",
+        "never executes fetched files",
+        "ReA",
+        "nvm-sh/nvm",
+        "Bash-it/bash-it",
+        "ohmybash/oh-my-bash",
+    ] {
+        assert!(
+            guide.contains(expected),
+            "testing guide is missing {expected:?}"
+        );
+    }
+}
+
 fn run_pty_matrix() {
     let Some(bash) = pinned_bash() else {
         return;

@@ -8,28 +8,7 @@ fn skip_parameter_brace_for_probe(
         match bytes[i] {
             b'\\' => i += if i + 1 < bytes.len() { 2 } else { 1 },
             b'\'' if !posix_single_quote => {
-                let mut j = i + 1;
-                let mut saw_escaped_quote = false;
-                let mut closes_before_quote = false;
-                while j < bytes.len() && bytes[j] != b'\'' {
-                    if bytes[j] == b'\\' && j + 1 < bytes.len() {
-                        if bytes[j + 1] == b'\'' {
-                            saw_escaped_quote = true;
-                        }
-                        j += 2;
-                        continue;
-                    }
-                    if bytes[j] == b'}' && saw_escaped_quote {
-                        closes_before_quote = true;
-                        break;
-                    }
-                    j += 1;
-                }
-                if closes_before_quote {
-                    i += 1;
-                } else {
-                    i = skip_simple_quoted_for_probe(bytes, i, bytes[i])?;
-                }
+                i = skip_single_quoted_for_probe(bytes, i)?;
             }
             b'"' => i = skip_simple_quoted_for_probe(bytes, i, bytes[i])?,
             b'$' if i + 1 < bytes.len() && bytes[i + 1] == b'\'' => {
@@ -54,6 +33,27 @@ fn skip_parameter_brace_for_probe(
                 }
             }
             _ => i += 1,
+        }
+    }
+    None
+}
+
+fn probe_name_is_reserved(bytes: &[u8], start: usize) -> bool {
+    start == 0
+        || bytes[start - 1].is_ascii_whitespace()
+        || matches!(bytes[start - 1], b';' | b'&' | b'|' | b'(' | b')' | b'{' | b'}')
+}
+
+fn probe_name_is_case_terminator(bytes: &[u8], start: usize) -> bool {
+    probe_name_is_reserved(bytes, start)
+        && !matches!(previous_probe_significant_byte(bytes, start), Some(b'|' | b'('))
+}
+
+fn previous_probe_significant_byte(bytes: &[u8], mut i: usize) -> Option<u8> {
+    while i > 0 {
+        i -= 1;
+        if !bytes[i].is_ascii_whitespace() {
+            return Some(bytes[i]);
         }
     }
     None
@@ -215,8 +215,11 @@ fn has_unclosed_command_substitution(input: &str) -> bool {
                 i += 1;
             }
             match &bytes[start..i] {
+                _ if !probe_name_is_reserved(bytes, start) => {}
                 b"case" => case_depth = case_depth.saturating_add(1),
-                b"esac" => case_depth = case_depth.saturating_sub(1),
+                b"esac" if probe_name_is_case_terminator(bytes, start) => {
+                    case_depth = case_depth.saturating_sub(1)
+                }
                 _ => {}
             }
             comment_ok = false;
@@ -267,7 +270,8 @@ fn skip_current_subst_brace_for_probe(bytes: &[u8], mut i: usize) -> Option<usiz
     while i < bytes.len() {
         match bytes[i] {
             b'\\' => i += if i + 1 < bytes.len() { 2 } else { 1 },
-            b'\'' | b'"' | b'`' => i = skip_simple_quoted_for_probe(bytes, i, bytes[i])?,
+            b'\'' => i = skip_single_quoted_for_probe(bytes, i)?,
+            b'"' | b'`' => i = skip_simple_quoted_for_probe(bytes, i, bytes[i])?,
             b'$' if i + 1 < bytes.len() && bytes[i + 1] == b'\'' => {
                 i = skip_ansi_c_quoted_for_probe(bytes, i + 2)?
             }
@@ -431,8 +435,11 @@ fn skip_command_substitution_for_probe(bytes: &[u8], mut i: usize) -> Option<usi
                 i += 1;
             }
             match &bytes[start..i] {
+                _ if !probe_name_is_reserved(bytes, start) => {}
                 b"case" => case_depth = case_depth.saturating_add(1),
-                b"esac" => case_depth = case_depth.saturating_sub(1),
+                b"esac" if probe_name_is_case_terminator(bytes, start) => {
+                    case_depth = case_depth.saturating_sub(1)
+                }
                 _ => {}
             }
             comment_ok = false;

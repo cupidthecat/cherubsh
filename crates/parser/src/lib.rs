@@ -2,6 +2,7 @@ use cherubsh_common::{
     Span, CMD_COPROC_SUBSHELL, CMD_INVERT_RETURN, CMD_TIME_PIPELINE, CMD_TIME_POSIX,
     CMD_WANT_SUBSHELL, W_COMPASSIGN,
 };
+use cherubsh_lexer::Lexer;
 use cherubsh_lexer::Token;
 use cherubsh_lexer::TokenKind;
 use cherubsh_lexer::TokenValue;
@@ -1244,11 +1245,15 @@ impl Parser {
 
     fn dbl_lparen_starts_arith_command(&self) -> bool {
         let mut depth = 0usize;
+        let mut double_depth = 0usize;
         let mut idx = self.index + 1;
         while let Some(token) = self.tokens.get(idx) {
             match token.kind {
-                TokenKind::DblRParen => return true,
-                TokenKind::Semicolon | TokenKind::Newline | TokenKind::End => return false,
+                TokenKind::DblLParen => double_depth += 1,
+                TokenKind::DblRParen if double_depth == 0 => return true,
+                TokenKind::DblRParen => double_depth -= 1,
+                TokenKind::Semicolon => return false,
+                TokenKind::End => return true,
                 TokenKind::LParen => depth += 1,
                 TokenKind::RParen => {
                     if depth == 0 {
@@ -1966,6 +1971,7 @@ impl Parser {
             return false;
         }
         match self.peek_kind() {
+            Some(TokenKind::DblRParen) if stop_kinds.contains(&TokenKind::RParen) => true,
             Some(kind) => stop_kinds.contains(&kind),
             None => false,
         }
@@ -2115,6 +2121,12 @@ impl Parser {
     }
 
     fn expect_kind(&mut self, kind: TokenKind, message: &str) -> Result<(), ParseError> {
+        if kind == TokenKind::RParen && self.peek_kind() == Some(TokenKind::DblRParen) {
+            let token = &mut self.tokens[self.index];
+            token.kind = TokenKind::RParen;
+            token.span.start = token.span.start.saturating_add(1);
+            return Ok(());
+        }
         if self.peek_kind() != Some(kind.clone()) {
             return Err(ParseError {
                 message: message.to_string(),
@@ -2178,13 +2190,21 @@ impl Parser {
         if self.index == 0 {
             return false;
         }
+        let Some(token) = self.tokens.get(self.index - 1) else {
+            return false;
+        };
         matches!(
-            self.tokens.get(self.index - 1).map(|token| &token.kind),
-            Some(TokenKind::Semicolon)
-                | Some(TokenKind::Ampersand)
-                | Some(TokenKind::Newline)
-                | Some(TokenKind::RParen)
-                | Some(TokenKind::DblRParen)
+            token.kind,
+            TokenKind::Semicolon
+                | TokenKind::Ampersand
+                | TokenKind::Newline
+                | TokenKind::RParen
+                | TokenKind::DblRParen
+                | TokenKind::RBrace
+                | TokenKind::DblRBracket
+        ) || matches!(
+            &token.value,
+            TokenValue::Text(word) if matches!(word.as_str(), "fi" | "done" | "esac" | "}")
         )
     }
 
@@ -2478,6 +2498,27 @@ impl Parser {
     }
 
     fn skip_tokens_in_range(&mut self, start_offset: usize, end_offset: usize) {
+        let spanning_source = self
+            .tokens
+            .iter()
+            .find(|token| {
+                token.span.start >= start_offset
+                    && token.span.start < end_offset
+                    && token.span.end > end_offset
+            })
+            .map(|token| token.span.source);
+
+        if let Some(source) = spanning_source {
+            self.tokens.retain(|token| token.span.start < start_offset);
+            let mut lexer = Lexer::with_source(&self.input[end_offset..], source);
+            while let Some(mut token) = lexer.next_token() {
+                token.span.start += end_offset;
+                token.span.end += end_offset;
+                self.tokens.push(token);
+            }
+            return;
+        }
+
         let mut idx = self.index;
         while idx < self.tokens.len() {
             let token_start = self.tokens[idx].span.start;
@@ -2532,7 +2573,11 @@ fn pattern_word_stops_before(
         PatternCollectContext::CondRegex => {
             matches!(
                 kind,
-                TokenKind::DblRBracket | TokenKind::AndAnd | TokenKind::OrOr | TokenKind::Newline
+                TokenKind::DblRBracket
+                    | TokenKind::AndAnd
+                    | TokenKind::OrOr
+                    | TokenKind::RParen
+                    | TokenKind::Newline
             )
         }
     }
@@ -3133,6 +3178,12 @@ mod tests {
     #[test]
     fn parse_double_lparen_command_list_as_subshells() {
         let ast = parse_ast("((echo abc; echo def;); echo ghi)");
+        assert!(matches!(ast.root.data, CommandData::Subshell(_)));
+    }
+
+    #[test]
+    fn parse_multiline_double_lparen_command_list_as_subshells() {
+        let ast = parse_ast("(( echo 1\necho 2\n(( x ))\n: $(( x ))\necho 3\n) )");
         assert!(matches!(ast.root.data, CommandData::Subshell(_)));
     }
 

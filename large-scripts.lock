@@ -1,0 +1,11 @@
+# name	repository	commit	policy
+ble-sh	https://github.com/akinomyoga/ble.sh.git	d69e4d549a1881a37300fe6b4a05478bd9157dfc	required
+rear	https://github.com/rear/rear.git	a2679d258d279465427ea38cbb9e20c64211bb43	optional-safety
+bash-funk	https://github.com/vegardit/bash-funk.git	8f889d0702a05e3c90e6705314474ada34125e28	required
+nb	https://github.com/xwmx/nb.git	8b7fe6fdd00bd2379e0442221b81411d3f536abd	required
+winetricks	https://github.com/Winetricks/winetricks.git	5a59ea07513b24093bd90fad943ecf9543cf05bc	required
+testssl-sh	https://github.com/testssl/testssl.sh.git	5296954a701dd00240bec32feadffaa7eacb2bba	required
+neofetch	https://github.com/dylanaraps/neofetch.git	ccd5d9f52609bbdcd5d8fa78c4fdb0f12954125f	required
+acme-sh	https://github.com/acmesh-official/acme.sh.git	2feb392bd0e3964d9bf68871ae804578d9d5ca80	required
+distrobox	https://github.com/89luca89/distrobox.git	6aee0c552be48381715d3c5fcc5565c7cbc08c1c	required
+bashtop	https://github.com/aristocratos/bashtop.git	60f95a1a74c8e7e589c02aa03d60141152df8337	required

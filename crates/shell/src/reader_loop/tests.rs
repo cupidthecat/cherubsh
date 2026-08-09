@@ -1,9 +1,39 @@
 #[cfg(test)]
 mod tests {
-    use super::{completion_request, has_unclosed_command_substitution, has_unclosed_heredoc};
+    use super::{
+        completion_request, extract_command_substitution_for_parse,
+        has_unclosed_command_substitution, has_unclosed_heredoc, parse_text,
+        skip_double_quoted_for_parse,
+    };
     use crate::completion::CompletionQuote;
 
     const BREAKS: &str = " \t\n\"'@><=;|&(:";
+
+    #[test]
+    fn parse_validator_handles_command_substitution_in_array_assignment() {
+        let source = r##"items=($(
+  {
+    printf "%s\\n" "${items[@]:-}"
+    GIT_PAGER='' git -C "${list_path}" \
+      grep \
+      --color=never \
+      --extended-regexp \
+      --files-with-matches \
+      --ignore-case \
+      --max-depth 0 \
+      --text \
+      -e "${PATTERN:-"#pinned"}" \
+      "${list_path}" 2>/dev/null || :
+  } | awk '!NF || !seen[$0]++'
+))
+"##;
+        let body_start = source.find("$(").unwrap() + 2;
+        let pattern_quote = source.find("\"${PATTERN").unwrap();
+        assert!(skip_double_quoted_for_parse(source.as_bytes(), pattern_quote + 1).is_some());
+        let (_, _, body, _) = extract_command_substitution_for_parse(source, body_start).unwrap();
+        assert!(body.ends_with("} | awk '!NF || !seen[$0]++'\n"), "{body:?}");
+        assert!(parse_text(source, true, false, true).is_ok());
+    }
 
     #[test]
     fn completion_words_match_bash_word_break_tokens() {

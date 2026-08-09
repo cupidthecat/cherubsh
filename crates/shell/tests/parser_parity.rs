@@ -42,6 +42,7 @@ fn quoting_fixtures() {
         r#"echo "outer $(echo "inner") tail""#,
         r#"echo 'a;b;c'"#,
         r#"echo "a;b;c""#,
+        "if true; then\n x=\"grep '^${v}$'\"\nelse\n :\nfi",
     ]);
 }
 
@@ -97,6 +98,8 @@ fn cond_fixtures() {
         "[[ ( $a == $b ) ]]",
         "[[ ( $a == $b ) || $c ]]",
         "[[ $x =~ abc ]]",
+        "[[ $x =~ $r1 && ! ( $x =~ $r2 ) ]]",
+        "[[ ( $a != no ) && (( -z $b ) || ( $b = $c )) ]]",
     ]);
 }
 
@@ -108,6 +111,10 @@ fn arith_fixtures() {
         "(( a < b ))",
         "(( a == b ))",
         "(( a++ ))",
+        "((a=1,\n b=2))",
+        "((a>0&&\n --a==0))",
+        "(((a<0)&&(a=1),\n (b<0)&&(b=1)))",
+        "((\n 0?(\n a=1\n):(\n a=2\n)))",
         "for ((i=0; i<10; i++)); do echo $i; done",
         "for (( ; ; )); do break; done",
     ]);
@@ -119,6 +126,7 @@ fn function_fixtures() {
         "f() { :; }",
         "function f { :; }",
         "function f() { :; }",
+        "function f { [[ -d $1 ]] || :; }",
         "f()\n{ :; }",
         "f() { echo $1; }",
         "_a1() { return 0; }",
@@ -191,6 +199,7 @@ fn loop_and_if_fixtures() {
         "if true; then :; fi >out",
         "if true; then :; else :; fi",
         "if true; then :; elif false; then :; else :; fi",
+        "if true && ! false ]] ; then :; fi",
         "if true\nthen\n  :\nfi",
     ]);
 }
@@ -204,6 +213,10 @@ fn group_and_subshell_fixtures() {
         "( echo a ) >out",
         "{ echo a; echo b; }",
         "(echo a; echo b)",
+        "(true && (false)) | cat",
+        "{ { :; } }",
+        "{ if true; then :; fi }",
+        "{ [[ -n $x ]] }",
     ]);
 }
 
@@ -219,9 +232,11 @@ fn substitution_fixtures() {
         "echo ${var#prefix}",
         "echo ${var%suffix}",
         "echo $(date)",
+        r#"value=$(ble/bin/"$awk" '{gsub(/\'"$seq"'/, "<DEL>");print $0 "x";}' <<< "x${ctrl}y")"#,
         "echo `date`",
         "echo $((1+2))",
         "echo ${a[0]}",
+        "if true; then\n x=${x//'\\'/'\\\\'}\nfi",
         "echo ${a[@]}",
     ]);
 }
@@ -239,6 +254,7 @@ fn heredoc_fixtures() {
         "cat <<\"EOF\"\nhi\nEOF",
         "cat <<-EOF\n\thi\nEOF",
         "cat <<EOF >/tmp/x\nhi\nEOF",
+        "usage() {\n cat << EOF\n\n  \"$0 <file>\": basename \\$(file)\"\n\nEOF\n exit 0\n}",
     ]);
 }
 
@@ -249,5 +265,10 @@ fn redir_word_fixtures() {
 
 #[test]
 fn negative_syntax_fixtures() {
-    check_all(&["echo >", "for i in a b do :; done", "{ echo a }"]);
+    check_all(&[
+        "echo >",
+        "for i in a b do :; done",
+        "{ echo a }",
+        "x=${x//'\\'/'\\\\'}\nfi",
+    ]);
 }

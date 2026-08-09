@@ -93,6 +93,9 @@ pub struct Lexer<'a> {
     parser_state: Option<Rc<Cell<u32>>>,
     aliases: Option<&'a dyn AliasTable>,
     peek_word_after_time: bool,
+    after_function_keyword: bool,
+    after_function_name: bool,
+    in_conditional: bool,
     extglob_patterns: bool,
     posix_mode: bool,
     comments_enabled: bool,
@@ -114,6 +117,9 @@ impl<'a> Lexer<'a> {
             parser_state: None,
             aliases: None,
             peek_word_after_time: false,
+            after_function_keyword: false,
+            after_function_name: false,
+            in_conditional: false,
             extglob_patterns: false,
             posix_mode: false,
             comments_enabled: true,
@@ -209,7 +215,7 @@ impl<'a> Lexer<'a> {
     }
 
     fn at_word_start(&self) -> bool {
-        if self.last_reserved {
+        if self.last_reserved || self.after_function_name {
             return true;
         }
         matches!(
@@ -270,8 +276,14 @@ impl<'a> Lexer<'a> {
     }
 
     fn emit_simple(&mut self, kind: TokenKind, start: usize, end: usize) -> Token {
+        match kind {
+            TokenKind::DblLBracket => self.in_conditional = true,
+            TokenKind::DblRBracket => self.in_conditional = false,
+            _ => {}
+        }
         self.last_kind = Some(kind.clone());
         self.last_reserved = false;
+        self.after_function_name = false;
         Token {
             kind,
             value: TokenValue::None,
@@ -283,13 +295,13 @@ impl<'a> Lexer<'a> {
     fn lex_operator(&mut self) -> Option<Token> {
         let start = self.offset;
         let rest = &self.input[self.offset..];
-        let (kind, len) = if rest.starts_with("((") {
+        let (kind, len) = if rest.starts_with("((") && !self.in_conditional {
             (TokenKind::DblLParen, 2)
-        } else if rest.starts_with("))") {
+        } else if rest.starts_with("))") && !self.in_conditional {
             (TokenKind::DblRParen, 2)
         } else if rest.starts_with("[[") && self.at_word_start() {
             (TokenKind::DblLBracket, 2)
-        } else if rest.starts_with("]]") {
+        } else if rest.starts_with("]]") && self.in_conditional {
             (TokenKind::DblRBracket, 2)
         } else if rest.starts_with(";;&") {
             (TokenKind::DblSemiAmp, 3)
@@ -350,6 +362,9 @@ impl<'a> Lexer<'a> {
     }
 
     fn brace_can_close(&self) -> bool {
+        if self.last_reserved {
+            return true;
+        }
         matches!(
             self.last_kind,
             None | Some(TokenKind::Newline)
@@ -357,10 +372,15 @@ impl<'a> Lexer<'a> {
                 | Some(TokenKind::Ampersand)
                 | Some(TokenKind::RParen)
                 | Some(TokenKind::DblRParen)
+                | Some(TokenKind::RBrace)
+                | Some(TokenKind::DblRBracket)
         )
     }
 
     fn lex_word_or_number(&mut self) -> Token {
+        let follows_function_keyword = self.after_function_keyword;
+        self.after_function_keyword = false;
+        self.after_function_name = false;
         let start = self.offset;
         let mut text = String::new();
         let mut flags: u32 = 0;
@@ -609,6 +629,7 @@ impl<'a> Lexer<'a> {
             if is_reserved_word_text(&text) {
                 self.last_reserved = true;
                 self.last_kind = Some(TokenKind::Word);
+                self.after_function_keyword = text == "function";
                 return Token {
                     kind: TokenKind::Word,
                     value: TokenValue::Text(text),
@@ -626,6 +647,7 @@ impl<'a> Lexer<'a> {
         };
         self.last_kind = Some(TokenKind::Word);
         self.last_reserved = false;
+        self.after_function_name = follows_function_keyword;
         tok
     }
 
@@ -734,7 +756,7 @@ impl<'a> Lexer<'a> {
                     self.offset += 1;
                 }
             }
-            b'\'' => {
+            b'\'' if !in_double_quotes => {
                 *flags |= W_QUOTED;
                 out.push('\'');
                 self.offset += 1;
@@ -905,34 +927,9 @@ impl<'a> Lexer<'a> {
                 self.offset += 1;
                 self.scan_dollar(out, flags, in_double_quotes);
             } else if ch == b'\'' && !(in_double_quotes && self.posix_mode) {
-                let mut j = self.offset + 1;
-                let mut saw_escaped_quote = false;
-                let mut closes_before_quote = false;
-                while j < self.input.len() && self.input.as_bytes()[j] != b'\'' {
-                    if self.input.as_bytes()[j] == b'\\' && j + 1 < self.input.len() {
-                        if self.input.as_bytes()[j + 1] == b'\'' {
-                            saw_escaped_quote = true;
-                        }
-                        j += 2;
-                        continue;
-                    }
-                    if self.input.as_bytes()[j] == b'}' && saw_escaped_quote {
-                        closes_before_quote = true;
-                        break;
-                    }
-                    j += 1;
-                }
-                if closes_before_quote {
-                    out.push(self.take_char());
-                    continue;
-                }
                 out.push('\'');
                 self.offset += 1;
                 while self.offset < self.input.len() && self.peek_byte() != b'\'' {
-                    if self.peek_byte() == b'\\' && self.offset + 1 < self.input.len() {
-                        out.push('\\');
-                        self.offset += 1;
-                    }
                     out.push(self.take_char());
                 }
                 if self.offset < self.input.len() {
@@ -1369,7 +1366,7 @@ impl<'a> Lexer<'a> {
         out.push(quote as char);
         self.offset += 1;
         while self.offset < self.input.len() && self.peek_byte() != quote {
-            if self.peek_byte() == b'\\' && self.offset + 1 < self.input.len() {
+            if quote != b'\'' && self.peek_byte() == b'\\' && self.offset + 1 < self.input.len() {
                 out.push('\\');
                 self.offset += 1;
             }

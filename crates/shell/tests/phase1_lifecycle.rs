@@ -2,7 +2,7 @@ use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use cherubsh_test_harness::{cherub_path, required_oracle_bash_path};
 
@@ -340,6 +340,24 @@ fn just_one_command_from_stdin_reads_compound_command() {
     let (bash, cherub) = run_both(&spec);
     assert_eq!(cherub.status, bash.status);
     assert_eq!(cherub.stdout, bash.stdout);
+}
+
+#[test]
+fn parse_only_stdin_reads_multiline_nested_arithmetic() {
+    for source in [
+        "(((umin<0||umin>p1)&&(umin=p1),\n (umax<0||umax<p2)&&(umax=p2)))\n",
+        "((value>=end?(value+=shift):(\n value>=beg&&(value=end))))\n",
+    ] {
+        let spec = Spec {
+            args: vec!["-n", "-s"],
+            stdin: Some(source),
+            ..Spec::default()
+        };
+        let (bash, cherub) = run_both(&spec);
+        assert_eq!(bash.status, 0, "{bash:?}");
+        assert_eq!(cherub.status, bash.status, "{cherub:?}");
+        assert_eq!(cherub.stderr, bash.stderr, "{cherub:?}");
+    }
 }
 
 #[test]
@@ -686,6 +704,18 @@ fn command_substitution_case_pattern_parens_match_bash() {
 }
 
 #[test]
+fn command_substitution_case_pattern_reserved_words_match_bash() {
+    let spec = Spec {
+        args: vec!["--posix", "-c", ": $(case x in in|esac) foo;; esac)"],
+        ..Spec::default()
+    };
+    let (bash, cherub) = run_both(&spec);
+    assert_eq!(cherub.status, bash.status, "{cherub:?}");
+    assert_eq!(cherub.stdout, bash.stdout, "{cherub:?}");
+    assert_eq!(cherub.stderr, bash.stderr, "{cherub:?}");
+}
+
+#[test]
 fn command_substitution_comments_after_words_match_bash() {
     let script = temp_file(
         "phase1-cmdsub-comment-boundary",
@@ -815,6 +845,58 @@ fn noexec_reads_later_syntax_without_executing_prior_command() {
     assert_eq!(cherub.status, bash.status);
     assert_eq!(cherub.stdout, bash.stdout);
     assert!(cherub.stdout.is_empty());
+}
+
+#[test]
+fn noexec_stdin_parses_large_compound_input_once() {
+    let mut source = String::from("large() {\n");
+    for _ in 0..1_500 {
+        source.push_str(":\n");
+    }
+    source.push_str("}\n");
+
+    let spec = Spec {
+        args: vec!["-n", "-s"],
+        stdin: Some(&source),
+        ..Spec::default()
+    };
+    let started = Instant::now();
+    let output = run_shell(cherub(), &spec);
+    assert_eq!(output.status, 0, "{output:?}");
+    assert!(
+        started.elapsed() < Duration::from_secs(2),
+        "large noexec parse took {:?}",
+        started.elapsed()
+    );
+}
+
+#[test]
+fn noexec_validates_compound_assignment_command_substitution() {
+    let source = r##"items=($(
+  {
+    printf "%s\\n" "${items[@]:-}"
+    GIT_PAGER='' git -C "${list_path}" \
+      grep \
+      --color=never \
+      --extended-regexp \
+      --files-with-matches \
+      --ignore-case \
+      --max-depth 0 \
+      --text \
+      -e "${PATTERN:-"#pinned"}" \
+      "${list_path}" 2>/dev/null || :
+  } | awk '!NF || !seen[$0]++'
+))
+"##;
+    let spec = Spec {
+        args: vec!["-n", "-s"],
+        stdin: Some(source),
+        ..Spec::default()
+    };
+    let (bash, cherub) = run_both(&spec);
+    assert_eq!(bash.status, 0, "{bash:?}");
+    assert_eq!(cherub.status, bash.status, "{cherub:?}");
+    assert_eq!(cherub.stderr, bash.stderr, "{cherub:?}");
 }
 
 #[test]

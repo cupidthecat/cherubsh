@@ -222,6 +222,18 @@ fn checked_in_ratchet_uses_portable_rows_for_host_sensitive_cases() {
     let aarch64 = load_oils_ratchet_for_arch(&path, "aarch64").expect("load aarch64 ratchet");
     let expected = [
         (
+            "here-doc.test.sh::032::Multiple here docs in pipeline",
+            vec![vec!["stderr"]],
+            "variable",
+            "variable",
+        ),
+        (
+            "here-doc.test.sh::033::Multiple here docs in pipeline on multiple lines",
+            vec![vec!["stderr"]],
+            "variable",
+            "variable",
+        ),
+        (
             "process-sub.test.sh::002::Process sub from shell to stdin",
             vec![vec!["stdout"]],
             "fe05f0ce17267e5916dfe7fdb23387f63237ad324fc6b461d3423c63c12efecd",
@@ -236,6 +248,12 @@ fn checked_in_ratchet_uses_portable_rows_for_host_sensitive_cases() {
         (
             "shell-bugs.test.sh::000::./configure idiom",
             vec![vec!["stderr"]],
+            "variable",
+            "variable",
+        ),
+        (
+            "shell-grammar.test.sh::002::Command with trailer",
+            vec![vec!["stdout"]],
             "variable",
             "variable",
         ),
