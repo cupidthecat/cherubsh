@@ -92,6 +92,26 @@ fn large_script_parity_has_a_deterministic_self_test() {
 }
 
 #[test]
+fn oils_gap_summary_has_a_deterministic_self_test() {
+    let output = Command::new("python3")
+        .arg(workspace_root().join("tools/oils-gap-summary.py"))
+        .arg("--self-test")
+        .output()
+        .expect("run Oils gap summary self-test");
+
+    assert!(
+        output.status.success(),
+        "Oils gap summary self-test failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "Oils gap summary self-test passed\n"
+    );
+}
+
+#[test]
 fn testing_guide_documents_the_large_script_corpus() {
     let guide =
         fs::read_to_string(workspace_root().join("wiki/Testing.md")).expect("read testing guide");

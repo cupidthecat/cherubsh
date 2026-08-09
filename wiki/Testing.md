@@ -62,6 +62,14 @@ Set `OILS_PARITY_JOBS` to cap worker threads or `OILS_PARITY_REPORT_DIR` to move
 
 The checked-in ratchet tracks known observations. It normally stores exact Bash and CherubSH fingerprints. Cases named in `crates/test-harness/oils-nondeterministic-cases.txt` may use a variable fingerprint for Bash, CherubSH, or both when timing, process data, random values, or output ordering changes between runs. Their mismatch fields normally remain exact. If those fields also vary, a named case may record a small set of accepted combinations separated by `|`, such as `stdout|status,stdout`. Each combination is matched as a whole. For a mismatching run, an unlisted field combination is `DRIFT`. The gate also fails on a new mismatch (`FAIL`), a fixed known mismatch (`XPASS`), or an entry with no matching case (`STALE`). A case with a variable CherubSH fingerprint may pass on a given run without becoming an `XPASS`. Remove other `XPASS` entries instead of leaving resolved behavior in the baseline.
 
+After the run, open `target/parity/oils/gap-summary.md`. It ranks specs by the impact of their remaining differences, putting timeouts and status changes ahead of output-only gaps. Pick a spec near the top, then use `OILS_PARITY_FILTER` to narrow the next run. You can rebuild the summary without rerunning the suite:
+
+```sh
+python3 tools/oils-gap-summary.py \
+  --report target/parity/oils/report.tsv \
+  --output target/parity/oils/gap-summary.md
+```
+
 Run the C-library compatibility checks only:
 
 ```sh
