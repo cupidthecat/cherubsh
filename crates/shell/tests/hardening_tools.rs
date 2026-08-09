@@ -346,12 +346,20 @@ fn differential_fuzzer_has_a_deterministic_self_test() {
 #[test]
 fn differential_fuzzer_accepts_a_relative_cherub_binary_path() {
     let bash = default_bash_path();
+    let root = workspace_root()
+        .canonicalize()
+        .expect("canonical workspace root");
+    let cherub = cherub_path().expect("CherubSH test binary");
+    let relative_cherub = cherub
+        .strip_prefix(&root)
+        .expect("CherubSH test binary below workspace root");
     let output = Command::new("python3")
-        .arg(workspace_root().join("tools/fuzz-differential.py"))
-        .args(["--cherub", "target/debug/cherubsh"])
+        .arg(root.join("tools/fuzz-differential.py"))
+        .arg("--cherub")
+        .arg(relative_cherub)
         .args(["--bash", bash.to_str().expect("UTF-8 default Bash path")])
         .args(["--cases", "3", "--seed", "20260731"])
-        .current_dir(workspace_root())
+        .current_dir(root)
         .output()
         .expect("run differential fuzzer with a relative CherubSH path");
 
