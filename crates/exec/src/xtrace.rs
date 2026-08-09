@@ -13,14 +13,28 @@ pub(crate) fn trace(ctx: &mut ExecContext<'_>, line: &str) {
 }
 
 pub(crate) fn trace_with_fd_value(ctx: &mut ExecContext<'_>, line: &str, fd_value: Option<&str>) {
-    let raw_ps4 = ctx.env.get("PS4").unwrap_or_else(|| "+ ".to_string());
+    let ps4_value = ctx.env.get("PS4");
+    trace_with_values(ctx, line, ps4_value.as_deref(), fd_value);
+}
+
+pub(crate) fn trace_with_values(
+    ctx: &mut ExecContext<'_>,
+    line: &str,
+    ps4_value: Option<&str>,
+    fd_value: Option<&str>,
+) {
+    let raw_ps4 = ps4_value.unwrap_or("+ ").to_string();
+    let xtrace_enabled = ctx.env.option("xtrace");
+    ctx.env.set_option("xtrace", false);
     let mut runner = crate::runner::ExecRunner::with_functions_mut_at_depth(
         &mut ctx.functions,
         &mut ctx.function_sources,
         ctx.function_depth,
         ctx.source_depth,
     );
-    let mut ps4 = expand_string_to_string(&raw_ps4, ctx.env, &mut runner).unwrap_or(raw_ps4);
+    let expanded_ps4 = expand_string_to_string(&raw_ps4, ctx.env, &mut runner);
+    ctx.env.set_option("xtrace", xtrace_enabled);
+    let mut ps4 = expanded_ps4.unwrap_or(raw_ps4);
     let extra_prefixes = ctx.source_depth
         + ctx.env.command_substitution_depth()
         + u32::from(ctx.env.running_trap().is_some());
