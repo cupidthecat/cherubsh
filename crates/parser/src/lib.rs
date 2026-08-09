@@ -1245,13 +1245,18 @@ impl Parser {
 
     fn dbl_lparen_starts_arith_command(&self) -> bool {
         let mut depth = 0usize;
-        let mut double_depth = 0usize;
         let mut idx = self.index + 1;
         while let Some(token) = self.tokens.get(idx) {
             match token.kind {
-                TokenKind::DblLParen => double_depth += 1,
-                TokenKind::DblRParen if double_depth == 0 => return true,
-                TokenKind::DblRParen => double_depth -= 1,
+                TokenKind::DblLParen => depth += 2,
+                TokenKind::DblRParen if depth == 0 => return true,
+                TokenKind::DblRParen if depth >= 2 => depth -= 2,
+                TokenKind::DblRParen => {
+                    return self
+                        .tokens
+                        .get(idx + 1)
+                        .is_some_and(|next| next.kind == TokenKind::RParen);
+                }
                 TokenKind::Semicolon => return false,
                 TokenKind::End => return true,
                 TokenKind::LParen => depth += 1,
@@ -3424,6 +3429,18 @@ mod tests {
                     " now1 - offset <= now2 && now2 >= now1 "
                 );
             }
+            _ => panic!("expected arith command"),
+        }
+    }
+
+    #[test]
+    fn parse_arith_command_accepts_adjacent_grouping_parentheses() {
+        let data = parse_command("(( strength = 100 - (100 * ((level + 40) * -1 ) / 60 ) ))");
+        match data {
+            CommandData::Arith(cmd) => assert_eq!(
+                cmd.expression.text,
+                " strength = 100 - (100 * ((level + 40) * -1 ) / 60 ) ",
+            ),
             _ => panic!("expected arith command"),
         }
     }

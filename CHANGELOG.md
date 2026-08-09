@@ -7,7 +7,8 @@ This file records user-visible changes. Dates for published versions match their
 ### Added
 
 - Oils OSH parity coverage for 2,804 cases, with sandboxed execution and a reviewed mismatch ratchet.
-- Safe parsing checks for a pinned corpus of large Bash programs. Fetched source is treated as data and is never executed.
+- Safe parsing checks for 6,044 shell files from 88 pinned real-world projects.
+- A Bubblewrap smoke matrix that compares one reviewed entrypoint fixture from each pinned project with Bash 5.3.15.
 
 ### Changed
 
@@ -16,6 +17,9 @@ This file records user-visible changes. Dates for published versions match their
 ### Fixed
 
 - Parser handling for nested shell delimiters, multiline arithmetic, extended globs, case patterns, and large no-execution inputs.
+- Real-world compatibility gaps in quoted pathname prefixes, continued control operators, adjacent arithmetic parentheses, literal command-substitution text, deblanked here-documents, noninteractive `bind`, and repeated `read` calls.
+- The scheduled AddressSanitizer job now installs its sandbox tools, prepares its pinned Bash oracle, and links test clients with the matching sanitizer runtime.
+- Oils sandbox tests no longer leak fixture path allocations and now skip hosts that reject Bubblewrap process namespaces.
 - Several nondeterministic Oils comparisons involving signals, background jobs, pipelines, here-documents, and scheduler timing.
 
 ## 0.4.0 - 2026-08-01

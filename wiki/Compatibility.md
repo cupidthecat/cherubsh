@@ -10,6 +10,7 @@ CherubSH aims to reproduce Bash 5.3 behavior and GNU Readline and History behavi
 | GNU Readline | 8.3 patch 3 |
 | bash-completion | 2.18.0 |
 | Brush fixtures | Commit `5a50c12ed59e610dae038db9acf642286c585e2d` |
+| Real-world shell projects | 88 commits recorded in `large-scripts.lock` |
 
 `upstream.lock` records the repositories, tags, tag objects, and patch levels. `upstream.sha256` records the hashes for release patches, signatures, and the GNU keyring used by the fetch script.
 
@@ -20,6 +21,14 @@ The upstream Bash gate runs the original `run-*` drivers and their `.right` expe
 The Readline gate compiles shared fixtures and upstream examples against GNU Readline and against the CherubSH libraries. It checks observable C-library behavior, symbols, names, and deterministic output.
 
 The ordinary Rust test suite catches component-level regressions. It is necessary, but it does not replace a behavior comparison against the pinned reference.
+
+## Real-world program coverage
+
+The hardening corpus pins 88 projects used as shells, sourced startup code, command-line tools, test frameworks, version managers, and administration programs. Its no-execution gate selects 6,044 regular shell files and checks their parse result against Bash 5.3.15. Extensionless files with Bash, `sh`, or `dash` shebangs are included.
+
+The companion smoke matrix runs one reviewed fixture per project. Command fixtures use safe help, version, or validation paths. Startup packages and version-manager modules are sourced. Bashtop uses a short pseudo-terminal startup fixture because it has no noninteractive help path. Every fixture runs twice in a fresh Bubblewrap namespace, once with the pinned Bash oracle and once with CherubSH. The comparison includes status, standard output, standard error, timeout state, and deterministic files.
+
+The namespace has no network access. Its home and work directories are temporary, and the fetched Git tree is read-only. This keeps installers and system tools away from the host. The matrix does not exercise live package installation, certificates, VPN setup, backups, containers, clusters, or deployments. Those jobs still belong in a disposable VM with their external dependencies installed.
 
 ## What Bash is and is not used for
 

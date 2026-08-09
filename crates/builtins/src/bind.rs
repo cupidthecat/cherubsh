@@ -2,6 +2,7 @@
 
 use cherubsh_common::keymap::EditAction;
 
+use crate::common::report_diagnostic;
 use crate::{Builtin, BuiltinCtx};
 
 pub struct Bind;
@@ -14,6 +15,9 @@ impl Builtin for Bind {
         "bind [-lpsvPSVX] [-m keymap] [-f filename] [-q name] [-u name] [-r keyseq] [-x keyseq:shell-command] [keyseq:readline-function or readline-command]"
     }
     fn run(&self, ctx: &mut BuiltinCtx<'_>) -> i32 {
+        if !ctx.env_ref().option("interactive") {
+            report_diagnostic(ctx.env_ref(), "bind", "warning: line editing not enabled");
+        }
         let mut keymap_name: Option<String> = None;
         let mut list_fns = false;
         let mut print_bindings = false;

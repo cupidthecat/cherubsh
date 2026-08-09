@@ -1,8 +1,9 @@
 fn parse_error_wants_more_input(err: &ParseError, input: &str) -> bool {
+    let significant_end = input.trim_end().len();
     let at_end = err
         .span
         .as_ref()
-        .map(|span| span.end >= input.len())
+        .map(|span| span.end >= significant_end)
         .unwrap_or(true);
     at_end
         && (err.message.starts_with("expected")
@@ -11,6 +12,28 @@ fn parse_error_wants_more_input(err: &ParseError, input: &str) -> bool {
                 .starts_with("unexpected EOF while looking for matching")
             || err.message == "function body must be a compound command"
             || err.message == "syntax error: unexpected end of file")
+}
+
+fn has_trailing_control_operator(
+    input: &str,
+    extglob_patterns: bool,
+    posix_mode: bool,
+    comments_enabled: bool,
+) -> bool {
+    let mut lexer = Lexer::new(input);
+    lexer.set_extglob_patterns(extglob_patterns);
+    lexer.set_posix_mode(posix_mode);
+    lexer.set_comments_enabled(comments_enabled);
+    let mut last = None;
+    while let Some(token) = lexer.next_token() {
+        if !matches!(token.kind, TokenKind::End | TokenKind::Newline) {
+            last = Some(token.kind);
+        }
+    }
+    matches!(
+        last,
+        Some(TokenKind::AndAnd | TokenKind::OrOr | TokenKind::Pipe | TokenKind::BarAnd)
+    )
 }
 
 fn has_open_quotes(input: &str, posix_mode: bool) -> bool {

@@ -562,7 +562,7 @@ fn skip_quoted_for_parse(bytes: &[u8], mut i: usize) -> Option<usize> {
     }
     i += 1;
     while i < bytes.len() {
-        if bytes[i] == b'\\' && i + 1 < bytes.len() {
+        if quote != b'\'' && bytes[i] == b'\\' && i + 1 < bytes.len() {
             i += 2;
             continue;
         }

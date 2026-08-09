@@ -36,6 +36,23 @@ mod tests {
     }
 
     #[test]
+    fn parse_validator_ignores_case_in_command_options() {
+        let source = r#"f() {
+  value=$(
+    echo "$value" \
+      | grep --ignore-case --invert-match "^${ID}\b" \
+      | cat -s
+  )
+}
+"#;
+        assert!(
+            parse_text(source, true, false, true).is_ok(),
+            "{:?}",
+            parse_text(source, true, false, true)
+        );
+    }
+
+    #[test]
     fn completion_words_match_bash_word_break_tokens() {
         let request = completion_request("cmd --foo=ba", 12, BREAKS);
         assert_eq!(request.words, ["cmd", "--foo", "=", "ba"]);

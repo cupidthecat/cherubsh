@@ -529,10 +529,9 @@ fn prepare_heredoc_body(
     ctx: &mut ExecContext,
 ) -> String {
     let mut processed = if strip_tabs {
-        body.lines()
-            .map(|l| l.trim_start_matches('\t'))
-            .collect::<Vec<_>>()
-            .join("\n")
+        body.split_inclusive('\n')
+            .map(|line| line.trim_start_matches('\t'))
+            .collect::<String>()
     } else {
         body.to_string()
     };

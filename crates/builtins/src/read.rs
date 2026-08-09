@@ -482,7 +482,7 @@ fn push_char_bytes(out: &mut String, bytes: &[u8]) {
     out.push_str(&bytes_to_shell_string(bytes));
 }
 
-fn read_locale_char_bytes(file: &mut std::fs::File, first: u8, utf8_locale: bool) -> Vec<u8> {
+fn read_locale_char_bytes<R: Read>(file: &mut R, first: u8, utf8_locale: bool) -> Vec<u8> {
     let mut bytes = vec![first];
     if !utf8_locale {
         return bytes;

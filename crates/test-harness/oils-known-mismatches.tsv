@@ -102,15 +102,9 @@ bugs.test.sh::021::unset doesn't allow command execution	*	stdout,stderr	f7d2367
 bugs.test.sh::026::Crash in {1..10} - issue #2296	*	status,stderr	b4c73db70743ce199436005c0186f09c5e735871d00245dd80aea141266f27ac	adf3bb8485f33431976f08a2ee9d600a210627eddbcabe815258ecce09f6aad5
 builtin-bash.test.sh::000::help	*	stdout	f1943e61a9d92f607cf8343c7a90aaaf74f40a1dc4e0007ca0bd2eae75182359	ca8522771bb7f7c6ca25ad6bd42f5dc2ff7b4bba673549979a824d8954545c0a
 builtin-bash.test.sh::000::help	aarch64	stdout	e9d3dd30cf825b2adac44db23316870815a726c5903c9e41143f7e10aab734b8	442bedd32a3fc20110d3ec057b971d0677c68df56829e0c999c58b5ae27f676b
-builtin-bind.test.sh::000::bind -l should report readline functions	*	stderr	abed01049c8189ed59c1f938b2262fd0fbbb401996aae8a9e991b8dcc6136723	03e52694105f34d40b350640325bfbabe68618ed261603a7a1c1bedef07d7700
-builtin-bind.test.sh::001::bind -p -P to print function names and key bindings	*	status,stdout,stderr	fab230e8472eb67bd6d5b9150428d33cb5cadb7a29cbcf87103830b3ccb4b04b	34174bcbe6521000a52ade6e5f88749add51fa1dcfbda36e4ee5b9e020e1b7d2
-builtin-bind.test.sh::002::bind -s -S accepted	*	stderr	105022642542149ae16f720a144d1ec8c04135f96d9f4ef6b650bf76dccd8e15	f74d9274770c8122d4daa8fb16031d2a648a4b30f233f21659d68e0356f59f68
-builtin-bind.test.sh::003::bind -v -V accepted	*	stdout,stderr	685abffa69c73cf812852bceb07a3499fcba1c2a4bf0f6ef6ae7375ad167fbc9	3c84ac097d4a66b05fa260c6da017ed5df13c636ce293d976c5c2a100987c8d9
-builtin-bind.test.sh::004::bind -q	*	stdout,stderr	782935cb8f38fc003004df2c352fad8d7f9d7446e1d7f2bb9aef27498e850383	61d55a113366536b8f27caa28c364f2e3b59b5fd3d0ce5a67c7cd06668c6b8bc
-builtin-bind.test.sh::005::bind -X	*	stderr	7a6094b007b6614e09cd2184a6f3b494b0f85071fa5138779dc2f0bf633837df	ccb6dea014f73fdb8a4bfb5284efc5632b7299e67b1d960fb3438dd74ab802b9
-builtin-bind.test.sh::006::bind -m with bind -x/-X	*	stderr	388aaf66dbe4c0f85c19dcc6844a9cd50cec0e3264961c9d6be4e10e27ade19a	e6fd7ff3e33cbd447bf43290bd82ac07e2f143b77e844085b99cb9c65d07f292
-builtin-bind.test.sh::007::bind -r	*	stderr	3bcc2d9ef6e1b5de8ae2aada30b9edd46069693315e088b1f266b1b155d4f3c2	4e86244bc58bbd3aa742ad80192c8373f78a8cbf47ece532397a59ae3ed2440c
-builtin-bind.test.sh::008::bind -r of bind -x commands	*	stderr	3bcc2d9ef6e1b5de8ae2aada30b9edd46069693315e088b1f266b1b155d4f3c2	4e86244bc58bbd3aa742ad80192c8373f78a8cbf47ece532397a59ae3ed2440c
+builtin-bind.test.sh::001::bind -p -P to print function names and key bindings	*	status,stdout	fab230e8472eb67bd6d5b9150428d33cb5cadb7a29cbcf87103830b3ccb4b04b	d83a210cf2cdb93ad626188544e0023d9f6bbc6cbc3543a65311b2b4902de457
+builtin-bind.test.sh::003::bind -v -V accepted	*	stdout	685abffa69c73cf812852bceb07a3499fcba1c2a4bf0f6ef6ae7375ad167fbc9	3b546d98930c8fe4096d4a8efcc6f8921670bf30948d6f8dda7e64fb2f489f94
+builtin-bind.test.sh::004::bind -q	*	stdout,stderr	782935cb8f38fc003004df2c352fad8d7f9d7446e1d7f2bb9aef27498e850383	11fc0c5d905f433b723a6e22e511aeda30d9534ec723e930c40e3ea3c739b4dd
 builtin-bracket.test.sh::042::Overflow error	*	stdout,stderr	ca9d749a6c8360a299e466d73086f897d2887975059cdafaf37d5a208224f136	bb57b2872d68dba30560749224c6dcc30023a5c8e9a29d8c55fe6266e673f01c
 builtin-bracket.test.sh::050::Looks like octal, but digit is too big	*	stderr	699095735e634b59ef10e6c70a0f6a8c5b690cba1eacccc61e1160a0cac85d09	117388e92c4240ae2b648a8952016d14a9425011a723e3656cfa3762068fbe6d
 builtin-cd.test.sh::001::cd BAD/..	*	stdout,stderr	69f8fea3dbf23c471424652fcaf119b0cdecef00392eadd50b8dfcfb71008198	0fa8968c66a324c48811aaa05df1df5ed8f9c363c369f3f71a60ea3a4fa6df78

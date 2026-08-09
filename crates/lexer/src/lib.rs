@@ -1261,6 +1261,7 @@ impl<'a> Lexer<'a> {
 
             if is_name_start(ch) {
                 let start = self.offset;
+                let reserved_word_position = comment_ok;
                 out.push(self.take_char());
                 while self.offset < self.input.len() && is_name_byte(self.peek_byte()) {
                     out.push(self.take_char());
@@ -1268,8 +1269,8 @@ impl<'a> Lexer<'a> {
                 let word = &self.input[start..self.offset];
                 let previous = previous_significant_byte(self.input.as_bytes(), start);
                 match word {
-                    "case" => case_depth = case_depth.saturating_add(1),
-                    "esac" if !matches!(previous, Some(b'|' | b'(')) => {
+                    "case" if reserved_word_position => case_depth = case_depth.saturating_add(1),
+                    "esac" if reserved_word_position && !matches!(previous, Some(b'|' | b'(')) => {
                         case_depth = case_depth.saturating_sub(1);
                     }
                     _ => {}

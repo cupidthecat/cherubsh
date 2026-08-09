@@ -55,6 +55,11 @@ fn read_logical_command(state: &mut ShellState, exec_state: &mut ExecState) -> S
         if has_trailing_line_continuation(&command) {
             continue;
         }
+        if starts_with_function_definition(&command)
+            && !large_function_definition_may_end(&command, &line)
+        {
+            continue;
+        }
         let parse_probe = expand_aliases_for_parse(&command, state);
         if has_open_quotes(&parse_probe, state.option("posix"))
             || has_unclosed_command_substitution(&parse_probe)
@@ -65,6 +70,14 @@ fn read_logical_command(state: &mut ShellState, exec_state: &mut ExecState) -> S
         }
 
         let comments_enabled = !state.interactive || state.option("interactive_comments");
+        if has_trailing_control_operator(
+            &parse_probe,
+            state.option("extglob"),
+            state.option("posix"),
+            comments_enabled,
+        ) {
+            continue;
+        }
         match parse_text(
             &parse_probe,
             state.option("extglob"),
@@ -77,6 +90,34 @@ fn read_logical_command(state: &mut ShellState, exec_state: &mut ExecState) -> S
             Err(_) => return Ok(command),
         }
     }
+}
+
+fn starts_with_function_definition(command: &str) -> bool {
+    command
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty() && !line.starts_with('#'))
+        .is_some_and(|line| {
+            line.starts_with("function ")
+                || line
+                    .split_once('{')
+                    .is_some_and(|(head, _)| head.trim_end().ends_with("()"))
+        })
+}
+
+fn large_function_definition_may_end(command: &str, line: &str) -> bool {
+    let trimmed = line.trim_start();
+    if command.lines().count() == 1 && trimmed.contains('}') {
+        return true;
+    }
+    if trimmed.starts_with('}') {
+        return true;
+    }
+    command
+        .lines()
+        .map(str::trim)
+        .find(|candidate| !candidate.is_empty() && !candidate.starts_with('#'))
+        .is_some_and(|first| first.starts_with("function ") && trimmed.starts_with(')'))
 }
 
 fn read_noexec_input(state: &mut ShellState) -> ShellResult<String> {

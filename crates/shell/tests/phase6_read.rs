@@ -56,3 +56,28 @@ wait "$pid" 2>/dev/null
         ..RunSpec::default()
     });
 }
+
+#[test]
+fn read_nul_delimiter_reaches_heredoc_eof() {
+    let payload = "x".repeat(48 * 1024);
+    let script = format!(
+        "read -rd '' value <<'EOF'\n{payload}\nEOF\nprintf 'status=%s length=%s\\n' \"$?\" \"${{#value}}\""
+    );
+    assert_parity_strict(&RunSpec {
+        script: Some(&script),
+        ..RunSpec::default()
+    });
+}
+
+#[test]
+fn repeated_reads_do_not_consume_the_next_record() {
+    assert_parity_strict(&RunSpec {
+        script: Some(
+            r#"printf 'one\ntwo\nthree\n' |
+while IFS= read -r line; do
+    printf '<%s>\n' "$line"
+done"#,
+        ),
+        ..RunSpec::default()
+    });
+}

@@ -63,6 +63,9 @@ fn pkg_config_args(pkg_config_path: &Path, static_link: bool) -> Vec<String> {
 fn compile_client(source: &Path, prefix: &Path, output: &Path, static_link: bool) {
     let mut command = Command::new("cc");
     command.arg(source);
+    if std::env::var("CHERUBSH_C_SANITIZER").as_deref() == Ok("address") {
+        command.args(["-fsanitize=address", "-fno-omit-frame-pointer"]);
+    }
     if static_link {
         for argument in pkg_config_args(&prefix.join("lib/pkgconfig"), true) {
             match argument.as_str() {

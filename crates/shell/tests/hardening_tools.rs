@@ -46,15 +46,93 @@ fn large_script_manifest_pins_the_approved_corpus() {
         projects,
         [
             "ble-sh",
-            "rear",
-            "bash-funk",
-            "nb",
-            "winetricks",
-            "testssl-sh",
-            "neofetch",
-            "acme-sh",
-            "distrobox",
+            "bash-it",
+            "oh-my-bash",
+            "bash-completion",
+            "bash-preexec",
+            "bash-git-prompt",
+            "liquidprompt",
+            "basher",
+            "bpkg",
+            "bashdb",
+            "bashhub-client",
+            "bashmarks",
+            "z",
+            "fasd",
+            "bd",
+            "kube-ps1",
+            "shellfirm",
+            "bash-sensible",
             "bashtop",
+            "neofetch",
+            "pfetch",
+            "screenfetch",
+            "fff",
+            "nb",
+            "todo-txt-cli",
+            "bashblog",
+            "bash-snippets",
+            "ytfzf",
+            "ani-cli",
+            "shpotify",
+            "bashmount",
+            "git-extras",
+            "git-flow",
+            "git-flow-avh",
+            "git-open",
+            "git-quick-stats",
+            "git-secret",
+            "blackbox",
+            "pass-tomb",
+            "git-recall",
+            "git-radar",
+            "git-now",
+            "nvm",
+            "n",
+            "rbenv",
+            "ruby-build",
+            "chruby",
+            "ruby-install",
+            "rvm",
+            "pyenv",
+            "nodenv",
+            "node-build",
+            "jenv",
+            "tfenv",
+            "goenv",
+            "phpenv",
+            "gvm",
+            "kiex",
+            "sdkman-cli",
+            "kerl",
+            "plenv",
+            "luaenv",
+            "lua-build",
+            "exenv",
+            "elixir-build",
+            "bats-core",
+            "shunit2",
+            "shellspec",
+            "rear",
+            "acme-sh",
+            "dehydrated",
+            "testssl-sh",
+            "lynis",
+            "docker-bench-security",
+            "pi-hole",
+            "dokku",
+            "openvpn-install",
+            "wireguard-install",
+            "setup-ipsec-vpn",
+            "docker-install",
+            "dracut",
+            "bash-my-aws",
+            "kubetail",
+            "kubectx",
+            "rsync-time-backup",
+            "system-tar-and-restore",
+            "pivpn",
+            "dockstarter",
         ]
     );
     assert_eq!(
@@ -87,7 +165,72 @@ fn large_script_parity_has_a_deterministic_self_test() {
     );
     assert_eq!(
         String::from_utf8_lossy(&output.stdout),
-        "large-script parity self-test: 13 checks passed\n"
+        "large-script parity self-test: 14 checks passed\n"
+    );
+}
+
+#[test]
+fn program_smoke_manifest_covers_the_pinned_corpus() {
+    let root = workspace_root();
+    let corpus = fs::read_to_string(root.join("large-scripts.lock"))
+        .expect("read large-script source manifest");
+    let expected = corpus
+        .lines()
+        .filter(|line| !line.trim().is_empty() && !line.starts_with('#'))
+        .map(|line| line.split('\t').next().expect("corpus project name"))
+        .collect::<Vec<_>>();
+    let scenarios =
+        fs::read_to_string(root.join("program-smoke.lock")).expect("read program smoke manifest");
+    let mut actual = Vec::new();
+    for line in scenarios
+        .lines()
+        .filter(|line| !line.trim().is_empty() && !line.starts_with('#'))
+    {
+        let fields = line.split('\t').collect::<Vec<_>>();
+        assert_eq!(fields.len(), 5, "smoke row must have five fields: {line}");
+        assert!(
+            matches!(
+                fields[1],
+                "interactive" | "utility" | "git" | "version" | "test" | "system"
+            ),
+            "unsupported program category: {}",
+            fields[1]
+        );
+        assert!(
+            matches!(fields[2], "command" | "interactive" | "source"),
+            "unsupported smoke mode: {}",
+            fields[2]
+        );
+        assert!(
+            !fields[3].is_empty()
+                && !fields[3].starts_with('/')
+                && !fields[3]
+                    .split('/')
+                    .any(|part| part.is_empty() || part == "." || part == ".."),
+            "unsafe smoke entrypoint: {}",
+            fields[3]
+        );
+        actual.push(fields[0]);
+    }
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn program_smoke_runner_has_a_deterministic_self_test() {
+    let output = Command::new("python3")
+        .arg(workspace_root().join("tools/program-smoke.py"))
+        .arg("--self-test")
+        .output()
+        .expect("run program smoke self-test");
+    assert!(
+        output.status.success(),
+        "program smoke self-test failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "program smoke self-test: 11 checks passed\n"
     );
 }
 
@@ -120,10 +263,11 @@ fn testing_guide_documents_the_large_script_corpus() {
         "tools/large-script-parity.py",
         "large-scripts.lock",
         "never executes fetched files",
-        "ReA",
-        "nvm-sh/nvm",
-        "Bash-it/bash-it",
-        "ohmybash/oh-my-bash",
+        "ReaR",
+        "tools/program-smoke.py",
+        "program-smoke.lock",
+        "88 repositories",
+        "Bubblewrap namespace",
     ] {
         assert!(
             guide.contains(expected),
@@ -202,12 +346,20 @@ fn differential_fuzzer_has_a_deterministic_self_test() {
 #[test]
 fn differential_fuzzer_accepts_a_relative_cherub_binary_path() {
     let bash = default_bash_path();
+    let root = workspace_root()
+        .canonicalize()
+        .expect("canonical workspace root");
+    let cherub = cherub_path().expect("CherubSH test binary");
+    let relative_cherub = cherub
+        .strip_prefix(&root)
+        .expect("CherubSH test binary below workspace root");
     let output = Command::new("python3")
-        .arg(workspace_root().join("tools/fuzz-differential.py"))
-        .args(["--cherub", "target/debug/cherubsh"])
+        .arg(root.join("tools/fuzz-differential.py"))
+        .arg("--cherub")
+        .arg(relative_cherub)
         .args(["--bash", bash.to_str().expect("UTF-8 default Bash path")])
         .args(["--cases", "3", "--seed", "20260731"])
-        .current_dir(workspace_root())
+        .current_dir(root)
         .output()
         .expect("run differential fuzzer with a relative CherubSH path");
 
