@@ -906,12 +906,33 @@ fn user_and_contributor_release_materials_cover_public_entry_points() {
     for text in [&readme, &getting_started] {
         assert!(text.contains("Linux"));
         assert!(text.contains("WSL"));
+        assert!(text.contains("glibc"));
+        assert!(text.contains("x86_64-unknown-linux-gnu"));
+        assert!(text.contains("aarch64-unknown-linux-gnu"));
+        assert!(text.contains("build from source"));
         assert!(text.contains("install-cherubsh.sh"));
         assert!(text.contains("man cherubsh"));
         assert!(
             !text.contains("cherubsh-0.4.0-x86_64-unknown-linux-gnu.tar.gz"),
             "installation instructions should keep architecture placeholders"
         );
+    }
+
+    let manual = fs::read_to_string(root.join("man/cherubsh.1")).expect("read shell manual");
+    for expected in [
+        "glibc",
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "build from source",
+    ] {
+        assert!(manual.contains(expected), "shell manual omits {expected}");
+    }
+
+    for script in ["tools/package-release.sh", "tools/package-readline-dev.sh"] {
+        let contents = fs::read_to_string(root.join(script))
+            .unwrap_or_else(|error| panic!("read {script}: {error}"));
+        assert!(contents.contains("x86_64-unknown-linux-gnu"));
+        assert!(contents.contains("aarch64-unknown-linux-gnu"));
     }
 }
 

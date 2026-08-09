@@ -13,8 +13,13 @@ is a Rust implementation of Bash 5.3 behavior. It runs commands from a string,
 a script file, standard input, or an interactive terminal. Bash is not required
 at runtime.
 .PP
-CherubSH is tested on Linux and WSL. Keep the system Bash installation in place
-because operating-system scripts may depend on the distribution build.
+CherubSH is tested on glibc-based Linux and WSL. Official archives target
+.B x86_64-unknown-linux-gnu
+and
+.BR aarch64-unknown-linux-gnu .
+On a different Linux ABI, build from source; those environments are not part of
+release testing. Keep the system Bash installation in place because
+operating-system scripts may depend on the distribution build.
 .SH LONG OPTIONS
 .TP
 .BR --debug , " " --debugger

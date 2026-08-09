@@ -2,7 +2,7 @@
 
 CherubSH (`cherubsh`), formerly cupidshell, is a Rust implementation of Bash 5.3 behavior. It includes its own UTF-8 line editor and C-compatible GNU Readline and History libraries. Compatibility is checked against pinned builds of Bash 5.3.15 and Readline 8.3 patch 3, plus the Brush and Oils shell test corpora.
 
-CherubSH is developed and tested on Linux. The same build and test commands work under WSL.
+CherubSH is developed and tested on Linux. The same build and test commands work under WSL. Official release archives target `x86_64-unknown-linux-gnu` and `aarch64-unknown-linux-gnu`, and they require glibc. On a different Linux ABI, build from source; those environments are not part of release testing.
 
 ## Documentation
 
@@ -337,7 +337,7 @@ Check every non-interactive example with the debug binary:
 
 ## Installing as a shell
 
-CherubSH supports Linux and WSL. The v0.4.0 shell archive includes an installer for the binary, manuals, and Bash-compatible command completion. Replace `VERSION` and `TARGET` below with the names on the release asset:
+CherubSH supports Linux and WSL. Official archives use the GNU ABI and require glibc. The v0.4.0 shell archive includes an installer for the binary, manuals, and Bash-compatible command completion. Replace `VERSION` and `TARGET` below with the names on the release asset:
 
 ```sh
 tar -xzf cherubsh-VERSION-TARGET.tar.gz
