@@ -4,7 +4,6 @@ alias.test.sh::021::Syntax error after expansion	*	stderr	73a8cfb80730aad8115746
 alias.test.sh::025::Alias with a quote in the middle is a syntax error	*	status,stdout,stderr	7d5af73f57d9cd08b3f9fd8993d1ea6e1f7db863f4c6d594ad751f52f767889e	a27e3f429bb4351f7ba95a589a5843b19d41a5c226e632e97dc63c00e7dbbffc
 alias.test.sh::031::Alias is respected inside eval	*	stdout,stderr	46f18d1126fcca1dc870ba03d212e55d4cdfb67d56dc950e3c646d7c54dae953	b96c337e433f9e2d32a187ed57bb3b4b7331894b1b6fa4346497bd54e529f676
 alias.test.sh::034::alias with line continuation in the middle	*	stdout	58f6e0426eb1099e93399771fcee0e201c378d2b9683b207fb2f6ebb8c3fbf6f	899298df00f2352ebba83f533ec2f9a9a5cd4b80e562010516e84f416e072d8d
-alias.test.sh::045::Alias and PS4	*	cherub-timeout,status,stdout,stderr	5c78585562e341131a92007321a76d1d75b02a1abc63646e39082ab68fc22ba3	7146632a83a79577849798905145b6a8e35565ad36ad7fd1fd09118d49af093a
 arg-parse.test.sh::002::continue 1 extra, break, etc.	*	stdout	515a9582d00078dbad679daf54bd2131bc517fb8fa24a58093f9252dfa63ab59	544cd1b525f08d1008a2dc41dc4ed31faace6b29428f91b1ff8593cd0ae5fd60
 arith-context.test.sh::015::Empty expression a[]	*	stdout,stderr	bd52f8a63cd4287c7e3bf704feda4516ab835801d999a6fd3af13222cb642167	8a52767933bb140d5272b461a14b36da7c5d567ed27ef8d2635656fae4af1acc
 arith.test.sh::013::Integer constant validation	*	stdout,stderr	75a2ced3f302b1dd267060b9920ee04a90bc85e68731d2b23636ed0f08b7eeb6	f1c2665ebe5b6c27d3fc8e48b172ba026776ffb6ec6c917828428b2207136b4c

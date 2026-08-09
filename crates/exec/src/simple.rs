@@ -52,6 +52,7 @@ pub(crate) fn execute<'a>(
     }
     let (raw_assignments, remaining) = split_assignments(&simple.words, ctx.env.option("keyword"));
     let trace_enabled = ctx.env.option("xtrace");
+    let trace_ps4_before_assignments = trace_enabled.then(|| ctx.env.get("PS4"));
     let trace_fd_before_assignments = trace_enabled.then(|| ctx.env.get("BASH_XTRACEFD"));
     let mut assignment_expansion_status = 0;
     let mut scalar_readonly_assignment_error = false;
@@ -139,10 +140,12 @@ pub(crate) fn execute<'a>(
         .collect();
     if remaining.is_empty() {
         if trace_enabled {
-            trace_simple_with_fd_value(
+            trace_simple_with_values(
                 ctx,
                 &trace_assignments,
-                &[],
+                trace_ps4_before_assignments
+                    .as_ref()
+                    .and_then(|value| value.as_deref()),
                 trace_fd_before_assignments
                     .as_ref()
                     .and_then(|v| v.as_deref()),
@@ -209,10 +212,12 @@ pub(crate) fn execute<'a>(
     };
     if command_expanded.is_empty() {
         if trace_enabled {
-            trace_simple_with_fd_value(
+            trace_simple_with_values(
                 ctx,
                 &trace_assignments,
-                &[],
+                trace_ps4_before_assignments
+                    .as_ref()
+                    .and_then(|value| value.as_deref()),
                 trace_fd_before_assignments
                     .as_ref()
                     .and_then(|v| v.as_deref()),
@@ -320,10 +325,12 @@ pub(crate) fn execute<'a>(
     };
     if trace_enabled {
         if !trace_assignments.is_empty() {
-            trace_simple_with_fd_value(
+            trace_simple_with_values(
                 ctx,
                 &trace_assignments,
-                &[],
+                trace_ps4_before_assignments
+                    .as_ref()
+                    .and_then(|value| value.as_deref()),
                 trace_fd_before_assignments
                     .as_ref()
                     .and_then(|v| v.as_deref()),
@@ -715,13 +722,16 @@ fn trace_simple(ctx: &mut ExecContext<'_>, assignments: &[String], words: &[Stri
     trace_simple_inner(ctx, assignments, words, None);
 }
 
-fn trace_simple_with_fd_value(
+fn trace_simple_with_values(
     ctx: &mut ExecContext<'_>,
     assignments: &[String],
-    words: &[String],
+    ps4_value: Option<&str>,
     fd_value: Option<&str>,
 ) {
-    trace_simple_inner(ctx, assignments, words, Some(fd_value));
+    let line = assignments.join(" ");
+    if !line.is_empty() {
+        crate::xtrace::trace_with_values(ctx, &line, ps4_value, fd_value);
+    }
 }
 
 fn trace_simple_inner(
