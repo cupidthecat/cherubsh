@@ -1245,10 +1245,13 @@ impl Parser {
 
     fn dbl_lparen_starts_arith_command(&self) -> bool {
         let mut depth = 0usize;
+        let mut double_depth = 0usize;
         let mut idx = self.index + 1;
         while let Some(token) = self.tokens.get(idx) {
             match token.kind {
-                TokenKind::DblRParen => return true,
+                TokenKind::DblLParen => double_depth += 1,
+                TokenKind::DblRParen if double_depth == 0 => return true,
+                TokenKind::DblRParen => double_depth -= 1,
                 TokenKind::Semicolon => return false,
                 TokenKind::End => return true,
                 TokenKind::LParen => depth += 1,
@@ -3175,6 +3178,12 @@ mod tests {
     #[test]
     fn parse_double_lparen_command_list_as_subshells() {
         let ast = parse_ast("((echo abc; echo def;); echo ghi)");
+        assert!(matches!(ast.root.data, CommandData::Subshell(_)));
+    }
+
+    #[test]
+    fn parse_multiline_double_lparen_command_list_as_subshells() {
+        let ast = parse_ast("(( echo 1\necho 2\n(( x ))\n: $(( x ))\necho 3\n) )");
         assert!(matches!(ast.root.data, CommandData::Subshell(_)));
     }
 

@@ -11,7 +11,7 @@ arith.test.sh::013::Integer constant validation	*	stdout,stderr	75a2ced3f302b1dd
 arith.test.sh::020::Increment undefined variables with nounset	*	stderr	69867c5db7c9965a9bc663813254eb1588845d844a9c58b3377894489561ae8d	c2c42e2127823a4e82ae80ba48513660e2a8e0ba008d0cf4c6c6e099e3db5782
 arith.test.sh::028::No floating point	*	stderr	5e35860057df2f55bb751e1f82ca42304e09fc12ed8cd1a9c1d6dd4f61e6a26a	a95421bd078595586428ed2dadb56f782e8deaef75e0c9573588f3ace2a6a8a7
 arith.test.sh::049::Negative exponent	*	stderr	569992db975c0cf538dc062a68d61a7d687e249cf3fe820c2824aa59e99cf52c	8ebf3c20a7dc7ccb8a1aeaf087736488b0b221582b98669ef0656004afd930b3
-arith.test.sh::050::Comment not allowed in the middle of multiline arithmetic	*	status,stdout,stderr	b1b46accecefe0d3f6841a2fe7875811dcdddbd97b1bcdf84ff61d8e6010f43d	120325d3e517c3f087bbc0375db40933b8ab56f1f299fae59e74031bc5178fa6
+arith.test.sh::050::Comment not allowed in the middle of multiline arithmetic	*	stderr	b1b46accecefe0d3f6841a2fe7875811dcdddbd97b1bcdf84ff61d8e6010f43d	3ad18ff76e0801f29a76ed7df8a10a5d47d65a53fa5cdebac071f45a2526898b
 arith.test.sh::065::Invalid constant	*	stderr	6d1ea5378b6a502d44bd6cb7e923eaf0110f3f5a4752e4835c53dbb773acfb76	6c0ef432e17d70c1ce3c3f0d92224387c3a448d07dfd22bfa752b7031808ae86
 arith.test.sh::073::s[0] with string '12 34'	*	stdout,stderr	0c706d316ff4a50dd92f1da9d7bd449832994529c72ea06ef8ca7476d30584e9	7e29053f0fe4679e9886216519306eae70f044b038a45efe2d885e6d4931431e
 array-assign.test.sh::003::Multiple LHS array words	*	stdout	46222fae8678233867b467f4e41e2575e11e5df55469d0cf7d57b55d2f5b8aa3	862a5e168700b83b4a4b672718faccbce458bddf81fd61d7ff940a6e2c1a2cf8
@@ -78,7 +78,6 @@ ble-features.test.sh::002::[bash_unset] local-unset / dynamic-unset for tempenv	
 ble-features.test.sh::003::[bash_unset] function call with tempenv vs tempenv-eval	*	stdout	ebe5146461d6900b605cc812daa81809b3ec6c851ecf57ed89420c437bfaa2e4	b5e0cab48ea0fac5324ab8072f79814def50eac302897999869ba8986d9e01a0
 ble-features.test.sh::004::[bash_unset] localvar-inherit from tempenv	*	stdout	36900ed983628eb7f5a82b621fdee261dc0c047803d0c31e342472e47684bcb0	b00b2f0ab95caf2578f15d6ba05a84a9b8d2d42f23e0bcb8ba09d274873523fe
 ble-idioms.test.sh::005::recursive arith: recursion	*	status,stdout,stderr	4d85a57e37354578b89f851cc59100cbdfbec9b137c5a7be4d3f43084e5461ec	1ff1ac302dbd061a4b41e349972086f03fd88fe91e22706bdb85911ddc96886c
-ble-idioms.test.sh::010::is-array with ${var@a}	*	status,stdout,stderr	77a0186fda05450c46feae0a99e94417d638c5ff64d92238a564536426e1ce17	7123ba1135ce0452196cb04ec61e584b6c8b79b292e31d949e657b34d579bb57
 ble-unset.test.sh::001::[bash_unset] local-unset / dynamic-unset for localvar on nested-context	*	stdout	7897fc6c68473dfc961c236497264e5f89dc209c4e5e54f6bc28d3219f863a37	ecbe2fd9c3df23993051ec457855c9584d527fe69208bb62a202bb126ad19088
 ble-unset.test.sh::002::[bash_unset] dynamic-unset for nested localvars	*	stdout	d5f3def5c1b0a5c0b79717be5e44f2d51b0fc7fcdcedb023eaf6dc0da2ec0704	b58e93a28434ccb2a71773e98f48244b12d00faa1f7a0f7bfa3805f2466c0622
 ble-unset.test.sh::003::[bash_unset] dynamic-unset for nested tempenvs	*	stdout	34334d9f1567fb2f1a0fdbd428ead05d63c7c1242d8f50939a324ccb92bf3300	0a0d97e5decfe5b14ac59b639c97b5eaa89417f7a286dad4be71da87e7a3feeb
@@ -243,8 +242,6 @@ command_.test.sh::001::Permission denied	*	status,stderr	d73d632f63e52de5b8c69bb
 command_.test.sh::003::Name too long	*	status,stderr	75f4e65d383242d682868a0a563ee88ec3f64ab91e46a254c5efe5ba69364a1b	4a824a64613dbf67935c0ac04a759abc7a1acfb3bb243ec9d83c3b5b0157a26a
 command_.test.sh::012::hash without args prints the cache	*	stdout	4e2d704465d395da001bb1d3899d48cb92767469ae816df8862e4d1eb39125ac	c4234910f2c33cfb3bde745f39448df17e9a1216176d3db657950636d94a10b7
 dbracket.test.sh::020::[[ with op variable (compare with test-builtin.test.sh)	*	stderr	d9d85235c685b875202627d3a2d6ce2a3475971939c02836663475dd61b69aa1	70631280ea8d3c6275f61fc06a021693b02fd76c42ca2748c4d498ba00e14ad0
-dbracket.test.sh::022::[[ at runtime doesn't work	*	status,stderr	ec41c3831762edf9144849c19681720da564f5bbf34233530d67fb81505cb002	2b62de755785057ffedf9418fd58f2e39aff816fd905b79b7a4cc4135b5c739b
-dbracket.test.sh::023::[[ with env prefix doesn't work	*	status,stderr	b6fc3a3ea2090d033492549b7cfc695dec76cb96c7e19f0b46121b169e33b833	7dabe3bfdf52c5f3fb41c15f405a478587c14d89cd4b0c9e8d640867b00c6b4a
 dbracket.test.sh::025::Argument that looks like a real operator	*	stderr	75221e1633a66c5ec33e1ea74919f11cdc34ede042d81a684f8005538fd5c086	54e43f065b9a9714726d67309187e95d81a7307967c9609b1a5c92ae56ad4c3d
 dbracket.test.sh::028::(( array1 == array2 )) doesn't work	*	stdout,stderr	0853dea05a00ce9ebd42ed18ed93cef200080b88803949853d7ab4dba81c8ef2	114accc436ccc495d8c0aa6354a3a40142bbc22f71533cf75b4ea159d25049d9
 dbracket.test.sh::033::[[ '(' foo ]] is syntax error	*	stderr	ba6e88008785fcd6ffb5243778d8e485b6bcf6cf45bd9f72cc73732aeee6329e	bb6ad6563caf34bf5a7fc2e5599c6b9bcf1b7f9a0e825a9d8ccdc325b586f9ce
@@ -334,7 +331,7 @@ nul-bytes.test.sh::012::Compare \\x00 byte versus \\x01 byte - mapfile builtin	*
 nul-bytes.test.sh::013::Strip ops # ## % %% with NUL bytes	*	stderr	b50e0a1cdd5efa00079dadf1a1f966eac8088c9748a2bce7c1c0b8945662a0b9	e0d6acd70235fcb260ad915467cb90a0ea350250f2061ee682f868f8f4186928
 nul-bytes.test.sh::014::Issue 2269 Reduction	*	stderr	1ea721d703e7634cc388c8947b5b2c42a5b5ff2d5e536a1d520d9856121ce98b	c813bf4df3ff85c18c99edde13ee36a1dd5622d8d7ca73299bd0696ab48a79ce
 nul-bytes.test.sh::015::Issue 2269 - Do NUL bytes match ? in ${a#?}	*	stderr	4e6cc160d3aa4ecf0eb2fa8d4337c2faa1b5fc3c5891bec461e451fde4e386f3	115ef7ed5efdd64571c08e5b4afcc598f1eae8941e4083f870cb37b9ccd18be2
-paren-ambiguity.test.sh::002::(( closed with )) after multiple lines is parse error - #2337	*	stderr	28ebf42962615b06ca991b225ec86da7660589990cdbf784430784163c3c9cf5	76537844d34e351b905825264abcc39d062971479af5677f2098b6bcb469c1a9
+paren-ambiguity.test.sh::002::(( closed with )) after multiple lines is parse error - #2337	*	stderr	28ebf42962615b06ca991b225ec86da7660589990cdbf784430784163c3c9cf5	0be6405df67fe51b70c816264d60c37acfc3ec15fbf96c85473fe33fb5e467ac
 paren-ambiguity.test.sh::004::(((grep example - 4+ instances in regtest/aports - #2337	*	status	f74d9274770c8122d4daa8fb16031d2a648a4b30f233f21659d68e0356f59f68	568f1e8164cc81df0eb6900e4231cb9eead12227f6107d5cd1a94cab00762a2b
 paren-ambiguity.test.sh::005::((gzip example - zdiff package - #2337	*	status,stdout,stderr	variable	0eb55ea35be61fcf37284d34b793883b2f8a6ff99d2a85bef153b344b6066598
 paren-ambiguity.test.sh::007::((test example - liblo package - #2337	*	status,stdout,stderr	b91bc75d79b788a6637f48df129105c438b0f087cf2e573bd3167f57e1b78220	73b5a30dd891576e356fd829edc02a8061f0fd7f3fd8f93a039eb1effe52bd7e
@@ -375,9 +372,8 @@ redirect-command.test.sh::003::$(< file; end) is not a special case	*	stdout,std
 redirect-command.test.sh::019::Prefix redirect for loop -- not allowed	*	stderr	04529387a32a07be196ba0f63ce7d9de425d6b1b079ee0067fd34b540e6a4364	144a03482e05d016cd3ab516131a217abecd28bb533266a80a3590bf3582bd57
 redirect.test.sh::003::2&>1 (is it a redirect or is it like a&>1)	*	stdout	c0f9a508382f5bc9def1ee87a2b1028d428e3e605c4d27aa7347ccd3dd35c747	0fa8968c66a324c48811aaa05df1df5ed8f9c363c369f3f71a60ea3a4fa6df78
 regex.test.sh::010::Regex with == and not =~ is parse error, different lexer mode required	*	stderr	7af8cea4477b5339992c11ae774ce3dc12b9246b38b98918d775317bd76f9907	f9f9ca611ba85db4d65b75f6189540c979dbf0cb098b124ce8696072b13771bb
-regex.test.sh::012::Malformed regex	*	stderr	c73cf32504d1078472aa8c79f93d8a04235cbd8a78caed91da643fc5ff79dc1b	27ae9a311707e0174695c7f2d6bdacf07af69edf1372a9679b164429de201110
+regex.test.sh::012::Malformed regex	*	stderr	c73cf32504d1078472aa8c79f93d8a04235cbd8a78caed91da643fc5ff79dc1b	4fe51a1d748738dd8317f15a5c8629f41b63e239c9d4f247e8b790bea3b60233
 regex.test.sh::017::Fatal error inside [[ =~ ]]	*	stdout,stderr	9a66e1a45758c72c5dec2037bdd2bff569ae458aee776eb91ae1e5b3dd94c140	f0027d5e6d5c53e705d5b38e63aa7f6ce725e5a4c43356097a4fbfa384419918
-regex.test.sh::026::Bug: Nix idiom with closing ) next to pattern	*	status,stdout,stderr	1e0c472b5fdb9a555e028e1e29b933b6a40068303e10ed4529959e8bf015252e	2505859f80c28ec44df40e3c12056d118376ad0c76dff7d6db44bcb111bc4792
 regex.test.sh::029::unquoted [a  b] as pattern, [a  b|c]	*	stdout,stderr	0af7055a882e1bbaa37e889c57708746b648226c55fce03665972ef8b7bec306	8d6a5282cc1a02e4c86cdba713d7432ab1d92a4d057dd032f44035d787d369e5
 regex.test.sh::031::Operator chars ; & but not |	*	stdout,stderr	35082148b0a581c880b470009e864ea25decb59fc06279ad45b09fa2e6dc03c6	341c7f7fad0d01597b485c1cbf2cfbe44d24f2be286ec1bc0ad98bc47113efc2
 regex.test.sh::034::Parse error with 2 words	*	status,stderr	cf27e1297410076bb8f8b567abd7b5328fdb2e3df9097f0461afff5c285f3268	f74d9274770c8122d4daa8fb16031d2a648a4b30f233f21659d68e0356f59f68
