@@ -28,7 +28,7 @@ fn nondeterministic_case_manifest_only_names_vendored_cases() {
     let nondeterministic =
         oils_nondeterministic_case_ids().expect("load Oils nondeterministic case manifest");
 
-    assert_eq!(nondeterministic.len(), 23);
+    assert_eq!(nondeterministic.len(), 24);
     for id in [
         "background.test.sh::012::Wait for job and PIPESTATUS",
         "background.test.sh::013::Wait for job and PIPESTATUS - cat",
@@ -41,6 +41,7 @@ fn nondeterministic_case_manifest_only_names_vendored_cases() {
         "process-sub.test.sh::002::Process sub from shell to stdin",
         "sh-options-bash.test.sh::000::SHELLOPTS is updated when options are changed",
         "shell-bugs.test.sh::000::./configure idiom",
+        "shell-grammar.test.sh::002::Command with trailer",
         "vars-bash.test.sh::000::$SHELL is set to what is in /etc/passwd",
         "vars-special.test.sh::007::HOSTNAME OSTYPE can be changed",
     ] {

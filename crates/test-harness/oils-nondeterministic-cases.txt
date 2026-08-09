@@ -16,6 +16,7 @@ process-sub.test.sh::002::Process sub from shell to stdin
 prompt.test.sh::027::\j for number of jobs
 sh-options-bash.test.sh::000::SHELLOPTS is updated when options are changed
 shell-bugs.test.sh::000::./configure idiom
+shell-grammar.test.sh::002::Command with trailer
 shell-grammar.test.sh::003::a & b
 shell-grammar.test.sh::004::a & b &
 vars-bash.test.sh::000::$SHELL is set to what is in /etc/passwd

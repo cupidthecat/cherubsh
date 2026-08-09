@@ -295,6 +295,7 @@ here-doc.test.sh::020::Here doc in while condition and here doc in body	*	stdout
 here-doc.test.sh::021::Here doc in while condition and here doc in body on multiple lines	*	stdout	fe85e55f065b6f4c4a6202d1612b6a4b8ce25acf3da4612a908c25e55db5af9f	16ffd1d873451e59d7544a7cfebd6a3c440afa90716110035387b19b2f3f58fb
 here-doc.test.sh::023::Mixing << and <<-	*	stdout	02a1b8455abb7cd07088eb7a19294a26c8ec2287779744ba6d42ea40bbad3a85	9d1a91db27ccf45ffab0f62e9fb8ec3f53ba13a24ae53cb70276554ec779509c
 here-doc.test.sh::024::Two compound commands with two here docs	*	stdout	e0ebddf4f8fd77eaada28fb45be2776c16a7d8a6419ff1ac3b68b937d9fd0d74	5b624b7608579a57719d457d8ff995a5d0895b5a8053d589d7429015eeba1f26
+here-doc.test.sh::032::Multiple here docs in pipeline	*	stderr	variable	variable
 here-doc.test.sh::033::Multiple here docs in pipeline on multiple lines	*	stderr	variable	variable
 interactive-parse.test.sh::000::parse if	*	stderr	95cbac1dd5c8d33f9ebf0b761c3201b7a86bbc9b07448683fdd2934b446a716a	18bdb37d45e5f21281148ed12178f1a449d55ea3ca3de3354e22382426bac11f
 interactive.test.sh::000::'exit' in oshrc (regression)	*	status,stdout,stderr	5a86d3fb3492f36740cb93f5f6e25fcdc5b4591bbb4ed8b280910cd7455692a3	52ae88d72d69b46dd8cbb4bae360b4a89a8b4fac0b8bc44f03184feff485cf55
@@ -394,6 +395,7 @@ sh-usage.test.sh::018::sh -c with multiple -- args	*	stderr	43e7a17b0174cf378cba
 sh-usage.test.sh::021::weird flag parsing -oo errexit noglob	*	status,stdout,stderr	817e36372d0565c5c6b02b6adcd9b608876f4ee1b43eaa7d475da039b2c67730	391b1674aac0a802de0ef84dabed5a08f5cc4d461c5411b1e80fad374e6cee0e
 sh-usage.test.sh::022::'sh -c -z' does not try to run -z	*	stderr	78ad74ef0343e9f86572eeeae6f2c92c42aa0ac31c9ccbf67fbac75c8a78ceb0	c09111358856751c4194b3695a147ab12dab8efbcfe873ad12cc77590ee2b378
 shell-bugs.test.sh::000::./configure idiom	*	stderr	variable	variable
+shell-grammar.test.sh::002::Command with trailer	*	stdout	variable	variable
 shell-grammar.test.sh::023::If with then on same line missing semicolon	*	stderr	38fad9433882d8cfabf5e0f8dc429c8303ea6c5c1a1f8386b12a5ca769f08a9f	765a8db00eed3ddeeb3afa6ff7e1d7da0f5647cbb993e2a72a8888e3f448c95e
 shell-grammar.test.sh::030::case item without ;; is not allowed	*	status,stderr	de2f0fb2771096aad6d1498885cb3842c8c599f22a7f9b84c1263c51b0b6d789	b592cb28979df1767b6cc6ef4e2de061cd520a855dd335cf97ec26baa6f591dc
 shell-grammar.test.sh::035::Case all on one line without trailing ;; or ;	*	stderr	9d321312977a2b1ea224defe17f5b3270c669717603b1ee80bc0133c0b7551da	f999cbef1cf11207cc551c6f5e75e2a6835467dbe6c67e30c587cb5550c22f92
