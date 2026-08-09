@@ -945,7 +945,24 @@ fn release_supply_chain_controls_are_pinned_and_verifiable() {
         "Dependabot must cover the root and fuzz Cargo workspaces"
     );
 
-    let security_workflow = fs::read_to_string(root.join(".github/workflows/security.yml"))
+    let workflows_dir = root.join(".github/workflows");
+    let mut workflow_paths = fs::read_dir(&workflows_dir)
+        .expect("read workflow directory")
+        .map(|entry| entry.expect("read workflow entry").path())
+        .filter(|path| path.extension().is_some_and(|extension| extension == "yml"))
+        .collect::<Vec<_>>();
+    workflow_paths.sort();
+    for path in &workflow_paths {
+        let workflow = fs::read_to_string(path)
+            .unwrap_or_else(|error| panic!("read {}: {error}", path.display()));
+        let name = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .expect("workflow file name");
+        assert_workflow_actions_are_commit_pinned(name, &workflow);
+    }
+
+    let security_workflow = fs::read_to_string(workflows_dir.join("security.yml"))
         .expect("read dependency security workflow");
     assert!(security_workflow.contains("pull_request:"));
     assert!(security_workflow.contains("schedule:"));
@@ -959,11 +976,8 @@ fn release_supply_chain_controls_are_pinned_and_verifiable() {
         2,
         "each RustSec job must preinstall the lockfile-compatible cargo-audit release"
     );
-    assert_workflow_actions_are_commit_pinned("security workflow", &security_workflow);
-
-    let release = fs::read_to_string(root.join(".github/workflows/release.yml"))
-        .expect("read release workflow");
-    assert_workflow_actions_are_commit_pinned("release workflow", &release);
+    let release =
+        fs::read_to_string(workflows_dir.join("release.yml")).expect("read release workflow");
     for text in [
         "cargo-cyclonedx --version 0.5.9 --locked",
         "--format json",
@@ -979,6 +993,18 @@ fn release_supply_chain_controls_are_pinned_and_verifiable() {
     ] {
         assert!(release.contains(text), "release workflow omits {text}");
     }
+
+    let hardening =
+        fs::read_to_string(workflows_dir.join("hardening.yml")).expect("read hardening workflow");
+    assert!(hardening.contains("nightly-2026-07-30"));
+    assert!(!hardening.contains("install nightly --"));
+    assert!(!hardening.contains("cargo +nightly test"));
+
+    let wiki = fs::read_to_string(workflows_dir.join("wiki.yml")).expect("read wiki workflow");
+    assert!(wiki.contains(
+        "github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl"
+    ));
+    assert!(!wiki.contains("ssh-keyscan"));
 
     let readme = fs::read_to_string(root.join("README.md")).expect("read README");
     assert!(readme.contains("gh attestation verify"));
