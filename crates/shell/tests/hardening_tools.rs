@@ -772,7 +772,7 @@ fn persistent_fuzz_targets_replay_seed_corpora_and_retain_failures() {
     assert!(workflow.contains("schedule:"));
     assert!(workflow.contains("./tools/run-fuzz-corpus.sh"));
     assert!(workflow.contains("cargo fuzz run"));
-    assert!(workflow.contains("actions/upload-artifact@v7"));
+    assert!(workflow.contains("actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"));
     assert!(workflow.contains("if: failure()"));
 
     let replay = fs::read_to_string(root.join("tools/run-fuzz-corpus.sh"))
@@ -999,6 +999,14 @@ fn release_supply_chain_controls_are_pinned_and_verifiable() {
     assert!(hardening.contains("nightly-2026-07-30"));
     assert!(!hardening.contains("install nightly --"));
     assert!(!hardening.contains("cargo +nightly test"));
+
+    for path in ["README.md", "wiki/Testing.md"] {
+        let guide = fs::read_to_string(root.join(path))
+            .unwrap_or_else(|error| panic!("read {path}: {error}"));
+        assert!(guide.contains("nightly-2026-07-30"));
+        assert!(!guide.contains("toolchain install nightly --"));
+        assert!(!guide.contains("cargo +nightly test"));
+    }
 
     let wiki = fs::read_to_string(workflows_dir.join("wiki.yml")).expect("read wiki workflow");
     assert!(wiki.contains(
