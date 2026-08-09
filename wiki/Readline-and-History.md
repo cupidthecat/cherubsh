@@ -54,7 +54,7 @@ target/readline-client
 
 ## Install a development archive
 
-Each Linux release has a `cherubsh-readline-dev` archive for x86-64 and AArch64. It contains the public headers, shared-library links, static archives, pkg-config files, license, C example, component manifests, and installer.
+Each Linux release has a `cherubsh-readline-dev` archive for x86-64 and AArch64. The archives use the GNU ABI and require glibc. They contain the public headers, shared-library links, static archives, pkg-config files, license, C example, component manifests, and installer.
 
 After extracting the archive, install both libraries under `/usr/local` with:
 
