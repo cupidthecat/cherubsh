@@ -1,0 +1,6 @@
+case	ratio_column	max_ratio
+simple_builtins	ratio_vs_bash_5315	3.00
+arith_loop	ratio_vs_bash_5315	1.75
+function_calls	ratio_vs_bash_5315	2.25
+param_expansion	ratio_vs_bash_5315	2.00
+case_patterns	ratio_vs_bash_5315	1.75

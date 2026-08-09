@@ -44,6 +44,13 @@ jobs:
           WARMUPS: "1"
         run: ./tools/bench.sh
 
+      - name: Check stable benchmark cases
+        run: |
+          python3 tools/check-benchmark-regression.py \
+            --summary target/bench/summary.tsv \
+            --ratchet benchmark-ratchet.tsv \
+            --output target/bench/ratchet.tsv
+
       - name: Preserve benchmark history
         if: always()
         uses: actions/upload-artifact@v7
@@ -53,5 +60,6 @@ jobs:
             target/bench/raw.tsv
             target/bench/summary.tsv
             target/bench/metadata.tsv
+            target/bench/ratchet.tsv
           if-no-files-found: warn
           retention-days: 90

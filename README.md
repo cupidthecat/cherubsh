@@ -299,7 +299,9 @@ Bash's `make tests` and `tests/run-all` targets do not enter `tests/misc`, so Ch
 
 `perf-script` and `perftest` are benchmark inputs, not correctness tests. The benchmark driver runs fixed copies in its temporary workspace. In particular, `perftest` scans a generated directory instead of the runner's `/usr/lib` tree.
 
-The weekly `benchmarks` workflow keeps each run's raw samples, summary, and metadata for 90 days. The metadata records the commit, runner and CPU, Rust toolchain, Bash oracle version, and the hashes of both Cargo lockfiles. These reports establish a baseline before the project chooses performance limits. There is no performance pass or fail threshold for v0.4.0.
+The weekly `benchmarks` workflow keeps each run's raw samples, summary, metadata, and ratchet result for 90 days. The metadata records the commit, runner and CPU, Rust toolchain, Bash oracle version, and the hashes of both Cargo lockfiles. Version 0.4.0 collected reports without a pass or fail threshold.
+
+The current workflow checks five long-running, in-process cases listed in `benchmark-ratchet.tsv`. Each limit compares CherubSH's median with Bash 5.3.15 on the same runner. The limits are broad, so a small timing shift does not fail the job. If a case crosses its limit, inspect the raw samples and rerun it before changing code. Cases outside the ratchet remain report-only.
 
 Run the same two upstream-derived cases locally with one measured sample:
 
@@ -310,6 +312,14 @@ BENCH_CASES=bash_perf_script,bash_perftest \
 ```
 
 By default, reports are written under `target/bench`. Set `BENCH_OUTPUT_DIR` to keep a separate run.
+
+Check a completed summary against the ratchet with:
+
+```sh
+python3 tools/check-benchmark-regression.py \
+  --summary target/bench/summary.tsv \
+  --ratchet benchmark-ratchet.tsv
+```
 
 ```sh
 cargo test -p cherubsh --test misc_parity
