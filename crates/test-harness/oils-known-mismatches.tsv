@@ -72,6 +72,7 @@ assign.test.sh::045::"declare -a arr" and "readonly -a a" creates an empty array
 assign.test.sh::047::readonly array should not be modified by a+=(1)	*	stderr	156d22a14233278e3314a0b729159b032af7e660e621b55e69ce832d85178848	35346a3ce3c449ce3aebcba7203798d523b37041bd9c5cc04e7c43085f890bab
 background.test.sh::001::wait -n with arguments - arguments are respected	*	stdout	7eb83f78768780fed90bff2b658f3311e491129a623a3d8a76726514ef7964ba	79ef6841623c73e617b1d7507e0e1cb0aecef187f1fc85346dd45cd244e22b3f
 background.test.sh::005::wait with invalid arg	*	status	6b0dcbf7902a692e3414f0dacda3c2371735993ff8ad60bc3e4158b55b88460c	c5fdcf4fd0f39fe075654dcb3b1240df83669e85bb713427eab7c455e84d11d8
+background.test.sh::013::Wait for job and PIPESTATUS - cat	*	stdout,stderr	variable	variable
 background.test.sh::026::Signal message for killed background job	*	status,stdout	f2c0faf7dff195f9617445e5275330fb97d1ef9cb06bd92f08087aa5efe2e350	576da6645bcc08658ca9c5819f72898e1e96ec596e6a04514c721e1a452c55e4
 ble-features.test.sh::001::[bash_unset] local-unset / dynamic-unset for localvar (mutated from tempenv)	*	stdout	bcf56ded964d9ea53b3de8d4f93d186fb76bbc30cbdd9ecd3c234d02219a2cf2	ccd061c90b3648a4f2a3b429d100c9bb5a3a26500a0e4547c45198e5e8ac7403
 ble-features.test.sh::002::[bash_unset] local-unset / dynamic-unset for tempenv	*	stdout	a0daa5d27e06617f96f33c83ade2286e7a54812eb81c7157111b353716ae65f3	ae29f16039130748d546153e10a63ebc44466b980020a50332d39da7c62f071e
