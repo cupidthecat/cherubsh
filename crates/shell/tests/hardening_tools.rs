@@ -807,7 +807,7 @@ fn persistent_fuzz_targets_replay_seed_corpora_and_retain_failures() {
 }
 
 #[test]
-fn scheduled_benchmarks_publish_reproducible_history_without_thresholds() {
+fn scheduled_benchmarks_apply_a_conservative_regression_ratchet() {
     let root = workspace_root();
     let bench = fs::read_to_string(root.join("tools/bench.sh")).expect("read benchmark driver");
     let workflow = fs::read_to_string(root.join(".github/workflows/benchmarks.yml"))
@@ -833,16 +833,41 @@ fn scheduled_benchmarks_publish_reproducible_history_without_thresholds() {
     assert!(workflow.contains("schedule:"));
     assert!(workflow.contains("workflow_dispatch:"));
     assert!(workflow.contains("./tools/bench.sh"));
+    assert!(workflow.contains("tools/check-benchmark-regression.py"));
+    assert!(workflow.contains("benchmark-ratchet.tsv"));
     assert!(workflow.contains("retention-days: 90"));
-    for artifact in ["raw.tsv", "summary.tsv", "metadata.tsv"] {
+    for artifact in ["raw.tsv", "summary.tsv", "metadata.tsv", "ratchet.tsv"] {
         assert!(
             workflow.contains(artifact),
             "benchmark workflow omits {artifact}"
         );
     }
+
+    let ratchet =
+        fs::read_to_string(root.join("benchmark-ratchet.tsv")).expect("read benchmark ratchet");
+    for case in [
+        "simple_builtins",
+        "arith_loop",
+        "function_calls",
+        "param_expansion",
+        "case_patterns",
+    ] {
+        assert!(ratchet.contains(case), "benchmark ratchet omits {case}");
+    }
+
+    let checked = Command::new("python3")
+        .arg(root.join("tools/check-benchmark-regression.py"))
+        .arg("--self-test")
+        .output()
+        .expect("run benchmark regression self-test");
     assert!(
-        !workflow.contains("threshold") && !workflow.contains("regression"),
-        "the collection-only workflow must not impose a performance threshold"
+        checked.status.success(),
+        "benchmark regression self-test failed:\n{}",
+        String::from_utf8_lossy(&checked.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&checked.stdout),
+        "benchmark regression self-test passed\n"
     );
 }
 
