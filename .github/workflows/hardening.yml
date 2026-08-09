@@ -146,6 +146,7 @@ jobs:
           sudo apt-get install --yes \
             autoconf \
             bison \
+            bubblewrap \
             build-essential \
             clang \
             curl \
