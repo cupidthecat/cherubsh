@@ -1,6 +1,6 @@
 # CherubSH
 
-CherubSH is a Rust implementation of Bash 5.3 behavior for Linux and WSL. It has its own parser, expander, executor, line editor, and compatible GNU Readline and History libraries. Bash is a compatibility oracle used by the test suite. CherubSH does not call Bash to parse or run shell input.
+CherubSH is a Rust implementation of Bash 5.3 behavior for Linux and WSL. Official release archives target `x86_64-unknown-linux-gnu` and `aarch64-unknown-linux-gnu`, and they require glibc. Other Linux ABIs can be built from source but are not part of release testing. CherubSH has its own parser, expander, executor, line editor, and compatible GNU Readline and History libraries. Bash is a compatibility oracle used by the test suite. CherubSH does not call Bash to parse or run shell input.
 
 The project currently targets the behavior of Bash 5.3.15 and Readline 8.3 patch 3. The workspace version is 0.4.0.
 
