@@ -1,8 +1,9 @@
 fn read_logical_command(state: &mut ShellState, exec_state: &mut ExecState) -> ShellResult<String> {
+    let history_expansion_enabled = state.option("histexpand") && state.option("history");
     if state.noexec
         && !state.interactive
         && !state.just_one_command
-        && !(state.option("histexpand") && state.option("history"))
+        && !history_expansion_enabled
     {
         return read_noexec_input(state);
     }
