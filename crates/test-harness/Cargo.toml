@@ -13,4 +13,4 @@ cherubsh-common = { path = "../common" }
 libc = "0.2"
 serde = { version = "1", features = ["derive"] }
 serde_yaml = "0.9"
-sha2 = "0.10"
+sha2 = "0.11"
