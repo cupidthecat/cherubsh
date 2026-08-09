@@ -4,6 +4,8 @@ This file records user-visible changes. Dates for published versions match their
 
 ## Unreleased
 
+## 0.5.0 - 2026-08-09
+
 ### Added
 
 - Oils OSH parity coverage for 2,804 cases, with sandboxed execution and a reviewed mismatch ratchet.
