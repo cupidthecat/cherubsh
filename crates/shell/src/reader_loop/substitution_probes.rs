@@ -44,6 +44,21 @@ fn probe_name_is_reserved(bytes: &[u8], start: usize) -> bool {
         || matches!(bytes[start - 1], b';' | b'&' | b'|' | b'(' | b')' | b'{' | b'}')
 }
 
+fn probe_name_is_case_terminator(bytes: &[u8], start: usize) -> bool {
+    probe_name_is_reserved(bytes, start)
+        && !matches!(previous_probe_significant_byte(bytes, start), Some(b'|' | b'('))
+}
+
+fn previous_probe_significant_byte(bytes: &[u8], mut i: usize) -> Option<u8> {
+    while i > 0 {
+        i -= 1;
+        if !bytes[i].is_ascii_whitespace() {
+            return Some(bytes[i]);
+        }
+    }
+    None
+}
+
 fn has_unclosed_command_substitution(input: &str) -> bool {
     let bytes = input.as_bytes();
     let mut i = 0;
@@ -202,7 +217,9 @@ fn has_unclosed_command_substitution(input: &str) -> bool {
             match &bytes[start..i] {
                 _ if !probe_name_is_reserved(bytes, start) => {}
                 b"case" => case_depth = case_depth.saturating_add(1),
-                b"esac" => case_depth = case_depth.saturating_sub(1),
+                b"esac" if probe_name_is_case_terminator(bytes, start) => {
+                    case_depth = case_depth.saturating_sub(1)
+                }
                 _ => {}
             }
             comment_ok = false;
@@ -420,7 +437,9 @@ fn skip_command_substitution_for_probe(bytes: &[u8], mut i: usize) -> Option<usi
             match &bytes[start..i] {
                 _ if !probe_name_is_reserved(bytes, start) => {}
                 b"case" => case_depth = case_depth.saturating_add(1),
-                b"esac" => case_depth = case_depth.saturating_sub(1),
+                b"esac" if probe_name_is_case_terminator(bytes, start) => {
+                    case_depth = case_depth.saturating_sub(1)
+                }
                 _ => {}
             }
             comment_ok = false;

@@ -516,7 +516,9 @@ fn extract_command_substitution_for_parse(
             match &bytes[start..i] {
                 _ if !probe_name_is_reserved(bytes, start) => {}
                 b"case" => case_depth = case_depth.saturating_add(1),
-                b"esac" => case_depth = case_depth.saturating_sub(1),
+                b"esac" if probe_name_is_case_terminator(bytes, start) => {
+                    case_depth = case_depth.saturating_sub(1)
+                }
                 _ => {}
             }
             body.push_str(&input_text[start..i]);

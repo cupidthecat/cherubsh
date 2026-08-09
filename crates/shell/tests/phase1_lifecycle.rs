@@ -704,6 +704,18 @@ fn command_substitution_case_pattern_parens_match_bash() {
 }
 
 #[test]
+fn command_substitution_case_pattern_reserved_words_match_bash() {
+    let spec = Spec {
+        args: vec!["--posix", "-c", ": $(case x in in|esac) foo;; esac)"],
+        ..Spec::default()
+    };
+    let (bash, cherub) = run_both(&spec);
+    assert_eq!(cherub.status, bash.status, "{cherub:?}");
+    assert_eq!(cherub.stdout, bash.stdout, "{cherub:?}");
+    assert_eq!(cherub.stderr, bash.stderr, "{cherub:?}");
+}
+
+#[test]
 fn command_substitution_comments_after_words_match_bash() {
     let script = temp_file(
         "phase1-cmdsub-comment-boundary",
