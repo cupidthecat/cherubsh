@@ -967,8 +967,16 @@ fn release_supply_chain_controls_are_pinned_and_verifiable() {
     assert!(security_workflow.contains("pull_request:"));
     assert!(security_workflow.contains("schedule:"));
     assert!(security_workflow.contains("actions/dependency-review-action@"));
-    assert!(security_workflow.contains("rustsec/audit-check@"));
-    assert!(security_workflow.contains("working-directory: fuzz"));
+    assert!(security_workflow.contains("repository: RustSec/advisory-db"));
+    assert!(security_workflow.contains("ref: 309ad29d8fe448bf986019e05d47b9e0e29a2218"));
+    assert_eq!(
+        security_workflow
+            .matches("cargo audit --db .rustsec-advisory-db --file")
+            .count(),
+        2,
+        "each RustSec job must audit against the pinned advisory database"
+    );
+    assert!(security_workflow.contains("--file fuzz/Cargo.lock"));
     assert_eq!(
         security_workflow
             .matches("cargo install cargo-audit --version 0.22.2 --locked")
