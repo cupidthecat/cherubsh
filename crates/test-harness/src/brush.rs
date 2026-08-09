@@ -21,7 +21,7 @@ use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde::Deserialize;
-use serde_yaml::Value;
+use serde_yaml_ng::Value;
 
 use crate::{
     cherub_path, oracle_bash_path, oracle_version_dir, workspace_root, HarnessError, RunOutput,
@@ -211,7 +211,7 @@ pub fn discover_brush_cases(cases_dir: &Path) -> Result<Vec<BrushCase>, HarnessE
     let mut cases = Vec::new();
     for file in files {
         let text = fs::read_to_string(&file).map_err(HarnessError::Io)?;
-        let raw: RawCaseSet = serde_yaml::from_str(&text).map_err(|err| {
+        let raw: RawCaseSet = serde_yaml_ng::from_str(&text).map_err(|err| {
             HarnessError::Io(std::io::Error::new(std::io::ErrorKind::InvalidData, err))
         })?;
         let source_dir = file
