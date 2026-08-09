@@ -17,9 +17,10 @@ fn case(code: &str) -> OilsCase {
 }
 
 fn fixture_spec_dir() -> &'static Path {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../vendor/oils/spec")
-        .leak()
+    Path::new(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../vendor/oils/spec"
+    ))
 }
 
 #[test]
