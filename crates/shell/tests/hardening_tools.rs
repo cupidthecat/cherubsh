@@ -91,6 +91,27 @@ fn large_script_parity_has_a_deterministic_self_test() {
     );
 }
 
+#[test]
+fn testing_guide_documents_the_large_script_corpus() {
+    let guide =
+        fs::read_to_string(workspace_root().join("wiki/Testing.md")).expect("read testing guide");
+
+    for expected in [
+        "tools/large-script-parity.py",
+        "large-scripts.lock",
+        "never executes fetched files",
+        "ReA",
+        "nvm-sh/nvm",
+        "Bash-it/bash-it",
+        "ohmybash/oh-my-bash",
+    ] {
+        assert!(
+            guide.contains(expected),
+            "testing guide is missing {expected:?}"
+        );
+    }
+}
+
 fn run_pty_matrix() {
     let Some(bash) = pinned_bash() else {
         return;

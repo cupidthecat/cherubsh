@@ -78,6 +78,29 @@ cargo test -p cherubsh --test loadable_abi -- --nocapture
 
 ## Hardening checks
 
+### Large Bash programs
+
+The large-script check compares real Bash programs with the pinned Bash oracle. Build CherubSH first, then run:
+
+```sh
+cargo build --locked -p cherubsh
+python3 tools/large-script-parity.py \
+  --bash target/oracle/bash-5.3.15/bash \
+  --cherub target/debug/cherubsh
+```
+
+`large-scripts.lock` records the repository and commit used for each project. The runner fetches those commits into bare Git object stores and reads regular blobs directly. It never checks out a project and never executes fetched files. Both shells receive each file through standard input with no-execution mode enabled, an empty working directory, a restricted environment, and a timeout. Reports are written below `target/hardening/large-scripts`.
+
+ReA has an extra safety gate because recovery software can contain device, mount, bootloader, and deletion commands. The runner checks its pinned source tree before parsing any files. If that check finds an unsafe repository shape or an unexpected executable, it skips ReA and records the reason in the report.
+
+Run the runner's local checks without fetching the corpus:
+
+```sh
+python3 tools/large-script-parity.py --self-test
+```
+
+Possible additions for a later corpus update are [nvm-sh/nvm](https://github.com/nvm-sh/nvm), [Bash-it/bash-it](https://github.com/Bash-it/bash-it), and [ohmybash/oh-my-bash](https://github.com/ohmybash/oh-my-bash). They would add a large version-manager script and two collections of Bash startup modules. Pin and review each repository before adding it. Keep the same rule: parse source as data and do not run project installers, startup files, tests, or hooks.
+
 The generated fuzzer runs small shell programs against CherubSH and the pinned Bash oracle. First build the debug binary and the oracle, then run a local batch:
 
 ```sh
