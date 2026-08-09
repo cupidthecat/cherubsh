@@ -25,7 +25,7 @@ checksum = "9330f8b2ff13f34540b44e946ef35111825727b38d33286ef986142615121801"
 
 [[package]]
 name = "cherubsh"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "cherubsh-builtins",
  "cherubsh-common",
@@ -40,7 +40,7 @@ dependencies = [
 
 [[package]]
 name = "cherubsh-builtins"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "bitflags",
  "cherubsh-common",
@@ -52,7 +52,7 @@ dependencies = [
 
 [[package]]
 name = "cherubsh-common"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "bitflags",
  "libc",
@@ -60,7 +60,7 @@ dependencies = [
 
 [[package]]
 name = "cherubsh-exec"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "cherubsh-builtins",
  "cherubsh-common",
@@ -72,7 +72,7 @@ dependencies = [
 
 [[package]]
 name = "cherubsh-expander"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "bitflags",
  "cherubsh-common",
@@ -83,7 +83,7 @@ dependencies = [
 
 [[package]]
 name = "cherubsh-history-ffi"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "cherubsh-common",
  "cherubsh-lineedit",
@@ -92,14 +92,14 @@ dependencies = [
 
 [[package]]
 name = "cherubsh-lexer"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "cherubsh-common",
 ]
 
 [[package]]
 name = "cherubsh-lineedit"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "cherubsh-common",
  "libc",
@@ -107,7 +107,7 @@ dependencies = [
 
 [[package]]
 name = "cherubsh-parser"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "cherubsh-common",
  "cherubsh-lexer",
@@ -115,7 +115,7 @@ dependencies = [
 
 [[package]]
 name = "cherubsh-readline-ffi"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "cherubsh-common",
  "cherubsh-lineedit",
@@ -124,7 +124,7 @@ dependencies = [
 
 [[package]]
 name = "cherubsh-test-harness"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "cherubsh-common",
  "libc",

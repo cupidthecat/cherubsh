@@ -150,24 +150,23 @@ fn release_workflow_checks_the_tag_before_building() {
 }
 
 #[test]
-fn release_materials_are_ready_for_0_4_0() {
-    assert_eq!(PACKAGE_VERSION, "0.4.0");
+fn release_materials_are_ready_for_0_5_0() {
+    assert_eq!(PACKAGE_VERSION, "0.5.0");
 
     let changelog =
         fs::read_to_string(workspace_root().join("CHANGELOG.md")).expect("read changelog");
-    assert!(changelog.contains("## 0.4.0 - 2026-08-01"));
+    assert!(changelog.contains("## 0.5.0 - 2026-08-09"));
 
-    let notes_path = workspace_root().join("release-notes/v0.4.0.md");
-    let notes = fs::read_to_string(&notes_path).expect("read v0.4.0 release notes");
+    let notes_path = workspace_root().join("release-notes/v0.5.0.md");
+    let notes = fs::read_to_string(&notes_path).expect("read v0.5.0 release notes");
     for topic in [
-        "interactive shell",
+        "88 projects",
+        "6,044",
+        "Bubblewrap",
+        "AddressSanitizer",
+        "Oils",
+        "x86-64",
         "AArch64",
-        "Readline and History development",
-        "ABI",
-        "supply chain",
-        "fuzz",
-        "manual pages",
-        "module",
     ] {
         assert!(
             notes.contains(topic),
