@@ -1,4 +1,6 @@
 use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
+use std::sync::OnceLock;
 use std::time::Duration;
 
 use cherubsh_test_harness::oils::{run_oils_case_with_shells, validate_oils_sandbox, OilsCase};
@@ -23,8 +25,33 @@ fn fixture_spec_dir() -> &'static Path {
     ))
 }
 
+fn sandbox_available() -> bool {
+    static AVAILABLE: OnceLock<bool> = OnceLock::new();
+    *AVAILABLE.get_or_init(|| {
+        let bwrap = std::env::var_os("BWRAP").unwrap_or_else(|| "bwrap".into());
+        Command::new(bwrap)
+            .args(["--unshare-pid", "--ro-bind", "/", "/", "--", "/bin/true"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .is_ok_and(|status| status.success())
+    })
+}
+
+fn skip_without_sandbox() -> bool {
+    if sandbox_available() {
+        return false;
+    }
+    eprintln!("Oils sandbox test skipped: Bubblewrap process namespace unavailable");
+    true
+}
+
 #[test]
 fn sandbox_preflight_accepts_a_working_shell() {
+    if skip_without_sandbox() {
+        return;
+    }
     validate_oils_sandbox(
         Path::new("/bin/bash"),
         fixture_spec_dir(),
@@ -35,6 +62,9 @@ fn sandbox_preflight_accepts_a_working_shell() {
 
 #[test]
 fn sandbox_preflight_rejects_a_command_that_never_runs_the_probe() {
+    if skip_without_sandbox() {
+        return;
+    }
     let error = validate_oils_sandbox(
         Path::new("/bin/false"),
         fixture_spec_dir(),
@@ -47,6 +77,9 @@ fn sandbox_preflight_rejects_a_command_that_never_runs_the_probe() {
 
 #[test]
 fn sandbox_preserves_raw_bytes_and_uses_identical_logical_paths() {
+    if skip_without_sandbox() {
+        return;
+    }
     let fixture = case(
         "printf '%s\\n' \"$SH|$HOME|$TMP|$PWD|$$|$0\"\n\
          python3 -c 'import sys; sys.stdout.buffer.write(b\"\\xff\")'\n",
@@ -70,6 +103,9 @@ fn sandbox_preserves_raw_bytes_and_uses_identical_logical_paths() {
 
 #[test]
 fn sandbox_reports_exact_output_dimensions() {
+    if skip_without_sandbox() {
+        return;
+    }
     let fixture = case(
         "printf '%s\\n' \"${BASH_VERSION-unset}\"\n\
          test -n \"${BASH_VERSION-}\"\n",
@@ -90,6 +126,9 @@ fn sandbox_reports_exact_output_dimensions() {
 
 #[test]
 fn sandbox_timeout_is_never_a_pass_even_when_both_shells_timeout() {
+    if skip_without_sandbox() {
+        return;
+    }
     let fixture = case("sleep 5 & wait\n");
 
     let outcome = run_oils_case_with_shells(
@@ -109,6 +148,9 @@ fn sandbox_timeout_is_never_a_pass_even_when_both_shells_timeout() {
 
 #[test]
 fn sandbox_does_not_expose_host_workspace_files() {
+    if skip_without_sandbox() {
+        return;
+    }
     let sentinel = workspace_root().join("target/oils-host-secret");
     std::fs::create_dir_all(sentinel.parent().expect("sentinel parent"))
         .expect("create sentinel parent");
@@ -133,6 +175,9 @@ fn sandbox_does_not_expose_host_workspace_files() {
 
 #[test]
 fn timeout_includes_blocked_stdin_delivery() {
+    if skip_without_sandbox() {
+        return;
+    }
     let mut code = String::from("sleep 1\n");
     for _ in 0..100_000 {
         code.push_str("# padding that fills the stdin pipe\n");

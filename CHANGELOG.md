@@ -19,7 +19,7 @@ This file records user-visible changes. Dates for published versions match their
 - Parser handling for nested shell delimiters, multiline arithmetic, extended globs, case patterns, and large no-execution inputs.
 - Real-world compatibility gaps in quoted pathname prefixes, continued control operators, adjacent arithmetic parentheses, literal command-substitution text, deblanked here-documents, noninteractive `bind`, and repeated `read` calls.
 - The scheduled AddressSanitizer job now installs its sandbox tools, prepares its pinned Bash oracle, and links test clients with the matching sanitizer runtime.
-- Oils sandbox tests no longer leak their fixture path allocations.
+- Oils sandbox tests no longer leak fixture path allocations and now skip hosts that reject Bubblewrap process namespaces.
 - Several nondeterministic Oils comparisons involving signals, background jobs, pipelines, here-documents, and scheduler timing.
 
 ## 0.4.0 - 2026-08-01
