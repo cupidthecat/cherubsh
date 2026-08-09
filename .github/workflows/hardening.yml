@@ -87,13 +87,16 @@ jobs:
           sudo apt-get install --yes \
             autoconf \
             bison \
+            bubblewrap \
             build-essential \
             curl \
             git \
             gpgv \
             libncurses-dev \
             patch \
-            texinfo
+            python3 \
+            texinfo \
+            util-linux
 
       - name: Install the pinned Rust toolchain
         run: rustup toolchain install 1.93.1 --profile minimal
@@ -104,7 +107,9 @@ jobs:
           oracle/build-bash-5.3.15.sh
 
       - name: Build CherubSH
-        run: cargo build --locked -p cherubsh
+        run: |
+          cargo build --locked -p cherubsh
+          cargo build --locked --release -p cherubsh
 
       - name: Parse the pinned large Bash corpus
         run: |
@@ -112,12 +117,21 @@ jobs:
             --bash target/oracle/bash-5.3.15/bash \
             --cherub target/debug/cherubsh
 
+      - name: Run the pinned program smoke matrix
+        run: |
+          python3 tools/program-smoke.py \
+            --bash target/oracle/bash-5.3.15/bash \
+            --cherub target/release/cherubsh \
+            --timeout 30
+
       - name: Preserve large Bash corpus failures
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: large-bash-corpus-report
-          path: target/hardening/large-scripts
+          path: |
+            target/hardening/large-scripts
+            target/hardening/program-smoke
           if-no-files-found: ignore
 
   address-sanitizer:

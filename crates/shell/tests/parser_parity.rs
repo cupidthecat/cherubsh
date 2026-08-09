@@ -4,7 +4,10 @@
 //! `bash -n` and `cherubsh --parse-only` agree on whether the input is
 //! syntactically valid.
 
-use cherubsh_test_harness::assert_parser_accepts_like_bash;
+use std::io::Write;
+use std::process::{Command, Stdio};
+
+use cherubsh_test_harness::{assert_parser_accepts_like_bash, cherub_path, default_bash_path};
 
 fn check_all(fixtures: &[&str]) {
     let mut failures = Vec::new();
@@ -24,6 +27,36 @@ fn check_all(fixtures: &[&str]) {
             .collect::<Vec<_>>()
             .join("\n")
     );
+}
+
+fn check_all_from_stdin(fixtures: &[&str]) {
+    for fixture in fixtures {
+        let run = |mut command: Command| {
+            let mut child = command
+                .stdin(Stdio::piped())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .expect("start parser");
+            child
+                .stdin
+                .take()
+                .expect("parser stdin")
+                .write_all(fixture.as_bytes())
+                .expect("write parser input");
+            child.wait().expect("wait for parser").success()
+        };
+
+        let mut bash = Command::new(default_bash_path());
+        bash.args(["--noprofile", "--norc", "-O", "extglob", "-n", "-s"]);
+        let mut cherub = Command::new(cherub_path().expect("CherubSH test binary"));
+        cherub.args(["--norc", "-O", "extglob", "-n", "-s"]);
+        assert_eq!(
+            run(bash),
+            run(cherub),
+            "standard-input parser divergence on script: {fixture:?}"
+        );
+    }
 }
 
 #[test]
@@ -238,6 +271,26 @@ fn substitution_fixtures() {
         "echo ${a[0]}",
         "if true; then\n x=${x//'\\'/'\\\\'}\nfi",
         "echo ${a[@]}",
+    ]);
+}
+
+#[test]
+fn real_world_corpus_quoting_fixtures() {
+    check_all_from_stdin(&[
+        r#"local completions=$(dirname `pwd` | sed 's|/|\'$'\n|g')"#,
+        r#"eval "$(declare -f oldcd | sed '1 s/{/\'$'\n''{/')""#,
+        r#"names="$(sed -e 's/, /\'$'\n''/g')""#,
+        r#"name="$(str_replace "$name" '\' '\\')""#,
+        r#"dev="$(str_replace "$dev" '\' '\x5c')""#,
+        r#"f() {
+  if true; then
+    value=$(
+      echo "$value" \
+        | grep --ignore-case --invert-match "^${ID}\b" \
+        | cat -s
+    )
+  fi
+}"#,
     ]);
 }
 

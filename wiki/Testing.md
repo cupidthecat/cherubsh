@@ -88,7 +88,7 @@ cargo test -p cherubsh --test loadable_abi -- --nocapture
 
 ### Large Bash programs
 
-The large-script check compares real Bash programs with the pinned Bash oracle. Build CherubSH first, then run:
+The real-world program gate has two parts. The first checks parsing for every selected shell file. Build the debug binary, then run:
 
 ```sh
 cargo build --locked -p cherubsh
@@ -97,9 +97,9 @@ python3 tools/large-script-parity.py \
   --cherub target/debug/cherubsh
 ```
 
-`large-scripts.lock` records the repository and commit used for each project. The runner fetches those commits into bare Git object stores and reads regular blobs directly. It never checks out a project and never executes fetched files. Both shells receive each file through standard input with no-execution mode enabled, an empty working directory, a restricted environment, and a timeout. Reports are written below `target/hardening/large-scripts`.
+`large-scripts.lock` records 88 repositories and their exact commits. The runner fetches those commits into bare Git object stores and reads regular blobs directly. It selects `.sh` and `.bash` files, plus extensionless files whose shebang names Bash, `sh`, or `dash`. The parser gate never executes fetched files. Both shells receive each file through standard input with no-execution mode enabled. The current manifest selects 6,044 files. Reports are written below `target/hardening/large-scripts`.
 
-ReA has an extra safety gate because recovery software can contain device, mount, bootloader, and deletion commands. The runner checks its pinned source tree before parsing any files. If that check finds an unsafe repository shape or an unexpected executable, it skips ReA and records the reason in the report.
+ReaR has an extra safety gate because recovery software can contain device, mount, bootloader, and deletion commands. The runner checks its pinned source tree before parsing any files. If that check finds an unsafe repository shape or an unexpected executable, it skips ReaR and records the reason in the report.
 
 Run the runner's local checks without fetching the corpus:
 
@@ -107,7 +107,28 @@ Run the runner's local checks without fetching the corpus:
 python3 tools/large-script-parity.py --self-test
 ```
 
-Possible additions for a later corpus update are [nvm-sh/nvm](https://github.com/nvm-sh/nvm), [Bash-it/bash-it](https://github.com/Bash-it/bash-it), and [ohmybash/oh-my-bash](https://github.com/ohmybash/oh-my-bash). They would add a large version-manager script and two collections of Bash startup modules. Pin and review each repository before adding it. Keep the same rule: parse source as data and do not run project installers, startup files, tests, or hooks.
+The second part runs one bounded fixture for each project. Bubblewrap and the `script` utility from util-linux are required. Use an optimized CherubSH binary so large programs do not spend the fixture budget in debug-build parser code:
+
+```sh
+cargo build --locked --release -p cherubsh
+python3 tools/program-smoke.py \
+  --bash target/oracle/bash-5.3.15/bash \
+  --cherub target/release/cherubsh \
+  --timeout 30
+```
+
+`program-smoke.lock` records the fixture category, mode, entrypoint, and arguments. Sourced packages run in the current shell process. Command fixtures use reviewed help, version, or validation paths. Bashtop gets a five-second pseudo-terminal startup check because it does not provide a noninteractive help command. A fixture may return a nonzero status and still pass when Bash returns the same status and produces the same observable result.
+
+The runner extracts each pinned commit inside a fresh Bubblewrap namespace. The Git object store and repository checkout are read-only, the home and work directories are temporary, and network access is disabled. It compares exit status, output, errors, timeout state, and deterministic files. Failed comparisons keep raw artifacts under `target/hardening/program-smoke/failures`.
+
+This smoke matrix does not run live installers, certificate issuance, VPN configuration, backups, Docker changes, or cluster deployments. Test those paths only in a disposable VM or container with the required external commands available. The checked-in fixture is an execution compatibility check for a specific entrypoint, not a claim that every operational path has been exercised.
+
+Run local manifest and runner checks without executing a project:
+
+```sh
+python3 tools/program-smoke.py --self-test
+python3 tools/program-smoke.py --validate-only
+```
 
 The generated fuzzer runs small shell programs against CherubSH and the pinned Bash oracle. First build the debug binary and the oracle, then run a local batch:
 

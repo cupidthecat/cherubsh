@@ -33,6 +33,50 @@ fn assignment_prefix_expands_left_to_right() {
 }
 
 #[test]
+fn and_or_lists_continue_across_physical_lines() {
+    parity(concat!(
+        "value=unchanged\n",
+        "command -v sh &>/dev/null ||\n",
+        "  value=or-branch\n",
+        "command -v sh >/dev/null &&\n",
+        "  value=and-branch\n",
+        "printf '%s\\n' \"$value\"\n",
+    ));
+}
+
+#[test]
+fn pathname_expansion_accepts_a_quoted_absolute_prefix() {
+    parity(concat!(
+        "tmp=/tmp/cherub-quoted-glob\n",
+        "rm -rf \"$tmp\"; mkdir -p \"$tmp/a/bin\" \"$tmp/b/bin\"\n",
+        "shopt -s nullglob\n",
+        "for path in \"$tmp\"/*/bin; do printf '%s\\n' \"${path#\"$tmp\"/}\"; done\n",
+        "rm -rf \"$tmp\"\n",
+    ));
+}
+
+#[test]
+fn literal_command_substitution_text_does_not_supply_assignment_status() {
+    parity(concat!(
+        "false\n",
+        "literal='$(true)'\n",
+        "printf 'literal:%s\\n' \"$?\"\n",
+        "expanded=$(false)\n",
+        "printf 'expanded:%s\\n' \"$?\"\n",
+    ));
+}
+
+#[test]
+fn deblank_heredoc_preserves_a_trailing_blank_line() {
+    parity(concat!("cat <<-EOF | od -An -t x1\n", "x\n", "\n", "EOF\n",));
+}
+
+#[test]
+fn bind_warns_when_line_editing_is_disabled() {
+    parity("bind 'set completion-ignore-case on' 2>&1 | sed 's/^.*bind:/bind:/'");
+}
+
+#[test]
 fn ifs_colon_does_not_break_posix_pattern_classes() {
     parity("IFS=:; case A in ([[:graph:]]) echo graph;; *) echo non-graph;; esac; [[ A == [[:graph:]] ]] && echo yes || echo no");
 }

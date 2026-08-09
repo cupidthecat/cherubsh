@@ -1,6 +1,6 @@
 use cherubsh_common::{expand_aliases_for_parse, histexpand, Environment, ShellJump, ShellResult};
 use cherubsh_exec::{execute_with_state, ExecState};
-use cherubsh_lexer::Lexer;
+use cherubsh_lexer::{Lexer, TokenKind};
 use cherubsh_lineedit::{Completion, CompletionProvider, EditError, HistoryProvider, LineEditor};
 use cherubsh_parser::{Ast, Command, CommandData, ParseError, Parser};
 

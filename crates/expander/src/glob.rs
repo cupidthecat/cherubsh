@@ -96,7 +96,8 @@ pub fn pathname_expand(wd: &Wd, env: &dyn Environment) -> Result<Vec<Wd>, Expand
     if !has_glob_meta(wd.buf.as_bytes(), flags.opts) {
         return Ok(vec![wd.clone()]);
     }
-    let absolute = wd.buf.as_bytes().first() == Some(&b'/');
+    let dequoted_pattern = dequote_bytes(wd.buf.as_bytes());
+    let absolute = dequoted_pattern.first() == Some(&b'/');
     let mut segments: Vec<Vec<u8>> = Vec::new();
     let mut cur: Vec<u8> = Vec::new();
     let mut i = 0;
@@ -149,7 +150,7 @@ pub fn pathname_expand(wd: &Wd, env: &dyn Environment) -> Result<Vec<Wd>, Expand
         }
         segments = collapsed;
     }
-    let trailing_slash = bytes.last() == Some(&b'/');
+    let trailing_slash = dequoted_pattern.last() == Some(&b'/');
     let globstar_segment_count = if flags.globstar {
         segments
             .iter()

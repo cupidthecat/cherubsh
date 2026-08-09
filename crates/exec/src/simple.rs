@@ -631,12 +631,67 @@ fn update_underscore(ctx: &mut ExecContext<'_>, value: String) {
 }
 
 fn has_command_substitution(text: &str) -> bool {
-    text.contains("$(")
-        || text.contains('`')
-        || text
-            .as_bytes()
-            .windows(3)
-            .any(|window| matches!(window, b"${|" | b"${ " | b"${\t" | b"${\n" | b"${\r"))
+    let bytes = text.as_bytes();
+    let mut i = 0usize;
+    let mut single = false;
+    let mut double = false;
+    let mut ansi_c = false;
+    while i < bytes.len() {
+        let byte = bytes[i];
+        if single {
+            if byte == b'\'' {
+                single = false;
+            }
+            i += 1;
+            continue;
+        }
+        if ansi_c {
+            if byte == b'\\' && i + 1 < bytes.len() {
+                i += 2;
+                continue;
+            }
+            if byte == b'\'' {
+                ansi_c = false;
+            }
+            i += 1;
+            continue;
+        }
+        if byte == b'\\' && i + 1 < bytes.len() {
+            i += 2;
+            continue;
+        }
+        if byte == b'\'' && !double {
+            single = true;
+            i += 1;
+            continue;
+        }
+        if byte == b'"' {
+            double = !double;
+            i += 1;
+            continue;
+        }
+        if byte == b'$' && i + 1 < bytes.len() {
+            if !double && bytes[i + 1] == b'\'' {
+                ansi_c = true;
+                i += 2;
+                continue;
+            }
+            if bytes[i + 1] == b'(' {
+                return true;
+            }
+            if bytes[i + 1] == b'{'
+                && i + 2 < bytes.len()
+                && matches!(bytes[i + 2], b'|' | b' ' | b'\t' | b'\n' | b'\r')
+            {
+                return true;
+            }
+        }
+        if byte == b'`' {
+            return true;
+        }
+        i += 1;
+    }
+    false
 }
 
 fn execute_external_child_forked<'a>(

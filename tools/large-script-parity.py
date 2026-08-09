@@ -22,6 +22,7 @@ PROJECT_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 GITHUB_PATH_RE = re.compile(r"^/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+\.git$")
 REGULAR_MODES = {"100644", "100755"}
 POLICIES = {"required", "optional-safety"}
+SHELL_INTERPRETERS = {"bash", "dash", "sh"}
 
 
 class CorpusError(RuntimeError):
@@ -224,7 +225,7 @@ def read_blob(repo: Path, object_id: str) -> bytes:
     return git_output(["-C", str(repo), "cat-file", "blob", object_id])
 
 
-def bash_shebang(data: bytes) -> bool:
+def shell_shebang(data: bytes) -> bool:
     first_line = data.split(b"\n", 1)[0][:512]
     if not first_line.startswith(b"#!"):
         return False
@@ -235,7 +236,7 @@ def bash_shebang(data: bytes) -> bool:
     if not words:
         return False
     interpreter = os.path.basename(words[0])
-    if interpreter == "bash":
+    if interpreter in SHELL_INTERPRETERS:
         return True
     if interpreter != "env":
         return False
@@ -244,11 +245,11 @@ def bash_shebang(data: bytes) -> bool:
         arguments = arguments[1:]
     while arguments and (arguments[0].startswith("-") or "=" in arguments[0]):
         arguments = arguments[1:]
-    return bool(arguments) and os.path.basename(arguments[0]) == "bash"
+    return bool(arguments) and os.path.basename(arguments[0]) in SHELL_INTERPRETERS
 
 
 def is_shell_blob(path: bytes, data: bytes) -> bool:
-    return path.endswith((b".sh", b".bash")) or bash_shebang(data)
+    return path.endswith((b".sh", b".bash")) or shell_shebang(data)
 
 
 def selected_shell_blobs(repo: Path, entries: list[TreeEntry]) -> list[tuple[TreeEntry, bytes]]:
@@ -609,6 +610,10 @@ def run_self_test() -> None:
         assert is_shell_blob(b"env-runner", b"#!/usr/bin/env -S bash -e\n")
         checks += 1
 
+        assert is_shell_blob(b"posix-runner", b"#!/bin/sh\nprintf ok\n")
+        assert is_shell_blob(b"env-posix-runner", b"#!/usr/bin/env sh\nprintf ok\n")
+        checks += 1
+
         assert b"link.sh" not in selected_paths and b"submodule" not in selected_paths
         checks += 1
 
@@ -678,7 +683,7 @@ def run_self_test() -> None:
         assert_empty_working_directory(noexec_work)
         checks += 1
 
-    assert checks == 13
+    assert checks == 14
     print(f"large-script parity self-test: {checks} checks passed")
 
 

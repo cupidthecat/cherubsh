@@ -19,12 +19,18 @@ The current main branch runs these parity gates:
 | Oils OSH cases compared with Bash 5.3.15 | 2,804 accounted for by exact matches or reviewed ratchet entries |
 | Runnable Brush compatibility cases | 2,104 / 2,104 passing |
 | Brush cases skipped by their metadata or Bash version | 1 |
+| Shell files selected from 88 pinned real-world projects | 6,044 / 6,044 parsing like Bash |
+| Bounded entrypoint checks from those projects | 88 / 88 matching Bash |
 
 The upstream Bash gate uses the original `.right` files. The Oils gate was added after v0.4.0. It runs 2,804 OSH spec cases in a Bubblewrap sandbox and compares raw status, standard output, standard error, and timeout state with Bash 5.3.15. Its checked-in ratchet records the mismatch fields and, by default, exact Bash and CherubSH fingerprints for each known difference. The split between exact matches and accepted differences can change when variable cases are rerun, so the table reports the stable total instead. A changed failure, a new failure, or an unexpected pass stops CI.
 
 A short manifest limits variable fingerprints to cases affected by timing, process data, output ordering, or `$RANDOM`. The Bash fingerprint, the CherubSH fingerprint, or both may be variable for those named cases. Their mismatch fields normally stay exact, and a case with a variable CherubSH fingerprint may either match or differ on a given run. When the mismatched fields can also vary, a named case may list a small set of accepted combinations separated by `|`, such as `stdout|status,stdout`. For a mismatching run, an unlisted field combination is `DRIFT`.
 
 The Brush gate compares status, output, and files left behind. Two `read -t 0` pipeline cases are labeled `ported-nondeterministic` because Bash can report either readiness result depending on process scheduling; only those documented results are accepted. Readline tests compile the same C fixtures and upstream examples against GNU Readline and the CherubSH library.
+
+The real-world project gate covers prompt frameworks, terminal tools, Git helpers, version managers, shell test frameworks, and administration scripts. `large-scripts.lock` pins every repository to a commit. The parser gate reads 6,044 regular shell files from those commits. `program-smoke.lock` selects one bounded command, source operation, or interactive startup check for each project and compares its status, output, errors, timeout state, and relevant files with Bash 5.3.15.
+
+The smoke runner has no network access and writes only inside a temporary Bubblewrap namespace. It does not install packages, configure a VPN, change a host, or claim that optional external dependencies are present. A passing smoke check means that the recorded entrypoint behaves like Bash under that fixture. It is useful evidence, but it is not a substitute for an end-to-end deployment test in a disposable machine.
 
 Bash is used only as a test oracle. CherubSH does not call Bash to parse commands, print syntax trees, extract translation strings, expand completions, or run loadable builtins.
 
