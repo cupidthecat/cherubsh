@@ -109,6 +109,10 @@ if [[ -f "${OILS_PARITY_REPORT_DIR}/report.tsv" ]]; then
     OILS_STALE=$(awk -F '\t' '$1 == "STALE" { count++ } END { print count + 0 }' "${OILS_PARITY_REPORT_DIR}/report.tsv")
     echo ">> Oils parity: PASS=${OILS_PASS} KNOWN=${OILS_KNOWN} FAIL=${OILS_FAIL} DRIFT=${OILS_DRIFT} XPASS=${OILS_XPASS} STALE=${OILS_STALE}"
     echo ">> Oils report: ${OILS_PARITY_REPORT_DIR}/report.tsv"
+    python3 "${WS_ROOT}/tools/oils-gap-summary.py" \
+        --report "${OILS_PARITY_REPORT_DIR}/report.tsv" \
+        --output "${OILS_PARITY_REPORT_DIR}/gap-summary.md"
+    echo ">> Oils gap summary: ${OILS_PARITY_REPORT_DIR}/gap-summary.md"
 fi
 echo ">> cargo test exit: ${CARGO_RC}"
 echo ">> readline parity exit: ${READLINE_RC}"
