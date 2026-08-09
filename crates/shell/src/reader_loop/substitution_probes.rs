@@ -38,6 +38,12 @@ fn skip_parameter_brace_for_probe(
     None
 }
 
+fn probe_name_is_reserved(bytes: &[u8], start: usize) -> bool {
+    start == 0
+        || bytes[start - 1].is_ascii_whitespace()
+        || matches!(bytes[start - 1], b';' | b'&' | b'|' | b'(' | b')' | b'{' | b'}')
+}
+
 fn has_unclosed_command_substitution(input: &str) -> bool {
     let bytes = input.as_bytes();
     let mut i = 0;
@@ -194,6 +200,7 @@ fn has_unclosed_command_substitution(input: &str) -> bool {
                 i += 1;
             }
             match &bytes[start..i] {
+                _ if !probe_name_is_reserved(bytes, start) => {}
                 b"case" => case_depth = case_depth.saturating_add(1),
                 b"esac" => case_depth = case_depth.saturating_sub(1),
                 _ => {}
@@ -411,6 +418,7 @@ fn skip_command_substitution_for_probe(bytes: &[u8], mut i: usize) -> Option<usi
                 i += 1;
             }
             match &bytes[start..i] {
+                _ if !probe_name_is_reserved(bytes, start) => {}
                 b"case" => case_depth = case_depth.saturating_add(1),
                 b"esac" => case_depth = case_depth.saturating_sub(1),
                 _ => {}

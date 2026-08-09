@@ -2,7 +2,7 @@ use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use cherubsh_test_harness::{cherub_path, required_oracle_bash_path};
 
@@ -833,6 +833,58 @@ fn noexec_reads_later_syntax_without_executing_prior_command() {
     assert_eq!(cherub.status, bash.status);
     assert_eq!(cherub.stdout, bash.stdout);
     assert!(cherub.stdout.is_empty());
+}
+
+#[test]
+fn noexec_stdin_parses_large_compound_input_once() {
+    let mut source = String::from("large() {\n");
+    for _ in 0..1_500 {
+        source.push_str(":\n");
+    }
+    source.push_str("}\n");
+
+    let spec = Spec {
+        args: vec!["-n", "-s"],
+        stdin: Some(&source),
+        ..Spec::default()
+    };
+    let started = Instant::now();
+    let output = run_shell(cherub(), &spec);
+    assert_eq!(output.status, 0, "{output:?}");
+    assert!(
+        started.elapsed() < Duration::from_secs(2),
+        "large noexec parse took {:?}",
+        started.elapsed()
+    );
+}
+
+#[test]
+fn noexec_validates_compound_assignment_command_substitution() {
+    let source = r##"items=($(
+  {
+    printf "%s\\n" "${items[@]:-}"
+    GIT_PAGER='' git -C "${list_path}" \
+      grep \
+      --color=never \
+      --extended-regexp \
+      --files-with-matches \
+      --ignore-case \
+      --max-depth 0 \
+      --text \
+      -e "${PATTERN:-"#pinned"}" \
+      "${list_path}" 2>/dev/null || :
+  } | awk '!NF || !seen[$0]++'
+))
+"##;
+    let spec = Spec {
+        args: vec!["-n", "-s"],
+        stdin: Some(source),
+        ..Spec::default()
+    };
+    let (bash, cherub) = run_both(&spec);
+    assert_eq!(bash.status, 0, "{bash:?}");
+    assert_eq!(cherub.status, bash.status, "{cherub:?}");
+    assert_eq!(cherub.stderr, bash.stderr, "{cherub:?}");
 }
 
 #[test]

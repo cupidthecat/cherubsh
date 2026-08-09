@@ -199,6 +199,7 @@ fn loop_and_if_fixtures() {
         "if true; then :; fi >out",
         "if true; then :; else :; fi",
         "if true; then :; elif false; then :; else :; fi",
+        "if true && ! false ]] ; then :; fi",
         "if true\nthen\n  :\nfi",
     ]);
 }

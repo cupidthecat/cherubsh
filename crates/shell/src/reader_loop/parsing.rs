@@ -513,12 +513,10 @@ fn extract_command_substitution_for_parse(
             while i < bytes.len() && is_probe_name_byte(bytes[i]) {
                 i += 1;
             }
-            let previous = previous_significant_byte(bytes, start);
             match &bytes[start..i] {
+                _ if !probe_name_is_reserved(bytes, start) => {}
                 b"case" => case_depth = case_depth.saturating_add(1),
-                b"esac" if !matches!(previous, Some(b'|' | b'(')) => {
-                    case_depth = case_depth.saturating_sub(1)
-                }
+                b"esac" => case_depth = case_depth.saturating_sub(1),
                 _ => {}
             }
             body.push_str(&input_text[start..i]);
@@ -555,16 +553,6 @@ fn extract_command_substitution_for_parse(
     None
 }
 
-fn previous_significant_byte(bytes: &[u8], mut i: usize) -> Option<u8> {
-    while i > 0 {
-        i -= 1;
-        if !bytes[i].is_ascii_whitespace() {
-            return Some(bytes[i]);
-        }
-    }
-    None
-}
-
 fn skip_quoted_for_parse(bytes: &[u8], mut i: usize) -> Option<usize> {
     let quote = bytes[i];
     if quote == b'"' {
@@ -596,6 +584,10 @@ fn skip_double_quoted_for_parse(bytes: &[u8], mut i: usize) -> Option<usize> {
             } else {
                 i = skip_command_substitution_for_probe(bytes, i + 2)?;
             }
+            continue;
+        }
+        if bytes[i] == b'$' && i + 1 < bytes.len() && bytes[i + 1] == b'{' {
+            i = skip_parameter_brace_for_probe(bytes, i + 2, false)?;
             continue;
         }
         if bytes[i] == b'`' {

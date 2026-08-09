@@ -1,4 +1,12 @@
 fn read_logical_command(state: &mut ShellState, exec_state: &mut ExecState) -> ShellResult<String> {
+    if state.noexec
+        && !state.interactive
+        && !state.just_one_command
+        && !(state.option("histexpand") && state.option("history"))
+    {
+        return read_noexec_input(state);
+    }
+
     let mut command = String::new();
     loop {
         let line = if state.interactive && !state.input.is_string() && !state.input.is_stream() {
@@ -66,6 +74,30 @@ fn read_logical_command(state: &mut ShellState, exec_state: &mut ExecState) -> S
             Err(err) if err.message == "empty input" => return Ok(command),
             Err(err) if parse_error_wants_more_input(&err, &parse_probe) => continue,
             Err(_) => return Ok(command),
+        }
+    }
+}
+
+fn read_noexec_input(state: &mut ShellState) -> ShellResult<String> {
+    let mut input = String::new();
+    loop {
+        match state.input.next_line() {
+            Ok(Some(line)) => {
+                state.current_command_line_count =
+                    state.current_command_line_count.saturating_add(1);
+                if state.verbose_flag {
+                    use std::io::Write;
+                    let mut stderr = std::io::stderr();
+                    let _ = stderr.write_all(line.as_bytes());
+                    let _ = stderr.flush();
+                }
+                input.push_str(&line);
+            }
+            Ok(None) => {
+                state.eof_reached = true;
+                return Ok(input);
+            }
+            Err(_) => return Err(ShellJump::ForceEof),
         }
     }
 }

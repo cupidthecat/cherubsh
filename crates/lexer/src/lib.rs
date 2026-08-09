@@ -301,7 +301,7 @@ impl<'a> Lexer<'a> {
             (TokenKind::DblRParen, 2)
         } else if rest.starts_with("[[") && self.at_word_start() {
             (TokenKind::DblLBracket, 2)
-        } else if rest.starts_with("]]") {
+        } else if rest.starts_with("]]") && self.in_conditional {
             (TokenKind::DblRBracket, 2)
         } else if rest.starts_with(";;&") {
             (TokenKind::DblSemiAmp, 3)
