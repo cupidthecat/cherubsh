@@ -21,7 +21,7 @@ jobs:
   validate:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Validate wiki source
         run: ./tools/check-wiki-source.sh
 
@@ -33,7 +33,7 @@ jobs:
       group: wiki-publish
       cancel-in-progress: false
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Configure the wiki deploy key
         env:
@@ -50,7 +50,7 @@ jobs:
             echo 'WIKI_DEPLOY_KEY must contain an unencrypted OpenSSH private key' >&2
             exit 1
           fi
-          ssh-keyscan -t ed25519 github.com >> "$HOME/.ssh/known_hosts"
+          printf '%s\n' 'github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl' > "$HOME/.ssh/known_hosts"
           chmod 600 "$HOME/.ssh/known_hosts"
           printf '%s\n' "GIT_SSH_COMMAND=ssh -i $HOME/.ssh/wiki_deploy_key -o IdentitiesOnly=yes" >> "$GITHUB_ENV"
 

@@ -145,11 +145,11 @@ python3 tools/pty-stress.py \
 The scheduled hardening workflow runs the generated comparisons, the PTY matrix, the repeated interrupt check, and an AddressSanitizer workspace test. Run the sanitizer check locally with nightly Rust and the `rust-src` component:
 
 ```sh
-rustup toolchain install nightly --component rust-src
+rustup toolchain install nightly-2026-07-30 --component rust-src
 CHERUBSH_C_SANITIZER=address \
 CC=clang \
 RUSTFLAGS='-Zsanitizer=address' \
-cargo +nightly test -Zbuild-std \
+cargo +nightly-2026-07-30 test -Zbuild-std \
   --target x86_64-unknown-linux-gnu \
   --workspace --locked
 ```
