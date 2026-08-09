@@ -35,10 +35,15 @@ jobs:
       - name: Install the lockfile-compatible cargo-audit release
         run: cargo install cargo-audit --version 0.22.2 --locked
 
-      - name: Check Cargo.lock against the RustSec advisory database
-        uses: rustsec/audit-check@69366f33c96575abad1ee0dba8212993eecbe998 # v2.0.0
+      - name: Check out the pinned RustSec advisory database
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          repository: RustSec/advisory-db
+          ref: 309ad29d8fe448bf986019e05d47b9e0e29a2218
+          path: .rustsec-advisory-db
+
+      - name: Check Cargo.lock against the RustSec advisory database
+        run: cargo audit --db .rustsec-advisory-db --file Cargo.lock
 
   rustsec-audit-fuzz:
     name: rustsec-audit-fuzz
@@ -53,8 +58,12 @@ jobs:
       - name: Install the lockfile-compatible cargo-audit release
         run: cargo install cargo-audit --version 0.22.2 --locked
 
-      - name: Check fuzz/Cargo.lock against the RustSec advisory database
-        uses: rustsec/audit-check@69366f33c96575abad1ee0dba8212993eecbe998 # v2.0.0
+      - name: Check out the pinned RustSec advisory database
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          working-directory: fuzz
+          repository: RustSec/advisory-db
+          ref: 309ad29d8fe448bf986019e05d47b9e0e29a2218
+          path: .rustsec-advisory-db
+
+      - name: Check fuzz/Cargo.lock against the RustSec advisory database
+        run: cargo audit --db .rustsec-advisory-db --file fuzz/Cargo.lock
