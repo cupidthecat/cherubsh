@@ -295,6 +295,7 @@ here-doc.test.sh::020::Here doc in while condition and here doc in body	*	stdout
 here-doc.test.sh::021::Here doc in while condition and here doc in body on multiple lines	*	stdout	fe85e55f065b6f4c4a6202d1612b6a4b8ce25acf3da4612a908c25e55db5af9f	16ffd1d873451e59d7544a7cfebd6a3c440afa90716110035387b19b2f3f58fb
 here-doc.test.sh::023::Mixing << and <<-	*	stdout	02a1b8455abb7cd07088eb7a19294a26c8ec2287779744ba6d42ea40bbad3a85	9d1a91db27ccf45ffab0f62e9fb8ec3f53ba13a24ae53cb70276554ec779509c
 here-doc.test.sh::024::Two compound commands with two here docs	*	stdout	e0ebddf4f8fd77eaada28fb45be2776c16a7d8a6419ff1ac3b68b937d9fd0d74	5b624b7608579a57719d457d8ff995a5d0895b5a8053d589d7429015eeba1f26
+here-doc.test.sh::033::Multiple here docs in pipeline on multiple lines	*	stderr	variable	variable
 interactive-parse.test.sh::000::parse if	*	stderr	95cbac1dd5c8d33f9ebf0b761c3201b7a86bbc9b07448683fdd2934b446a716a	18bdb37d45e5f21281148ed12178f1a449d55ea3ca3de3354e22382426bac11f
 interactive.test.sh::000::'exit' in oshrc (regression)	*	status,stdout,stderr	5a86d3fb3492f36740cb93f5f6e25fcdc5b4591bbb4ed8b280910cd7455692a3	52ae88d72d69b46dd8cbb4bae360b4a89a8b4fac0b8bc44f03184feff485cf55
 interactive.test.sh::001::fatal errors continue	*	status,stdout,stderr	f123f30c0ab1dd9edd5bb334ce95faf86d2830f14b84340838cf291b5b2033ec	3fca993b0ec7955d354977199786eaaded809c39144844239bfcd5a607faca04
