@@ -203,6 +203,7 @@ def build_scenarios() -> tuple[Scenario, ...]:
                     b"printf 'foo\\n' | tr o O | { read line; printf '__PTY_FOREGROUND__:%s\\n' \"$line\"; }\n"
                 ),
                 wait(b"__PTY_FOREGROUND__:fOO"),
+                wait(PROMPT.encode(), after=b"__PTY_FOREGROUND__:fOO"),
                 send(b"exit\n"),
             ),
             expected_markers=("__PTY_FOREGROUND__:fOO",),
@@ -775,6 +776,13 @@ def self_test() -> None:
     prompt_barrier = WaitAction(PROMPT.encode(), after=resize_marker)
     if resize_actions[marker_index + 1] != prompt_barrier:
         raise RuntimeError("resize scenario must wait for its prompt before sending exit")
+
+    foreground_marker = b"__PTY_FOREGROUND__:fOO"
+    foreground_actions = SCENARIOS["foreground-pipeline"].actions
+    marker_index = foreground_actions.index(WaitAction(foreground_marker))
+    prompt_barrier = WaitAction(PROMPT.encode(), after=foreground_marker)
+    if foreground_actions[marker_index + 1] != prompt_barrier:
+        raise RuntimeError("foreground pipeline must wait for its prompt before sending exit")
 
     unicode_scenario = SCENARIOS["unicode-editing"]
     unicode_marker_prefixes = tuple(
