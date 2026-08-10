@@ -212,7 +212,7 @@ jobs:
           sha256sum --check SHA256SUMS
 
       - name: Attest the release assets
-        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
         with:
           subject-path: |
             dist/cherubsh-*.tar.gz
@@ -220,7 +220,7 @@ jobs:
             dist/SHA256SUMS
 
       - name: Attach the CycloneDX SBOM to the shell archives
-        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
         with:
           subject-path: dist/cherubsh-[0-9]*-*.tar.gz
           sbom-path: dist/cherubsh.cdx.json
