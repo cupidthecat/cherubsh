@@ -4,6 +4,11 @@ This file records user-visible changes. Dates for published versions match their
 
 ## Unreleased
 
+### Changed
+
+- CI now runs ShellCheck on first-party maintenance scripts.
+- Scheduled RustSec audits now use the current advisory database instead of a fixed snapshot.
+
 ## 0.5.0 - 2026-08-09
 
 ### Added

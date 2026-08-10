@@ -163,13 +163,22 @@ rollback_install() {
     fi
 }
 
+rollback_on_exit() {
+    local status=$?
+    trap - EXIT INT TERM
+    if ((TRANSACTION_ACTIVE)); then
+        rollback_install
+    fi
+    exit "${status}"
+}
+
 install_package() {
     local temporary_manifest source_path destination_path source destination
     TRANSACTION_DIRECTORY="$(mktemp -d)"
     TRANSACTION_ACTIVE=1
     trap 'exit 130' INT
     trap 'exit 143' TERM
-    trap 'status=$?; trap - EXIT INT TERM; if ((TRANSACTION_ACTIVE)); then rollback_install; fi; exit "${status}"' EXIT
+    trap rollback_on_exit EXIT
     record_missing_directories "${OWNERSHIP_DIRECTORY}"
     mkdir -p "${OWNERSHIP_DIRECTORY}"
     temporary_manifest="${TRANSACTION_DIRECTORY}/cherubsh.manifest"

@@ -44,6 +44,7 @@ jobs:
             patch \
             perl \
             python3 \
+            shellcheck \
             texinfo \
             util-linux
 
@@ -58,6 +59,9 @@ jobs:
 
       - name: Lint Rust targets
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+      - name: Lint maintenance scripts
+        run: ./tools/check-shell-scripts.sh
 
       - name: Verify and prepare upstream sources
         run: ./tools/fetch-upstream.sh
