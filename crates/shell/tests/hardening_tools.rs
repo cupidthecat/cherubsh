@@ -959,6 +959,34 @@ fn persistent_fuzz_targets_replay_seed_corpora_and_retain_failures() {
 }
 
 #[test]
+fn maintenance_shell_scripts_are_linted_in_ci() {
+    let root = workspace_root();
+    let checker = fs::read_to_string(root.join("tools/check-shell-scripts.sh"))
+        .expect("read shell script checker");
+    for expected in [
+        "git -C \"${WS_ROOT}\" ls-files -z",
+        "'tools/*.sh' 'oracle/*.sh'",
+        "shellcheck --severity=warning",
+    ] {
+        assert!(checker.contains(expected), "shell checker omits {expected}");
+    }
+
+    let workflow =
+        fs::read_to_string(root.join(".github/workflows/ci.yml")).expect("read parity workflow");
+    assert!(workflow.contains("            shellcheck \\"));
+    assert!(workflow.contains("run: ./tools/check-shell-scripts.sh"));
+
+    for path in ["README.md", "CONTRIBUTING.md", "wiki/Testing.md"] {
+        let guide = fs::read_to_string(root.join(path))
+            .unwrap_or_else(|error| panic!("read {path}: {error}"));
+        assert!(
+            guide.contains("./tools/check-shell-scripts.sh"),
+            "{path} omits the shell script check"
+        );
+    }
+}
+
+#[test]
 fn scheduled_benchmarks_apply_a_conservative_regression_ratchet() {
     let root = workspace_root();
     let bench = fs::read_to_string(root.join("tools/bench.sh")).expect("read benchmark driver");
@@ -1186,13 +1214,17 @@ fn release_supply_chain_controls_are_pinned_and_verifiable() {
     assert!(security_workflow.contains("schedule:"));
     assert!(security_workflow.contains("actions/dependency-review-action@"));
     assert!(security_workflow.contains("repository: RustSec/advisory-db"));
-    assert!(security_workflow.contains("ref: 309ad29d8fe448bf986019e05d47b9e0e29a2218"));
+    assert_eq!(
+        security_workflow.matches("ref: main").count(),
+        2,
+        "each RustSec job must check the current advisory branch"
+    );
     assert_eq!(
         security_workflow
             .matches("cargo audit --db .rustsec-advisory-db --file")
             .count(),
         2,
-        "each RustSec job must audit against the pinned advisory database"
+        "each RustSec job must audit against the checked-out advisory database"
     );
     assert!(security_workflow.contains("--file fuzz/Cargo.lock"));
     assert_eq!(

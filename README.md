@@ -185,11 +185,17 @@ That command builds GNU Readline 8.3 patch 3, checks public symbol coverage and 
 
 ## Testing
 
-Run the ordinary Rust test suite first:
+Run the fast checks first:
 
 ```sh
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets --locked -- -D warnings
+./tools/check-shell-scripts.sh
 ./tools/run-workspace-tests.sh
 ```
+
+The ShellCheck command checks tracked maintenance scripts under `tools/` and
+`oracle/`.
 
 The runner verifies or builds the pinned Bash 5.3.15 oracle under `target/oracle`
 before invoking `cargo test --workspace --locked`. It rejects an explicit
@@ -204,7 +210,7 @@ The full parity gate needs common build tools, `bison`, `texinfo`, `gpgv`, ncurs
 ```sh
 sudo apt-get install \
   autoconf bison bubblewrap build-essential curl git gpgv \
-  libncurses-dev patch perl python3 texinfo util-linux
+  libncurses-dev patch perl python3 shellcheck texinfo util-linux
 ```
 
 Fetch and verify the pinned sources, then run every gate:

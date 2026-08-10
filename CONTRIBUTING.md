@@ -14,14 +14,16 @@ For a shell mismatch, include results from the pinned Bash 5.3.15 build and Cher
 
 ## Tests to run
 
-Rust changes should pass these commands:
+Run these checks before opening a pull request:
 
 ```sh
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --locked -- -D warnings
+./tools/check-shell-scripts.sh
 ./tools/run-workspace-tests.sh
 ```
 
+The ShellCheck command covers tracked scripts under `tools/` and `oracle/`.
 The workspace runner provisions and validates the pinned Bash 5.3.15 oracle
 before it invokes Cargo. Generated oracle files remain under ignored `target/`.
 

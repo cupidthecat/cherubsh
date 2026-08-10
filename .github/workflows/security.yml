@@ -35,11 +35,11 @@ jobs:
       - name: Install the lockfile-compatible cargo-audit release
         run: cargo install cargo-audit --version 0.22.2 --locked
 
-      - name: Check out the pinned RustSec advisory database
+      - name: Check out the current RustSec advisory database
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: RustSec/advisory-db
-          ref: 309ad29d8fe448bf986019e05d47b9e0e29a2218
+          ref: main
           path: .rustsec-advisory-db
 
       - name: Check Cargo.lock against the RustSec advisory database
@@ -58,11 +58,11 @@ jobs:
       - name: Install the lockfile-compatible cargo-audit release
         run: cargo install cargo-audit --version 0.22.2 --locked
 
-      - name: Check out the pinned RustSec advisory database
+      - name: Check out the current RustSec advisory database
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: RustSec/advisory-db
-          ref: 309ad29d8fe448bf986019e05d47b9e0e29a2218
+          ref: main
           path: .rustsec-advisory-db
 
       - name: Check fuzz/Cargo.lock against the RustSec advisory database

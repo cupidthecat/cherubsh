@@ -7,10 +7,14 @@ Start with the smallest command that can prove the work. Run the full parity dri
 ```sh
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --locked -- -D warnings
+./tools/check-shell-scripts.sh
 ./tools/run-workspace-tests.sh
 ```
 
-The repository CI runs these checks as part of its parity job. Format and clippy failures are worth fixing before a large oracle run.
+The repository CI runs these checks as part of its parity job. The shell script
+check needs ShellCheck and reports warnings or errors in tracked maintenance
+scripts under `tools/` and `oracle/`. Fix formatting and lint failures before a
+large oracle run.
 
 The workspace runner verifies or builds Bash 5.3.15 under `target/oracle` and
 then invokes `cargo test --workspace --locked`. Live comparisons require that
